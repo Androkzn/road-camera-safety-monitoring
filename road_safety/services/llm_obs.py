@@ -147,6 +147,7 @@ class LLMObserver:
                 "latency_p95_ms": 0.0,
                 "error_rate": 0.0,
                 "skip_rate": 0.0,
+                "top_errors": [],
             }
 
         successful = [r for r in records if r.success and not r.skip_reason]
@@ -160,6 +161,7 @@ class LLMObserver:
         by_model: dict[str, dict] = defaultdict(lambda: {
             "calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
         })
+        error_counts: dict[str, int] = defaultdict(int)
 
         total_cost = 0.0
         for r in records:
@@ -167,6 +169,10 @@ class LLMObserver:
             ct["calls"] += 1
             if not r.success:
                 ct["errors"] += 1
+                if r.error:
+                    key = str(r.error).strip().splitlines()[0][:160]
+                    if key:
+                        error_counts[key] += 1
             if r.skip_reason:
                 ct["skips"] += 1
             ct["input_tokens"] += r.input_tokens
@@ -217,6 +223,10 @@ class LLMObserver:
             ),
             "error_rate": round(errors_in_window / len(records), 4) if records else 0.0,
             "skip_rate": round(skips_in_window / len(records), 4) if records else 0.0,
+            "top_errors": [
+                {"error": error, "count": count}
+                for error, count in sorted(error_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+            ],
         }
 
     def recent(self, n: int = 50) -> list[dict]:

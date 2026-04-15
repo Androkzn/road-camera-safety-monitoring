@@ -866,6 +866,20 @@ async def lifespan(app: FastAPI):
             reader = state.reader
             drift_report = state.drift.compute().as_dict()
             llm_stats = llm_observer.stats(window_sec=300)
+            recent_events = list(state.recent_events)[-25:]
+            unknown_event_types = sum(
+                1 for evt in recent_events
+                if not evt.get("event_type") or evt.get("event_type") == "unknown"
+            )
+            unknown_risk_levels = sum(
+                1 for evt in recent_events
+                if not evt.get("risk_level") or evt.get("risk_level") == "unknown"
+            )
+            recent_confidences = [
+                float(evt.get("confidence"))
+                for evt in recent_events
+                if isinstance(evt.get("confidence"), (int, float))
+            ]
             return {
                 "server": {
                     "running": reader is not None and reader._thread is not None and reader._thread.is_alive() if reader else False,
@@ -895,6 +909,14 @@ async def lifespan(app: FastAPI):
                 },
                 "ego": {
                     "speed_proxy_mps": round(ego.speed_proxy_mps, 2) if ego else None,
+                },
+                "taxonomy": {
+                    "recent_events": len(recent_events),
+                    "unknown_event_types": unknown_event_types,
+                    "unknown_risk_levels": unknown_risk_levels,
+                    "unknown_event_ratio": round(unknown_event_types / len(recent_events), 4) if recent_events else 0.0,
+                    "unknown_risk_ratio": round(unknown_risk_levels / len(recent_events), 4) if recent_events else 0.0,
+                    "avg_event_confidence": round(sum(recent_confidences) / len(recent_confidences), 4) if recent_confidences else 0.0,
                 },
             }
 

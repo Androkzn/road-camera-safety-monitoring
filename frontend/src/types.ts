@@ -137,6 +137,22 @@ export interface WatchdogFinding {
   title: string;
   detail: string;
   suggestion: string;
+  impact?: string;
+  likely_cause?: string;
+  owner?: string;
+  runbook?: string;
+  fingerprint?: string;
+  source?: "rule" | "ai";
+  cause_confidence?: "observed" | "inferred";
+  priority_score?: number;
+  evidence?: Array<{
+    label: string;
+    value: string;
+    threshold?: string;
+    status?: string;
+  }>;
+  investigation_steps?: string[];
+  debug_commands?: string[];
   ts: string;
   snapshot_id: string;
 }
@@ -149,8 +165,21 @@ export interface WatchdogStatus {
   run_count: number;
   total_findings_emitted: number;
   total_findings: number;
+  unique_incidents?: number;
+  repeating_incidents?: number;
   by_severity: Record<string, number>;
   by_category: Record<string, number>;
+  top_incidents?: Array<{
+    fingerprint: string;
+    severity: string;
+    category: string;
+    title: string;
+    owner: string;
+    count: number;
+    first_seen_ts: string;
+    last_seen_ts: string;
+    latest: WatchdogFinding;
+  }>;
 }
 
 export interface TestResult {
