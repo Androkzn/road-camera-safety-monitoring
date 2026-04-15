@@ -1,0 +1,39 @@
+
+> fleet-safety-frontend@1.0.0 build
+> tsc -b && vite build
+
+vite v6.4.2 building for production...
+transforming...
+✓ 95 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.40 kB │ gzip:  0.27 kB
+dist/assets/index-CuEU1QJR.css   18.80 kB │ gzip:  4.53 kB
+dist/assets/index-BTBD_lwW.js   267.82 kB │ gzip: 85.17 kB
+✓ built in 797ms
+
+[96m[1m  Road Safety[0m
+[2m  ─────────────────────────────────────[0m
+
+  [93mBuilding React frontend…[0m
+  [92mFrontend built successfully[0m
+
+  [2mStarting main server on :8000…[0m
+  [93mWaiting for server.   [0m  [93mWaiting for server..  [0m[llm] configured: True  backend: anthropic
+[slack] configured: True  min_risk: high  image_relay: disabled
+{"ts":"2026-04-15T19:56:27.334912+00:00","level":"INFO","logger":"road_safety.server","msg":"loading YOLO model"}
+{"ts":"2026-04-15T19:56:27.363331+00:00","level":"INFO","logger":"road_safety.server","msg":"resolving source: https://www.youtube.com/watch?v=1EiC9bvVGnk"}
+  [93mWaiting for server... [0m  [93mWaiting for server    [0m  [93mWaiting for server.   [0m{"ts":"2026-04-15T19:56:32.645238+00:00","level":"INFO","logger":"road_safety.server","msg":"HLS resolved (1137 chars)"}
+{"ts":"2026-04-15T19:56:32.645987+00:00","level":"INFO","logger":"road_safety.server","msg":"stream reader started"}
+[digest] schedulers started (medium=3600s, daily=86400s)
+{"ts":"2026-04-15T19:56:32.646236+00:00","level":"INFO","logger":"road_safety.server","msg":"digest schedulers started"}
+{"ts":"2026-04-15T19:56:32.646322+00:00","level":"INFO","logger":"road_safety.server","msg":"edge publisher disabled (ROAD_CLOUD_ENDPOINT / _HMAC_SECRET unset)"}
+{"ts":"2026-04-15T19:56:32.646400+00:00","level":"INFO","logger":"road_safety.server","msg":"retention policy loop started"}
+{"ts":"2026-04-15T19:56:32.646456+00:00","level":"INFO","logger":"road_safety.server","msg":"score decay loop started (interval=3600s)"}
+{"ts":"2026-04-15T19:56:32.646520+00:00","level":"INFO","logger":"road_safety.server","msg":"agent executor ready (coaching, investigation, report)"}
+{"ts":"2026-04-15T19:56:32.646812+00:00","level":"INFO","logger":"road_safety.server","msg":"test suite started in background"}
+[stream] starting yt-dlp | ffmpeg pipe  640x360 @ 2fps
+[digest] medium-risk scheduler online — interval 3600s
+[digest] low-risk daily scheduler online — interval 86400s
+{"ts":"2026-04-15T19:56:32.655178+00:00","level":"INFO","logger":"retention","msg":"retention loop started (interval=3600s, thumbs=30d, feedback=90d, al=60d, outbound=7d)"}
+  [93mWaiting for server..  [0m{"ts":"2026-04-15T19:57:41.617260+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}

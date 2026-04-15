@@ -1,8 +1,10 @@
 # Road Safety
 
-Production-focused **road-conflict detection** component for fleet safety pipelines. Targets the parts of the problem space that are hard to get right in real deployments: false-positive suppression, edge/cloud split, LLM enrichment resilience, privacy-by-construction, and model-drift monitoring.
+Real-time road-conflict detection for fleet dashcams. Analyzes live video streams with YOLO tracking to catch vehicle-vehicle and vehicle-pedestrian near-misses — then scores risk, redacts PII, and pushes structured events to the cloud.
 
-**Scope:** forward-facing vehicle↔vehicle and vehicle↔pedestrian near-miss detection. Designed to be a building block inside a larger fleet platform (DMS + telematics + driver coaching + insurance workflow), **not** a complete commercial fleet-safety product. What's deliberately out of scope — in-cab Driver Monitoring (DMS), MP4 clip export and FNOL transport, real telematics fusion (GPS/IMU/CAN-bus), ELD/DVIR — is documented in [`docs/challenges.md §8`](docs/challenges.md#8-out-of-scope-deliberately) along with the extension paths.
+Built for the hard parts of production: suppressing false positives without missing real incidents, running entirely on-device over cellular, surviving LLM outages gracefully, staying GDPR/CCPA-compliant by default, and catching model drift before it goes silent.
+
+This is a **building block** for fleet safety platforms, not a complete commercial product. DMS, clip export, telematics fusion, and ELD are deliberately out of scope — see [`docs/challenges.md §8`](docs/challenges.md#8-out-of-scope-deliberately) for what's missing and how to extend.
 
 ---
 
