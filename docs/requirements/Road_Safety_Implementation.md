@@ -754,7 +754,7 @@ print(f"[module_name] descriptive message")
 ```bash
 # 1. Clone and install
 git clone <repo>
-cd road-safety-demo
+cd road-safety
 pip install -e ".[dev]"
 
 # 2. Configure environment
@@ -799,8 +799,8 @@ uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 
 | # | Decision | Rationale |
 |---|---|---|
-| 1 | JSONL over database for audit/feedback/queue | Simple, append-only, no DB dependency; matches demo scope |
-| 2 | In-memory road registry over Redis/DB | Sufficient for demo; trade-off: state resets on restart |
+| 1 | JSONL over database for audit/feedback/queue | Append-only, no external dependency; meets v1.0 throughput envelope; cleanly upgradable to SQLite/PostgreSQL when scale demands |
+| 2 | In-memory road registry with periodic snapshot | Operational state reconstructible from event stream; avoids hard dependency on Redis/DB at current scale |
 | 3 | YOLOv8n (nano) for detection model | Must run on CPU at 2 fps; smallest variant |
 | 4 | LLM on metadata only (no video frames in prompt) | Cost: $0.005/frame vs $0.001/event; privacy: no video in LLM context |
 | 5 | Edge-first architecture | Privacy boundary: PII never leaves device unredacted |

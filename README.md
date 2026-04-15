@@ -6,6 +6,25 @@ Model-agnostic LLM layer (Anthropic + Azure OpenAI failover), event metadata as 
 
 ---
 
+## Screenshots
+
+### Live Dashboard
+Real-time event stream with safety detections, risk classification, TTC/distance metrics, operator feedback, and AI copilot chat.
+
+![Live Dashboard](docs/screenshots/dashboard.png)
+
+### Admin Panel
+Live annotated video feed with YOLO bounding boxes, detection stats, event history, notable vehicles, and system health monitoring.
+
+![Admin Panel](docs/screenshots/admin.png)
+
+### Test Suite
+Built-in test runner (119 tests) executes automatically on startup. Slide-in panel shows real-time progress and per-test results.
+
+![Test Suite](docs/screenshots/tests.png)
+
+---
+
 ## Quick start
 
 ```bash
@@ -44,6 +63,7 @@ road_safety/                   # installable Python package
     drift.py                   # precision monitoring + active learning
     redact.py                  # PII redaction (faces, plates, hashing)
     digest.py                  # tiered Slack digest scheduling
+    test_runner.py             # background pytest runner with structured results
   api/
     feedback.py                # operator verdict submission
   integrations/
@@ -107,6 +127,7 @@ server.py  ──► egomotion.py (optical flow) + context.py (scene adaptive)
   ├─► GET    /api/road/*          multi-vehicle aggregation
   ├─► GET    /api/llm/*           LLM cost/latency observability
   ├─► GET    /api/audit           compliance audit trail
+  ├─► GET    /api/tests/*         live test runner status + results
   └─► POST   /api/agents/*        AI coaching, investigation, reports
 ```
 
@@ -119,6 +140,7 @@ server.py  ──► egomotion.py (optical flow) + context.py (scene adaptive)
 - **Token-bucket + circuit breaker** on LLM calls — prevents rate limiting and cascading failures.
 - **Edge/cloud split** — perception runs on-device, only typed JSON + redacted thumbnails cross the wire.
 - **Drift monitoring** — rolling precision from operator feedback, with active learning for model improvement.
+- **Built-in test runner** — 119 tests execute on startup; live results visible in the dashboard UI.
 
 ## API reference
 
@@ -144,6 +166,8 @@ server.py  ──► egomotion.py (optical flow) + context.py (scene adaptive)
 | `/api/llm/stats` | GET | LLM cost, latency, error rates |
 | `/api/audit` | GET | Compliance audit trail |
 | `/api/retention/sweep` | POST | Trigger data retention sweep |
+| `/api/tests/status` | GET | Test run status + per-test results |
+| `/api/tests/run` | POST | Trigger a new test run |
 | `/api/admin/health` | GET | Detailed server health check |
 
 ## Testing
@@ -152,7 +176,7 @@ server.py  ──► egomotion.py (optical flow) + context.py (scene adaptive)
 make test                      # or: pytest tests/ -v
 ```
 
-119 tests covering core detection pipeline, services, API routes, compliance, and integrations.
+119 tests covering core detection pipeline, services, API routes, compliance, and integrations. Tests also run automatically when the server starts — results are visible in the dashboard test panel.
 
 ## License
 
