@@ -38,9 +38,9 @@ from ultralytics import YOLO
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 PEDESTRIAN_CLASSES = {"person"}
 
-CONF_THRESHOLD = 0.60         # default (vehicles) — tuned against cars/trucks
-VEHICLE_PAIR_CONF_FLOOR = 0.70
-MIN_BBOX_AREA = 1500          # default (vehicles) — a small distant car is ~40×40
+CONF_THRESHOLD = 0.50         # default (vehicles) — tuned against cars/trucks
+VEHICLE_PAIR_CONF_FLOOR = 0.60
+MIN_BBOX_AREA = 1200          # default (vehicles) — a small distant car is ~40×40
 
 # Class-specific detection floors. Pedestrians are inherently smaller on-screen
 # (distant / elevated / dashcam views through foreground traffic — YOLOv8n

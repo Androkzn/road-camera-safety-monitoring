@@ -86,6 +86,36 @@ from road_safety.services.test_runner import run_state as test_run_state, start_
 from road_safety.security import require_bearer_token
 
 
+# Resolved fleet identity — every emitted event MUST carry a non-empty
+# vehicle_id / road_id / driver_id or downstream fleet aggregation is
+# broken (events appear as "unidentified"). If the operator didn't set the
+# env vars, fall back to a stable hostname-derived default and warn loudly
+# at startup so the deployment is obviously misconfigured instead of
+# silently producing unattributable events.
+def _resolve_identity() -> tuple[str, str, str, list[str]]:
+    import socket
+    host = socket.gethostname().split(".")[0] or "unknown"
+    missing: list[str] = []
+    vid = VEHICLE_ID
+    rid = ROAD_ID
+    did = DRIVER_ID
+    if not vid:
+        vid = f"unidentified_vehicle_{host}"
+        missing.append("ROAD_VEHICLE_ID")
+    if not rid:
+        rid = f"unidentified_road_{host}"
+        missing.append("ROAD_ID")
+    if not did:
+        did = f"unidentified_driver_{host}"
+        missing.append("ROAD_DRIVER_ID")
+    return vid, rid, did, missing
+
+
+RESOLVED_VEHICLE_ID, RESOLVED_ROAD_ID, RESOLVED_DRIVER_ID, _MISSING_IDENTITY = (
+    _resolve_identity()
+)
+
+
 # Sustained-risk requirements for episode emission. A single high-risk frame
 # in an otherwise calm episode is almost always a transient detection artefact;
 # real conflicts produce ≥ 2 high-risk frames over ≥ 1 s of episode duration.
@@ -602,9 +632,9 @@ def _flush_episode(ep: Episode, wall_ts: float) -> None:
     ego = state.last_ego_flow
     event = {
         "event_id": event_id,
-        "vehicle_id": VEHICLE_ID,
-        "road_id": ROAD_ID,
-        "driver_id": DRIVER_ID,
+        "vehicle_id": RESOLVED_VEHICLE_ID,
+        "road_id": RESOLVED_ROAD_ID,
+        "driver_id": RESOLVED_DRIVER_ID,
         "video_id": DEFAULT_SOURCE or "stream",
         "timestamp_sec": round(stream_t, 2),
         "wall_time": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -1091,19 +1121,30 @@ def _load_batch(name: str):
 
 
 @app.get("/api/events")
-def events(risk_level: str | None = None, event_type: str | None = None):
-    items = _load_batch("events.json")
+def events(
+    risk_level: str | None = None,
+    event_type: str | None = None,
+    limit: int = 500,
+):
+    """Live events from the in-memory recent-events buffer.
+
+    Previously this endpoint read a stale on-disk `events.json` written only
+    by the batch `analyze.py` pipeline, so dashboards saw 0 events even while
+    the live stream emitted them. Now it serves the same buffer as
+    `/api/live/events` and `/api/summary`.
+    """
+    items = list(state.recent_events)
     if risk_level:
-        items = [e for e in items if e["risk_level"] == risk_level]
+        items = [e for e in items if e.get("risk_level") == risk_level]
     if event_type:
-        items = [e for e in items if e["event_type"] == event_type]
-    return items
+        items = [e for e in items if e.get("event_type") == event_type]
+    return items[-limit:]
 
 
 @app.get("/api/events/{event_id}")
 def event(event_id: str):
-    for ev in _load_batch("events.json"):
-        if ev["event_id"] == event_id:
+    for ev in state.recent_events:
+        if ev.get("event_id") == event_id:
             return ev
     raise HTTPException(404, "event not found")
 
