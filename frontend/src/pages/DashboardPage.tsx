@@ -9,11 +9,13 @@ import {
 } from "../components/dashboard";
 import { EventCard } from "../components/events";
 import { TestBadge, TestDrawer } from "../components/tests";
+import { WatchdogBadge, WatchdogDrawer } from "../components/watchdog";
 import { useEventStream } from "../hooks/useEventStream";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useScene } from "../hooks/useScene";
 import { useDrift } from "../hooks/useDrift";
 import { useTests } from "../hooks/useTests";
+import { useWatchdog } from "../hooks/useWatchdog";
 import styles from "./DashboardPage.module.css";
 
 export function DashboardPage() {
@@ -22,8 +24,10 @@ export function DashboardPage() {
   const { data: scene } = useScene();
   const { data: drift, refetch: refreshDrift } = useDrift();
   const { status: testStatus, rerun: rerunTests } = useTests();
+  const { status: wdStatus, findings: wdFindings } = useWatchdog();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [wdDrawerOpen, setWdDrawerOpen] = useState(false);
   const prevTestStatus = useRef<string>("idle");
 
   useEffect(() => {
@@ -55,8 +59,16 @@ export function DashboardPage() {
   return (
     <>
       <TopBar sourceName={sourceName} connected={connected}>
+        <WatchdogBadge status={wdStatus} onClick={() => setWdDrawerOpen((o) => !o)} />
         <TestBadge status={testStatus} onClick={() => setDrawerOpen((o) => !o)} />
       </TopBar>
+
+      <WatchdogDrawer
+        open={wdDrawerOpen}
+        onClose={() => setWdDrawerOpen(false)}
+        status={wdStatus}
+        findings={wdFindings}
+      />
 
       <TestDrawer
         open={drawerOpen}

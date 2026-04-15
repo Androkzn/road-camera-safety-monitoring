@@ -131,6 +131,28 @@ export interface HealthData {
   };
 }
 
+export interface WatchdogFinding {
+  severity: "error" | "warning" | "info";
+  category: string;
+  title: string;
+  detail: string;
+  suggestion: string;
+  ts: string;
+  snapshot_id: string;
+}
+
+export interface WatchdogStatus {
+  enabled: boolean;
+  interval_sec: number;
+  last_run: number;
+  last_run_ago_sec: number | null;
+  run_count: number;
+  total_findings_emitted: number;
+  total_findings: number;
+  by_severity: Record<string, number>;
+  by_category: Record<string, number>;
+}
+
 export interface TestResult {
   name: string;
   node_id: string;

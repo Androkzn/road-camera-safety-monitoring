@@ -5,6 +5,8 @@ import type {
   SafetyEvent,
   SceneContext,
   TestStatus,
+  WatchdogFinding,
+  WatchdogStatus,
 } from "../types";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -42,4 +44,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query }),
     }),
+
+  getWatchdogStatus: () => fetchJson<WatchdogStatus>("/api/watchdog"),
+  getWatchdogRecent: (n = 50) => fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`),
 };
