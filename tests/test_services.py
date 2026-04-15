@@ -194,6 +194,16 @@ class TestLLMObserver:
         )
         assert rec.estimated_cost_usd > 0
 
+    def test_stats_include_top_errors(self):
+        from road_safety.services.llm_obs import LLMObserver
+        obs = LLMObserver()
+        obs.record("chat", "haiku", success=False, error="429 Too Many Requests")
+        obs.record("chat", "haiku", success=False, error="429 Too Many Requests")
+        obs.record("chat", "haiku", success=False, error="auth failed")
+        stats = obs.stats()
+        assert stats["top_errors"][0]["error"] == "429 Too Many Requests"
+        assert stats["top_errors"][0]["count"] == 2
+
 
 # ═══════════════════════════════════════════════════════════════════
 # DriftMonitor
@@ -355,3 +365,139 @@ class TestRedact:
         name = public_thumbnail_name("evt_1234")
         assert "public" in name
         assert "evt_1234" in name
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Watchdog
+# ═══════════════════════════════════════════════════════════════════
+
+class TestWatchdog:
+    def test_rule_checks_emit_actionable_fields(self):
+        from road_safety.services.watchdog import _rule_checks
+
+        snapshot = {
+            "_interval_sec": 60,
+            "server": {"running": True, "target_fps": 2.0},
+            "pipeline": {"frames_read": 400, "frames_processed": 200},
+            "perception": {
+                "state": "degraded",
+                "reason": "low_luminance",
+                "avg_confidence": 0.61,
+                "luminance": 28,
+                "sharpness": 44,
+                "samples": 18,
+            },
+            "drift": {
+                "precision": 0.0,
+                "feedback_coverage": 0.0,
+                "labeled_events": 0,
+                "total_events_in_window": 9,
+                "true_positives": 0,
+                "false_positives": 1,
+                "trend": "degrading",
+                "alert_triggered": True,
+                "window_start_ts": "2026-04-15T05:49:36",
+                "window_end_ts": "2026-04-15T05:49:36",
+                "by_event_type": {"unknown": {"tp": 0, "fp": 1, "precision": None, "status": "insufficient"}},
+            },
+            "llm": {
+                "window_calls": 7,
+                "error_rate": 0.57,
+                "latency_p50_ms": 1800,
+                "latency_p95_ms": 12800,
+                "total_errors_all_time": 11,
+                "top_errors": [{"error": "429 Too Many Requests", "count": 4}],
+                "by_type": {
+                    "narration": {
+                        "calls": 5,
+                        "errors": 3,
+                        "skips": 0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "latency_p50_ms": 1200,
+                        "latency_p95_ms": 1400,
+                    }
+                },
+            },
+            "taxonomy": {
+                "recent_events": 8,
+                "unknown_event_types": 6,
+                "unknown_risk_levels": 6,
+                "unknown_event_ratio": 0.75,
+                "unknown_risk_ratio": 0.75,
+            },
+        }
+        prev_snapshot = {
+            "pipeline": {"frames_processed": 200},
+            "llm": {"latency_p50_ms": 900},
+        }
+
+        findings = _rule_checks(snapshot, prev_snapshot)
+
+        assert findings
+        drift_finding = next(f for f in findings if f.fingerprint == "drift/feedback-coverage")
+        assert drift_finding.impact
+        assert drift_finding.owner == "ML quality"
+        assert drift_finding.investigation_steps
+        assert drift_finding.debug_commands
+
+        llm_finding = next(f for f in findings if f.fingerprint == "llm/error-rate")
+        assert llm_finding.likely_cause
+        assert any(item["label"] == "Top error" for item in llm_finding.evidence)
+
+        stream_finding = next(f for f in findings if f.fingerprint == "stream/stalled")
+        assert "live-ingest incident" in stream_finding.suggestion
+
+    def test_tail_normalizes_legacy_records(self, tmp_path, monkeypatch):
+        from road_safety.services import watchdog
+
+        path = tmp_path / "watchdog.jsonl"
+        path.write_text(json.dumps({
+            "severity": "warning",
+            "category": "drift",
+            "title": "Zero feedback coverage across all events",
+            "detail": "9 events in window have 0 labeled events.",
+            "suggestion": "Enable event labeling pipeline.",
+            "ts": "2026-04-15T20:58:36.257Z",
+            "snapshot_id": "abc123",
+        }) + "\n")
+        monkeypatch.setattr(watchdog, "_WATCHDOG_PATH", path)
+
+        records = watchdog.tail(10)
+        assert len(records) == 1
+        assert records[0]["fingerprint"] == "drift/feedback-coverage"
+        assert records[0]["owner"] == "ML quality"
+        assert records[0]["debug_commands"]
+
+    def test_stats_group_repeated_incidents(self, tmp_path, monkeypatch):
+        from road_safety.services import watchdog
+
+        path = tmp_path / "watchdog.jsonl"
+        lines = [
+            {
+                "severity": "warning",
+                "category": "llm",
+                "title": "LLM latency very high (12800ms p95)",
+                "detail": "P95 latency is 12800ms.",
+                "suggestion": "Reduce prompt size.",
+                "ts": "2026-04-15T20:58:36.257Z",
+                "snapshot_id": "snap1",
+            },
+            {
+                "severity": "warning",
+                "category": "llm",
+                "title": "LLM latency very high (11900ms p95)",
+                "detail": "P95 latency is 11900ms.",
+                "suggestion": "Reduce prompt size.",
+                "ts": "2026-04-15T20:59:36.257Z",
+                "snapshot_id": "snap2",
+            },
+        ]
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        monkeypatch.setattr(watchdog, "_WATCHDOG_PATH", path)
+
+        summary = watchdog.stats()
+        assert summary["total_findings"] == 2
+        assert summary["unique_incidents"] == 1
+        assert summary["repeating_incidents"] == 1
+        assert summary["top_incidents"][0]["count"] == 2

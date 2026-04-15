@@ -55,9 +55,9 @@ function formatRelative(ts: string): string {
 }
 
 function getEvidenceClass(status?: string): string {
-  if (status === "breach") return styles.evidenceBreach;
-  if (status === "trend") return styles.evidenceTrend;
-  return styles.evidenceContext;
+  if (status === "breach") return styles.evidenceBreach ?? "";
+  if (status === "trend") return styles.evidenceTrend ?? "";
+  return styles.evidenceContext ?? "";
 }
 
 function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {

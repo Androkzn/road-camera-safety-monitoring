@@ -10,6 +10,24 @@ This is a **building block** for fleet safety platforms, not a complete commerci
 
 ---
 
+## Screenshots
+
+![Admin Panel – live detections](docs/screenshots/admin.png)
+
+![Dashboard – fleet overview](docs/screenshots/dashboard.png)
+
+![Error Monitoring – incident queue with evidence and next steps](docs/screenshots/monitoring.png)
+
+![Test Suite – runtime health checks](docs/screenshots/tests.png)
+
+---
+
+## Monitoring Philosophy
+
+The watchdog is designed to be an **incident queue**, not a wall of red text. Repeated findings are grouped into incident fingerprints, and each incident carries operator impact, likely cause, ownership hint, evidence, investigation steps, and fast debug commands. The goal is to shorten the path from “something looks wrong” to “I know exactly what to inspect next.”
+
+---
+
 ## Challenges & How We Address Them
 
 This README focuses on the operational challenges behind fleet safety systems and the concrete engineering decisions used to address them.
