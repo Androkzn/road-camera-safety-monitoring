@@ -23,16 +23,12 @@ export function WatchdogBadge({ status, onClick }: WatchdogBadgeProps) {
       onClick={onClick}
       style={{ marginLeft: 8 }}
     >
-      <span className={`${styles.dot} ${styles[severity]}`} />
-      <span>Monitoring</span>
-      {total > 0 && (
-        <span className={styles.counts}>
-          {errors > 0 && <span className={styles.cntErr}>{errors}</span>}
-          {warnings > 0 && <span className={styles.cntWarn}>{warnings}</span>}
-          {errors === 0 && warnings === 0 && (
-            <span className={styles.cntInfo}>{total}</span>
-          )}
-        </span>
+      <span className={styles.label}>
+        <span className={`${styles.dot} ${styles[severity]}`} />
+        <span>Monitoring</span>
+      </span>
+      {errors > 0 && (
+        <span className={styles.errorBubble}>{errors}</span>
       )}
     </div>
   );

@@ -83,3 +83,24 @@ dist/assets/index-BTBD_lwW.js   267.82 kB │ gzip: 85.17 kB
 {"ts":"2026-04-15T20:43:27.954052+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
 {"ts":"2026-04-15T20:44:00.856175+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
 {"ts":"2026-04-15T20:45:49.565017+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+  [92mServer is up!                    [0m
+
+  [1mServer Status[0m
+  ─────────────────────────────────────
+  [92m●[0m Stream        [2mhttps://www.youtube.com/watch?v=1EiC9bvVGnk[0m
+    Target FPS    2.0
+    Frames done   0
+    Events        0
+    Tracker       bytetrack
+    Risk model    ttc+ground_plane
+    Perception    nominal
+    LLM           configured
+    Slack         configured
+  ─────────────────────────────────────
+  [96mAdmin UI[0m      http://127.0.0.1:8000/
+  [96mDashboard[0m     http://127.0.0.1:8000/dashboard
+  [96mAPI status[0m    http://127.0.0.1:8000/api/live/status
+  ─────────────────────────────────────
+
+  [2mPress Ctrl+C to stop.[0m
+

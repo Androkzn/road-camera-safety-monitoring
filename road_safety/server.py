@@ -1438,6 +1438,10 @@ def dashboard_page():
         return FileResponse(STATIC_DIR / "index.html")
     return FileResponse(STATIC_DIR / "index.html")
 
+@app.get("/monitoring")
+def monitoring_page():
+    return FileResponse(STATIC_DIR / "index.html")
+
 
 @app.get("/admin/video_feed")
 def admin_video_feed():
