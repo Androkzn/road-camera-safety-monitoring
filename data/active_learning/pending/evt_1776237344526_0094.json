@@ -1,0 +1,47 @@
+{
+  "event_id": "evt_1776237344526_0094",
+  "reason": "decision_boundary",
+  "confidence": 0.395,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776237344526_0094.jpg",
+  "event_json": {
+    "event_id": "evt_1776237344526_0094",
+    "video_id": "live_stream",
+    "timestamp_sec": 1216.86,
+    "wall_time": "2026-04-15T07:15:49Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.395,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      1078,
+      1102
+    ],
+    "episode_duration_sec": 1.06,
+    "ttc_sec": null,
+    "distance_m": 5.43,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 97.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and truck ~5.4m apart (risk=medium).",
+    "narration": "MEDIUM: Car and truck in close proximity 5.4 metres apart in urban area.",
+    "thumbnail": "thumbnails/evt_1776237344526_0094_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": "red",
+      "vehicle_type": "SUV",
+      "readability": "partial",
+      "notes": "Vehicle is a red SUV with visible text on side (appears to be emergency/official vehicle markings). Plate text partially visible in highlighted box; state code not legible. Image shows dashcam footage",
+      "plate_hash": "plate_bc7c36464ab7ae89"
+    }
+  },
+  "sampled_at": "2026-04-15T07:15:52Z"
+}

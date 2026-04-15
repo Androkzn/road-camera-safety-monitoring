@@ -1,0 +1,40 @@
+{
+  "event_id": "evt_1776239111212_0172",
+  "reason": "decision_boundary",
+  "confidence": 0.388,
+  "risk_level": "low",
+  "thumbnail_internal": "data/thumbnails/evt_1776239111212_0172.jpg",
+  "event_json": {
+    "event_id": "evt_1776239111212_0172",
+    "video_id": "live_stream",
+    "timestamp_sec": 2983.55,
+    "wall_time": "2026-04-15T07:45:16Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "low",
+    "confidence": 0.388,
+    "objects": [
+      "car"
+    ],
+    "track_ids": [
+      1533,
+      2234
+    ],
+    "episode_duration_sec": 0.23,
+    "ttc_sec": null,
+    "distance_m": 10.43,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 99.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and car ~10.4m apart (risk=low).",
+    "narration": "LOW Two vehicles maintaining safe distance of 10.4 metres in urban area.",
+    "thumbnail": "thumbnails/evt_1776239111212_0172_public.jpg",
+    "perception_state": "nominal",
+    "enrichment_skipped": "low_risk_event"
+  },
+  "sampled_at": "2026-04-15T07:45:17Z"
+}

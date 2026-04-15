@@ -1,0 +1,40 @@
+{
+  "event_id": "evt_1776236091434_0076",
+  "reason": "decision_boundary",
+  "confidence": 0.353,
+  "risk_level": "low",
+  "thumbnail_internal": "data/thumbnails/evt_1776236091434_0076.jpg",
+  "event_json": {
+    "event_id": "evt_1776236091434_0076",
+    "video_id": "live_stream",
+    "timestamp_sec": 1941.92,
+    "wall_time": "2026-04-15T06:54:53Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "low",
+    "confidence": 0.353,
+    "objects": [
+      "car"
+    ],
+    "track_ids": [
+      840,
+      812
+    ],
+    "episode_duration_sec": 0.12,
+    "ttc_sec": null,
+    "distance_m": 19.67,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 395.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and car ~19.7m apart (risk=low).",
+    "narration": null,
+    "thumbnail": "thumbnails/evt_1776236091434_0076_public.jpg",
+    "perception_state": "nominal",
+    "enrichment_skipped": "low_risk_event"
+  },
+  "sampled_at": "2026-04-15T06:55:15Z"
+}

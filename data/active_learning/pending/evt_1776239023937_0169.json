@@ -1,0 +1,46 @@
+{
+  "event_id": "evt_1776239023937_0169",
+  "reason": "decision_boundary",
+  "confidence": 0.382,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776239023937_0169.jpg",
+  "event_json": {
+    "event_id": "evt_1776239023937_0169",
+    "video_id": "live_stream",
+    "timestamp_sec": 2896.27,
+    "wall_time": "2026-04-15T07:43:48Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.382,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      2170,
+      2080
+    ],
+    "episode_duration_sec": 0.12,
+    "ttc_sec": 2.0,
+    "distance_m": 6.52,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 112.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Truck and car ~6.5m apart TTC 2.0s (risk=medium).",
+    "narration": "MEDIUM Truck and car close interaction with 2.0 second time-to-collision and 6.52 metres separation.",
+    "thumbnail": "thumbnails/evt_1776239023937_0169_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": null,
+      "vehicle_type": null,
+      "readability": "unreadable",
+      "notes": "skipped \u2014 client-side rate budget exhausted"
+    }
+  },
+  "sampled_at": "2026-04-15T07:43:50Z"
+}

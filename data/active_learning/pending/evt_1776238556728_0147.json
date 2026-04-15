@@ -1,0 +1,46 @@
+{
+  "event_id": "evt_1776238556728_0147",
+  "reason": "decision_boundary",
+  "confidence": 0.46,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776238556728_0147.jpg",
+  "event_json": {
+    "event_id": "evt_1776238556728_0147",
+    "video_id": "live_stream",
+    "timestamp_sec": 2429.06,
+    "wall_time": "2026-04-15T07:36:01Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.46,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      1872,
+      1895
+    ],
+    "episode_duration_sec": 0.71,
+    "ttc_sec": 28.67,
+    "distance_m": 5.33,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 111.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Truck and car ~5.3m apart TTC 28.7s (risk=medium).",
+    "narration": "MEDIUM Truck and car interaction at 5.3 metres separation with TTC 28.7 seconds.",
+    "thumbnail": "thumbnails/evt_1776238556728_0147_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": "black",
+      "vehicle_type": "classic car",
+      "readability": "unreadable",
+      "notes": "Vehicle is a vintage/classic automobile with whitewall tires, shown in inset frame. Plate not legible in image. Primary vehicle in street scene appears to be parked; context indicates close interactio"
+    }
+  },
+  "sampled_at": "2026-04-15T07:36:04Z"
+}

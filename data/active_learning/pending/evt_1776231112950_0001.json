@@ -1,0 +1,45 @@
+{
+  "event_id": "evt_1776231112950_0001",
+  "reason": "decision_boundary",
+  "confidence": 0.371,
+  "risk_level": "low",
+  "thumbnail_internal": "data/thumbnails/evt_1776231112950_0001.jpg",
+  "event_json": {
+    "event_id": "evt_1776231112950_0001",
+    "video_id": "live_stream",
+    "timestamp_sec": 3.26,
+    "wall_time": "2026-04-15T05:31:54Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "low",
+    "confidence": 0.371,
+    "objects": [
+      "car"
+    ],
+    "track_ids": [
+      2,
+      10
+    ],
+    "episode_duration_sec": 0.0,
+    "ttc_sec": null,
+    "distance_m": 14.46,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 21.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and car ~14.5m apart (risk=low).",
+    "narration": "LOW Two vehicles 14.5 metres apart in urban area, low risk interaction detected.",
+    "thumbnail": "thumbnails/evt_1776231112950_0001_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": "black",
+      "vehicle_type": "sedan",
+      "readability": "partial",
+      "notes": "Vehicle visible in red bounding box (top-left) and in notable vehicles panel. Nighttime dashcam footage with low lighting. Plate not legible in either view. Vehicle appears to be a dark-colored sedan,"
+    }
+  },
+  "sampled_at": "2026-04-15T05:31:57Z"
+}

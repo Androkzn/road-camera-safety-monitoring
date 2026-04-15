@@ -1,0 +1,46 @@
+{
+  "event_id": "evt_1776234690182_0042",
+  "reason": "decision_boundary",
+  "confidence": 0.448,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776234690182_0042.jpg",
+  "event_json": {
+    "event_id": "evt_1776234690182_0042",
+    "video_id": "live_stream",
+    "timestamp_sec": 540.67,
+    "wall_time": "2026-04-15T06:31:31Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.448,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      292,
+      448
+    ],
+    "episode_duration_sec": 0.0,
+    "ttc_sec": null,
+    "distance_m": 5.17,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 371.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and truck ~5.2m apart (risk=medium).",
+    "narration": "MEDIUM: Car and truck in close interaction at 5.17 metres separation in urban area.",
+    "thumbnail": "thumbnails/evt_1776234690182_0042_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": "black",
+      "vehicle_type": "SUV",
+      "readability": "unreadable",
+      "notes": "Vehicle in inset image shows partial text overlay (appears to be timestamp/metadata). Plate not legible in main or inset footage due to distance, angle, and night conditions. Vehicle is dark-colored S"
+    }
+  },
+  "sampled_at": "2026-04-15T06:32:47Z"
+}

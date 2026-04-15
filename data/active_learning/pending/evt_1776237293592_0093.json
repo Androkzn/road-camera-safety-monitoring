@@ -1,0 +1,41 @@
+{
+  "event_id": "evt_1776237293592_0093",
+  "reason": "decision_boundary",
+  "confidence": 0.384,
+  "risk_level": "low",
+  "thumbnail_internal": "data/thumbnails/evt_1776237293592_0093.jpg",
+  "event_json": {
+    "event_id": "evt_1776237293592_0093",
+    "video_id": "live_stream",
+    "timestamp_sec": 1165.93,
+    "wall_time": "2026-04-15T07:14:58Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "low",
+    "confidence": 0.384,
+    "objects": [
+      "bus",
+      "truck"
+    ],
+    "track_ids": [
+      1058,
+      1078
+    ],
+    "episode_duration_sec": 0.43,
+    "ttc_sec": null,
+    "distance_m": 14.91,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 121.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Bus and truck ~14.9m apart (risk=low).",
+    "narration": null,
+    "thumbnail": "thumbnails/evt_1776237293592_0093_public.jpg",
+    "perception_state": "nominal",
+    "enrichment_skipped": "low_risk_event"
+  },
+  "sampled_at": "2026-04-15T07:14:58Z"
+}

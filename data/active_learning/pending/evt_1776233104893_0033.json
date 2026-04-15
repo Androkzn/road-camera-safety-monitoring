@@ -1,0 +1,46 @@
+{
+  "event_id": "evt_1776233104893_0033",
+  "reason": "decision_boundary",
+  "confidence": 0.465,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776233104893_0033.jpg",
+  "event_json": {
+    "event_id": "evt_1776233104893_0033",
+    "video_id": "live_stream",
+    "timestamp_sec": 630.57,
+    "wall_time": "2026-04-15T06:05:15Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.465,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      344,
+      403
+    ],
+    "episode_duration_sec": 5.59,
+    "ttc_sec": null,
+    "distance_m": 4.63,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 111.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and truck ~4.6m apart (risk=medium).",
+    "narration": "MEDIUM: Car and truck in close proximity at 4.63 metres distance in urban area.",
+    "thumbnail": "thumbnails/evt_1776233104893_0033_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": "blue",
+      "vehicle_type": "SUV",
+      "readability": "partial",
+      "notes": "Blue SUV with roof rack visible in highlighted box. Plate text not legible in this dashcam frame. Vehicle appears to be a compact/mid-size SUV, possibly Suzuki Jimny or similar model based on body sha"
+    }
+  },
+  "sampled_at": "2026-04-15T06:05:17Z"
+}

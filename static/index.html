@@ -2,171 +2,565 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Fleet Safety — Event Review</title>
+<title>Fleet Safety — Live Review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --border: #262a33;
-    --text: #e6e8ee;
-    --muted: #8a90a0;
-    --high: #ff5c5c;
-    --medium: #ffb648;
-    --low: #6fcf97;
-    --accent: #5ab0ff;
+  :root{
+    --bg:#0b0f14; --panel:#141a22; --border:#1f2937; --text:#e5e7eb; --muted:#9ca3af;
+    --accent:#38bdf8; --high:#ef4444; --medium:#f59e0b; --low:#6b7280;
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); }
-  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; gap: 16px; align-items: baseline; }
-  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
-  header .tag { font-size: 12px; color: var(--muted); }
-  main { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; padding: 16px; height: calc(100vh - 52px); }
-  .left, .right { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-  video { width: 100%; background: #000; display: block; }
-  .summary { padding: 14px 16px; border-top: 1px solid var(--border); }
-  .summary h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
-  .summary p { margin: 6px 0; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .chip { padding: 3px 8px; border-radius: 999px; font-size: 12px; background: #222632; color: var(--text); }
-  .chip.high { background: #3a1f24; color: var(--high); }
-  .chip.medium { background: #3a2e1f; color: var(--medium); }
-  .chip.low { background: #1f3a2c; color: var(--low); }
-  .trip-classification { font-weight: 600; }
-  .trip-classification.risky { color: var(--high); }
-  .trip-classification.moderate { color: var(--medium); }
-  .trip-classification.safe { color: var(--low); }
-  .right header { border-bottom: 1px solid var(--border); }
-  .filters { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  .filters button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; }
-  .filters button.active { color: var(--text); border-color: var(--accent); }
-  .events { flex: 1; overflow-y: auto; }
-  .event { display: grid; grid-template-columns: 88px 1fr auto; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }
-  .event:hover { background: #1d2129; }
-  .event.active { background: #1f2a3a; }
-  .event img { width: 88px; height: 56px; object-fit: cover; border-radius: 4px; background: #000; }
-  .event .meta { min-width: 0; }
-  .event .type { font-weight: 500; }
-  .event .sub { font-size: 12px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .event .time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); align-self: start; }
-  .risk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-  .risk-dot.high { background: var(--high); }
-  .risk-dot.medium { background: var(--medium); }
-  .risk-dot.low { background: var(--low); }
-  .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:13px;line-height:1.45;height:100%}
+  body{display:flex;flex-direction:column;min-height:100vh}
+  .app{display:grid;grid-template-columns:60fr 40fr;gap:14px;padding:14px;flex:1;min-height:0}
+  @media (max-width:900px){ .app{grid-template-columns:1fr} }
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel-head{padding:12px 16px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .panel-head h1,.panel-head h2{margin:0;font-size:15px;font-weight:600;letter-spacing:.2px}
+  .panel-head .sub{font-size:11px;color:var(--muted);font-weight:400;margin-left:8px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;
+    background:#0b0f14;border:1px solid var(--border);font-size:11px;color:var(--muted)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--low);display:inline-block}
+  .dot.ok{background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6)}
+  .dot.bad{background:var(--high)}
+  .tag{display:inline-block;padding:2px 7px;border-radius:4px;background:#0b0f14;
+    border:1px solid var(--border);color:var(--muted);font-size:10.5px;letter-spacing:.3px}
+  .tag.plate{background:#1a1300;border-color:#3f2b00;color:#fbbf24;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;letter-spacing:1px}
+  .tag.hash{background:#0a1a2e;border-color:#1e3a5f;color:#7dd3fc;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px}
+  .tag.muted{opacity:.6;font-style:italic}
+  .tag.kin{background:#0a1a0e;border-color:#14532d;color:#86efac;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
+  .tag.kin.warn{background:#2a0f0f;border-color:#7f1d1d;color:#fca5a5}
+  .tag.track{background:#1a1022;border-color:#3f1d5f;color:#c4b5fd;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* perception banner */
+  .perception{padding:8px 16px;display:flex;align-items:center;gap:10px;
+    font-size:11.5px;border-bottom:1px solid var(--border);background:#0b0f14;
+    transition:background-color .3s}
+  .perception.degraded{background:#2a1a07;border-color:#7c5a14;color:#fde68a}
+  .perception .lbl{font-weight:600;letter-spacing:.5px;text-transform:uppercase;
+    font-size:10.5px;color:var(--muted)}
+  .perception.degraded .lbl{color:#fcd34d}
+  .perception .st{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
+  .perception .reason{color:var(--muted)}
+  .perception.degraded .reason{color:#fde68a;opacity:.8}
+  .perception .metrics{margin-left:auto;color:var(--muted);font-size:10.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .skip-note{color:#fca5a5;font-size:10.5px;font-style:italic;margin-top:2px}
+
+  /* summary strip */
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 16px;
+    border-bottom:1px solid var(--border)}
+  .tile{background:#0b0f14;border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+  .tile .label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .tile .value{font-size:20px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+  .tile.high .value{color:var(--high)} .tile.medium .value{color:var(--medium)}
+
+  /* event list */
+  .stream{flex:1;overflow-y:auto;padding:10px 14px 14px;min-height:0}
+  .empty{color:var(--muted);text-align:center;padding:40px 20px;font-size:12px}
+  .card{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:10px;margin-bottom:10px;
+    background:#0b0f14;border:1px solid var(--border);border-radius:8px;
+    transition:border-color .25s ease}
+  .card.flash{border-color:var(--accent)}
+  .card .thumb{width:120px;height:72px;background:#000;border-radius:5px;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;color:#334155;font-size:10px}
+  .card .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .card .body{min-width:0;display:flex;flex-direction:column;gap:4px}
+  .row1{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .risk{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10.5px;
+    font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#0b0f14}
+  .risk-high{background:var(--high);color:#fff}
+  .risk-medium{background:var(--medium);color:#111}
+  .risk-low{background:var(--low);color:#fff}
+  .etype{font-weight:600;font-size:13px}
+  .meta{color:var(--muted);font-size:11px;display:flex;gap:6px;flex-wrap:wrap}
+  .meta .sep{color:#374151}
+  .narr{font-style:italic;color:#cbd5e1;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+    overflow:hidden;font-size:12px}
+  .summ{color:#cbd5e1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+    overflow:hidden;font-size:12px}
+  .row3{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:2px}
+
+  /* operator feedback thumbs */
+  .fb{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+  .fb-btn{display:inline-flex;align-items:center;gap:5px;
+    background:var(--panel);border:1px solid var(--border);color:var(--text);
+    padding:4px 9px;border-radius:6px;font-size:11px;cursor:pointer;
+    font-family:inherit;line-height:1;transition:border-color .15s,opacity .25s,background-color .15s}
+  .fb-btn:hover:not(:disabled){border-color:var(--accent)}
+  .fb-btn.tp:hover:not(:disabled){border-color:#22c55e;color:#86efac}
+  .fb-btn.fp:hover:not(:disabled){border-color:var(--high);color:#fca5a5}
+  .fb-btn:disabled{cursor:default}
+  .fb-btn.faded{opacity:.35}
+  .fb-btn.chosen{background:#0b0f14;border-color:var(--accent);opacity:1}
+  .fb-btn.chosen.tp{border-color:#22c55e;color:#86efac}
+  .fb-btn.chosen.fp{border-color:var(--high);color:#fca5a5}
+  .fb-ico{width:12px;height:12px;display:inline-block;vertical-align:-1px}
+  .fb-ack{color:var(--muted);font-size:11px;margin-left:4px}
+  .fb-ack.ok{color:#86efac}
+  .fb-ack.err{color:#fca5a5}
+
+  /* copilot */
+  .chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;border-top:1px solid var(--border)}
+  .chip{background:#0b0f14;border:1px solid var(--border);color:var(--muted);
+    padding:5px 9px;border-radius:999px;font-size:11px;cursor:pointer;transition:border-color .15s}
+  .chip:hover{border-color:var(--accent);color:var(--text)}
+  .chat{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;min-height:0}
+  .msg{max-width:88%;padding:9px 12px;border-radius:10px;font-size:12.5px;white-space:pre-wrap;
+    word-wrap:break-word;line-height:1.5}
+  .msg.user{align-self:flex-end;background:#1e3a5f;border:1px solid #264b77;color:#e0f2fe}
+  .msg.bot{align-self:flex-start;background:#0b0f14;border:1px solid var(--border)}
+  .msg.bot.err{border-color:var(--high);color:#fecaca}
+  .compose{display:flex;gap:8px;padding:10px 14px 14px;border-top:1px solid var(--border)}
+  .compose textarea{flex:1;resize:none;background:#0b0f14;color:var(--text);
+    border:1px solid var(--border);border-radius:8px;padding:9px 10px;font:inherit;
+    font-size:12.5px;min-height:56px;max-height:140px;outline:none}
+  .compose textarea:focus{border-color:var(--accent)}
+  .compose button{background:var(--accent);color:#0b0f14;border:none;border-radius:8px;
+    padding:0 16px;font-weight:600;cursor:pointer;font-size:12.5px;min-width:84px;align-self:stretch}
+  .compose button:disabled{background:#334155;color:var(--muted);cursor:not-allowed}
+
+  /* scrollbars */
+  .stream::-webkit-scrollbar,.chat::-webkit-scrollbar{width:8px}
+  .stream::-webkit-scrollbar-thumb,.chat::-webkit-scrollbar-thumb{background:#1f2937;border-radius:4px}
 </style>
 </head>
 <body>
-<header>
-  <h1>Fleet Safety — Event Review</h1>
-  <span class="tag" id="video-tag">loading…</span>
-</header>
-<main>
-  <section class="left">
-    <video id="player" controls></video>
-    <div class="summary">
-      <h2>Trip summary</h2>
-      <p id="narrative">—</p>
-      <p>
-        Classification:
-        <span id="classification" class="trip-classification">—</span>
-        · Avg confidence: <span id="avg-conf">—</span>
-      </p>
-      <div class="chips" id="chips"></div>
-    </div>
-  </section>
-  <section class="right">
-    <div class="filters" id="filters">
-      <button data-risk="" class="active">All</button>
-      <button data-risk="high">High</button>
-      <button data-risk="medium">Medium</button>
-      <button data-risk="low">Low</button>
-    </div>
-    <div class="events" id="events"><div class="empty">Loading events…</div></div>
-  </section>
-</main>
-<script>
-  const player = document.getElementById("player");
-  const eventsEl = document.getElementById("events");
-  const filtersEl = document.getElementById("filters");
-  let allEvents = [];
-  let activeRisk = "";
-
-  async function loadSummary() {
-    const r = await fetch("/api/summary");
-    if (!r.ok) return;
-    const s = await r.json();
-    document.getElementById("video-tag").textContent =
-      `${s.video_id} · ${s.duration_sec.toFixed(1)}s · ${s.event_count} event(s)`;
-    document.getElementById("narrative").textContent = s.narrative;
-    const cls = document.getElementById("classification");
-    cls.textContent = s.trip_classification;
-    cls.className = "trip-classification " + s.trip_classification;
-    document.getElementById("avg-conf").textContent = s.avg_confidence.toFixed(2);
-
-    const chips = document.getElementById("chips");
-    chips.innerHTML = "";
-    for (const [risk, n] of Object.entries(s.events_by_risk || {})) {
-      const c = document.createElement("span");
-      c.className = `chip ${risk}`;
-      c.textContent = `${n} ${risk}`;
-      chips.appendChild(c);
-    }
-    for (const [t, n] of Object.entries(s.events_by_type || {})) {
-      const c = document.createElement("span");
-      c.className = "chip";
-      c.textContent = `${n} × ${t.replace(/_/g, " ")}`;
-      chips.appendChild(c);
-    }
-    player.src = `/media/${s.video_id}.mp4`;
-  }
-
-  async function loadEvents() {
-    const r = await fetch("/api/events");
-    allEvents = await r.json();
-    renderEvents();
-  }
-
-  function renderEvents() {
-    const items = activeRisk
-      ? allEvents.filter(e => e.risk_level === activeRisk)
-      : allEvents;
-    if (!items.length) {
-      eventsEl.innerHTML = `<div class="empty">No events match this filter.</div>`;
-      return;
-    }
-    eventsEl.innerHTML = items.map(e => `
-      <div class="event" data-id="${e.event_id}" data-ts="${e.timestamp_sec}">
-        <img src="/${e.thumbnail}" alt="" />
-        <div class="meta">
-          <div class="type">
-            <span class="risk-dot ${e.risk_level}"></span>${e.event_type.replace(/_/g, " ")}
-          </div>
-          <div class="sub">${e.summary}</div>
-        </div>
-        <div class="time">${e.timestamp_sec.toFixed(1)}s<br/><span style="opacity:0.6">${(e.confidence * 100).toFixed(0)}%</span></div>
+<div class="app">
+  <!-- LEFT: Live Event Stream -->
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h1>Fleet Safety — Live Review</h1>
       </div>
-    `).join("");
+      <span class="pill" id="statusPill">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">connecting…</span>
+      </span>
+    </div>
+    <div class="summary">
+      <div class="tile"><div class="label">Events</div><div class="value" id="tTotal">0</div></div>
+      <div class="tile high"><div class="label">High risk</div><div class="value" id="tHigh">0</div></div>
+      <div class="tile medium"><div class="label">Medium risk</div><div class="value" id="tMed">0</div></div>
+      <div class="tile"><div class="label">Uptime</div><div class="value" id="tUp">—</div></div>
+    </div>
+    <div class="perception" id="perception">
+      <span class="lbl">Perception</span>
+      <span class="st" id="pState">nominal</span>
+      <span class="reason" id="pReason">warmup</span>
+      <span class="metrics" id="pMetrics"></span>
+    </div>
+    <div class="perception" id="scene" style="border-top:none">
+      <span class="lbl">Scene</span>
+      <span class="st" id="sLabel">unknown</span>
+      <span class="reason" id="sReason">—</span>
+      <span class="metrics" id="sMetrics"></span>
+    </div>
+    <div class="perception" id="drift" style="border-top:none;cursor:pointer" title="Click to refresh drift report">
+      <span class="lbl">Drift</span>
+      <span class="st" id="dState">—</span>
+      <span class="reason" id="dReason">no labelled feedback yet</span>
+      <span class="metrics" id="dMetrics"></span>
+    </div>
+    <div class="stream" id="stream">
+      <div class="empty" id="emptyMsg">Waiting for events…</div>
+    </div>
+  </section>
 
-    for (const el of eventsEl.querySelectorAll(".event")) {
-      el.addEventListener("click", () => {
-        eventsEl.querySelectorAll(".event").forEach(n => n.classList.remove("active"));
-        el.classList.add("active");
-        const ts = parseFloat(el.dataset.ts);
-        player.currentTime = ts;
-        player.play().catch(() => {});
-      });
+  <!-- RIGHT: Copilot -->
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Copilot <span class="sub">RAG over statutes + live events</span></h2>
+      </div>
+    </div>
+    <div class="chat" id="chat">
+      <div class="msg bot">Ask about recent events, risk patterns, or fleet policy.</div>
+    </div>
+    <div class="chips" id="chips">
+      <span class="chip" data-q="Any high-risk pedestrian events in the last 2 minutes?">Any high-risk pedestrian events in the last 2 minutes?</span>
+      <span class="chip" data-q="What's our SLA for medium-risk events?">What's our SLA for medium-risk events?</span>
+      <span class="chip" data-q="Summarize the last 10 events.">Summarize the last 10 events.</span>
+    </div>
+    <form class="compose" id="composeForm" autocomplete="off">
+      <textarea id="q" placeholder="Ask Copilot… (Enter to send, Shift+Enter = newline)"></textarea>
+      <button type="submit" id="askBtn">Ask</button>
+    </form>
+  </section>
+</div>
+
+<script>
+(() => {
+  const MAX_CARDS = 100;
+  const streamEl = document.getElementById('stream');
+  const emptyMsg = document.getElementById('emptyMsg');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const tTotal = document.getElementById('tTotal');
+  const tHigh = document.getElementById('tHigh');
+  const tMed = document.getElementById('tMed');
+  const tUp = document.getElementById('tUp');
+
+  const counts = { total:0, high:0, medium:0 };
+  let startedAt = null; // epoch seconds
+  let sourceName = '—';
+
+  // ---- helpers ----
+  const pad2 = n => String(n).padStart(2,'0');
+  const fmtWall = ts => {
+    const d = ts ? new Date(ts) : new Date();
+    if (isNaN(d)) return '—';
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  };
+  const humanType = t => (t||'event').replace(/_/g,' ').replace(/^\w/,c=>c.toUpperCase());
+  const escapeHtml = s => (s==null?'':String(s))
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const fmtUptime = secs => {
+    if (secs==null || secs<0) return '—';
+    const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = Math.floor(secs%60);
+    return h>0 ? `${h}h ${pad2(m)}m` : `${pad2(m)}:${pad2(s)}`;
+  };
+
+  // ---- status pill ----
+  function setStatus(state){
+    statusDot.classList.remove('ok','bad');
+    if (state==='connected'){ statusDot.classList.add('ok'); statusText.textContent = `${sourceName} • live`; }
+    else if (state==='disconnected'){ statusDot.classList.add('bad'); statusText.textContent = `${sourceName} • disconnected`; }
+    else { statusText.textContent = `${sourceName} • connecting…`; }
+  }
+
+  // ---- SSE ----
+  let es = null, backoff = 2000;
+  function connectSSE(){
+    try { es = new EventSource('/stream/events'); }
+    catch(e){ scheduleReconnect(); return; }
+    es.onopen = () => { backoff = 2000; setStatus('connected'); };
+    es.onmessage = ev => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg && msg._meta === 'perception_state') { renderPerception(msg); return; }
+        addEvent(msg);
+      } catch(e){ /* ignore */ }
+    };
+    es.onerror = () => {
+      setStatus('disconnected');
+      try { es.close(); } catch(_){}
+      scheduleReconnect();
+    };
+  }
+  function scheduleReconnect(){
+    setTimeout(connectSSE, backoff);
+    backoff = Math.min(backoff*1.5, 30000);
+  }
+
+  // ---- event rendering ----
+  function addEvent(e){
+    if (emptyMsg) { emptyMsg.remove(); }
+    counts.total++;
+    if (e.risk_level==='high') counts.high++;
+    else if (e.risk_level==='medium') counts.medium++;
+    tTotal.textContent = counts.total;
+    tHigh.textContent = counts.high;
+    tMed.textContent = counts.medium;
+
+    const card = document.createElement('div');
+    card.className = 'card flash';
+    const risk = (e.risk_level||'low').toLowerCase();
+    const riskCls = risk==='high'?'risk-high':risk==='medium'?'risk-medium':'risk-low';
+    const conf = e.confidence!=null ? Math.round(e.confidence*100)+'%' : '—';
+    const objs = Array.isArray(e.objects) && e.objects.length ? e.objects.join(' · ') : '—';
+    const wall = fmtWall(e.wall_time);
+    const tRel = e.timestamp_sec!=null ? `T+${Number(e.timestamp_sec).toFixed(1)}s` : '';
+    let thumb = e.thumbnail || '';
+    if (thumb && !/^https?:/.test(thumb) && !thumb.startsWith('/')) thumb = '/' + thumb;
+    const narr = (e.narration && String(e.narration).trim()) ? e.narration : null;
+    const body = narr
+      ? `<div class="narr">${escapeHtml(narr)}</div>`
+      : (e.summary ? `<div class="summ">${escapeHtml(e.summary)}</div>` : '');
+
+    const enr = e.enrichment || null;
+    let enrichLine = '';
+    const enrichBits = [];
+    if (enr) {
+      if (enr.plate_hash) {
+        enrichBits.push(`<span class="tag hash" title="salted plate hash — raw text not retained">${escapeHtml(enr.plate_hash)}</span>`);
+      } else if (enr.readability) {
+        enrichBits.push(`<span class="tag muted">plate ${escapeHtml(enr.readability)}</span>`);
+      }
+      const veh = [enr.vehicle_color, enr.vehicle_type].filter(Boolean).join(' ');
+      if (veh) enrichBits.push(`<span class="tag">${escapeHtml(veh)}</span>`);
+    }
+
+    // Kinematics badges: TTC (physical-unit risk signal) + distance in metres
+    const kinBits = [];
+    if (e.ttc_sec != null) {
+      const warn = e.ttc_sec <= 1.5 ? ' warn' : '';
+      kinBits.push(`<span class="tag kin${warn}" title="time-to-collision">TTC ${Number(e.ttc_sec).toFixed(1)}s</span>`);
+    }
+    if (e.distance_m != null) {
+      kinBits.push(`<span class="tag kin" title="monocular distance estimate">${Number(e.distance_m).toFixed(1)}m</span>`);
+    }
+    if (e.distance_px != null) {
+      kinBits.push(`<span class="tag">${Math.round(e.distance_px)}px</span>`);
+    }
+    const kinLine = kinBits.length ? `<div class="meta">${kinBits.join('')}</div>` : '';
+
+    // Track-pair + episode duration
+    const tidBits = [];
+    if (Array.isArray(e.track_ids) && e.track_ids.length) {
+      tidBits.push(`<span class="tag track">#${e.track_ids.join(' / #')}</span>`);
+    }
+    if (e.episode_duration_sec != null) {
+      tidBits.push(`<span class="tag">ep ${Number(e.episode_duration_sec).toFixed(1)}s</span>`);
+    }
+    if (enrichBits.length) tidBits.push(...enrichBits);
+    const tidLine = tidBits.length ? `<div class="row3">${tidBits.join('')}</div>` : '';
+
+    const skipNote = e.enrichment_skipped
+      ? `<div class="skip-note">vision enrichment skipped (${escapeHtml(e.enrichment_skipped)})</div>`
+      : '';
+
+    card.innerHTML = `
+      <div class="thumb">${thumb
+        ? `<img src="${escapeHtml(thumb)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'no preview'}))">`
+        : `<span>no preview</span>`}</div>
+      <div class="body">
+        <div class="row1">
+          <span class="risk ${riskCls}">${escapeHtml(risk)}</span>
+          <span class="etype">${escapeHtml(humanType(e.event_type))}</span>
+          <span class="meta"><span>${wall}</span><span class="sep">•</span><span>${tRel}</span></span>
+        </div>
+        <div class="meta">
+          <span>${escapeHtml(objs)}</span>
+          <span class="sep">•</span>
+          <span>conf ${conf}</span>
+        </div>
+        ${kinLine}
+        ${body}
+        ${skipNote}
+        ${tidLine}
+        <div class="row3">
+          <span class="tag">${escapeHtml(e.event_id||'')}</span>
+          <span class="tag">${escapeHtml(e.video_id||'')}</span>
+        </div>
+        <div class="fb" data-event-id="${escapeHtml(e.event_id||'')}">
+          <button type="button" class="fb-btn tp" data-verdict="tp" title="Mark as true positive">
+            <svg class="fb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 3 1v5h5a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7"/>
+            </svg>
+            Correct
+          </button>
+          <button type="button" class="fb-btn fp" data-verdict="fp" title="Mark as false alarm">
+            <svg class="fb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17 13V4h3v9zM17 13l-4 8a2 2 0 0 1-3-1v-5H5a2 2 0 0 1-2-2l2-7a2 2 0 0 1 2-2h10"/>
+            </svg>
+            False alarm
+          </button>
+          <span class="fb-ack" aria-live="polite"></span>
+        </div>
+      </div>`;
+
+    streamEl.insertBefore(card, streamEl.firstChild);
+    setTimeout(()=>card.classList.remove('flash'), 1500);
+
+    while (streamEl.children.length > MAX_CARDS) {
+      streamEl.removeChild(streamEl.lastChild);
     }
   }
 
-  filtersEl.addEventListener("click", e => {
-    if (e.target.tagName !== "BUTTON") return;
-    activeRisk = e.target.dataset.risk || "";
-    filtersEl.querySelectorAll("button").forEach(b => b.classList.toggle("active", b === e.target));
-    renderEvents();
+  // ---- operator feedback (thumbs) ----
+  async function sendFeedback(eventId, verdict){
+    const r = await fetch('/api/feedback', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({event_id: eventId, verdict})
+    });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }
+  streamEl.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('.fb-btn');
+    if (!btn) return;
+    const row = btn.closest('.fb');
+    if (!row || row.dataset.done === '1') return;
+    const eventId = row.dataset.eventId;
+    const verdict = btn.dataset.verdict;
+    if (!eventId || !verdict) return;
+    const ack = row.querySelector('.fb-ack');
+    const buttons = row.querySelectorAll('.fb-btn');
+    buttons.forEach(b => { b.disabled = true; });
+    try {
+      await sendFeedback(eventId, verdict);
+      row.dataset.done = '1';
+      buttons.forEach(b => {
+        if (b === btn) b.classList.add('chosen');
+        else b.classList.add('faded');
+      });
+      if (ack) { ack.textContent = '\u2713 thanks'; ack.className = 'fb-ack ok'; }
+    } catch (err) {
+      buttons.forEach(b => { b.disabled = false; });
+      if (ack) { ack.textContent = '(retry)'; ack.className = 'fb-ack err'; }
+    }
   });
 
-  loadSummary();
-  loadEvents();
+  // ---- perception banner ----
+  const perceptionEl = document.getElementById('perception');
+  const pStateEl = document.getElementById('pState');
+  const pReasonEl = document.getElementById('pReason');
+  const pMetricsEl = document.getElementById('pMetrics');
+  function renderPerception(p){
+    if (!p) return;
+    const st = p.state || 'nominal';
+    pStateEl.textContent = st;
+    pReasonEl.textContent = p.reason || '';
+    const parts = [];
+    if (p.luminance != null) parts.push(`lum ${Number(p.luminance).toFixed(0)}`);
+    if (p.sharpness != null) parts.push(`sharp ${Number(p.sharpness).toFixed(0)}`);
+    if (p.avg_confidence != null) parts.push(`avg-conf ${Number(p.avg_confidence).toFixed(2)}`);
+    if (p.samples != null) parts.push(`n=${p.samples}`);
+    pMetricsEl.textContent = parts.join(' · ');
+    perceptionEl.classList.toggle('degraded', st !== 'nominal');
+  }
+
+  // ---- scene + drift renderers ----
+  const sLabel = document.getElementById('sLabel');
+  const sReason = document.getElementById('sReason');
+  const sMetrics = document.getElementById('sMetrics');
+  const dState = document.getElementById('dState');
+  const dReason = document.getElementById('dReason');
+  const dMetrics = document.getElementById('dMetrics');
+  const driftEl = document.getElementById('drift');
+
+  function renderScene(s){
+    if (!s) return;
+    sLabel.textContent = s.label || 'unknown';
+    sReason.textContent = s.reason || '';
+    const parts = [];
+    if (s.speed_proxy_mps != null) parts.push(`~${Number(s.speed_proxy_mps).toFixed(1)} m/s`);
+    if (s.pedestrian_rate_per_min != null) parts.push(`ped ${Number(s.pedestrian_rate_per_min).toFixed(1)}/min`);
+    if (s.thresholds) parts.push(`TTC\u2264${s.thresholds.ttc_high_sec}s`);
+    sMetrics.textContent = parts.join(' · ');
+  }
+
+  async function pollScene(){
+    try {
+      const r = await fetch('/api/live/scene', {cache:'no-store'});
+      if (r.ok) renderScene(await r.json());
+    } catch(_){}
+  }
+
+  function renderDrift(d){
+    if (!d) return;
+    if (!d.window_size){
+      dState.textContent = '—';
+      dReason.textContent = 'no labelled feedback yet';
+      dMetrics.textContent = '';
+      return;
+    }
+    dState.textContent = (d.precision != null) ? `P=${Number(d.precision).toFixed(2)}` : '—';
+    dReason.textContent = d.trend ? `trend: ${d.trend}` : '';
+    dMetrics.textContent = `n=${d.window_size} · TP=${d.true_positives} · FP=${d.false_positives}`;
+    driftEl.classList.toggle('degraded', !!d.alert_triggered);
+  }
+
+  async function pollDrift(){
+    try {
+      const r = await fetch('/api/drift', {cache:'no-store'});
+      if (r.ok) renderDrift(await r.json());
+    } catch(_){}
+  }
+  driftEl.addEventListener('click', pollDrift);
+
+  // ---- status poll ----
+  async function pollStatus(){
+    try {
+      const r = await fetch('/api/live/status', {cache:'no-store'});
+      if (r.ok) {
+        const j = await r.json();
+        sourceName = j.source || sourceName;
+        if (j.started_at){
+          const t = typeof j.started_at==='number' ? j.started_at : Date.parse(j.started_at)/1000;
+          if (!isNaN(t)) startedAt = t;
+        }
+        if (j.perception) renderPerception(j.perception);
+        if (!statusDot.classList.contains('bad')) setStatus('connected');
+      }
+    } catch(_){}
+  }
+  function tickUptime(){
+    if (startedAt){
+      const secs = Math.max(0, Date.now()/1000 - startedAt);
+      tUp.textContent = fmtUptime(secs);
+    }
+  }
+  setInterval(pollStatus, 5000);
+  setInterval(pollScene, 7000);
+  setInterval(pollDrift, 30000);
+  setInterval(tickUptime, 1000);
+  pollStatus();
+  pollScene();
+  pollDrift();
+
+  // ---- copilot chat ----
+  const chatEl = document.getElementById('chat');
+  const qEl = document.getElementById('q');
+  const askBtn = document.getElementById('askBtn');
+  const form = document.getElementById('composeForm');
+  let inFlight = false;
+
+  function appendMsg(role, text, isErr){
+    const d = document.createElement('div');
+    d.className = 'msg ' + (role==='user'?'user':'bot') + (isErr?' err':'');
+    d.textContent = text;
+    chatEl.appendChild(d);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return d;
+  }
+
+  async function ask(query){
+    if (inFlight || !query.trim()) return;
+    inFlight = true;
+    askBtn.disabled = true; askBtn.textContent = 'Thinking…';
+    appendMsg('user', query);
+    qEl.value = '';
+    try {
+      const r = await fetch('/chat', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({query})
+      });
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      const j = await r.json();
+      appendMsg('bot', j.answer || '(no answer)');
+    } catch(err){
+      appendMsg('bot', '(error: '+(err.message||err)+')', true);
+    } finally {
+      inFlight = false;
+      askBtn.disabled = false; askBtn.textContent = 'Ask';
+      qEl.focus();
+    }
+  }
+
+  form.addEventListener('submit', e => { e.preventDefault(); ask(qEl.value); });
+  qEl.addEventListener('keydown', e => {
+    if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); ask(qEl.value); }
+  });
+  document.getElementById('chips').addEventListener('click', e => {
+    const t = e.target.closest('.chip');
+    if (t) { qEl.value = t.dataset.q || t.textContent; qEl.focus(); }
+  });
+
+  // ---- go ----
+  setStatus('connecting');
+  connectSSE();
+})();
 </script>
 </body>
 </html>

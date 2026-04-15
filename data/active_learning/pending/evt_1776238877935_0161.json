@@ -1,0 +1,46 @@
+{
+  "event_id": "evt_1776238877935_0161",
+  "reason": "decision_boundary",
+  "confidence": 0.418,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776238877935_0161.jpg",
+  "event_json": {
+    "event_id": "evt_1776238877935_0161",
+    "video_id": "live_stream",
+    "timestamp_sec": 2750.27,
+    "wall_time": "2026-04-15T07:41:28Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.418,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      2035,
+      2027
+    ],
+    "episode_duration_sec": 6.06,
+    "ttc_sec": null,
+    "distance_m": 5.22,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 121.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and truck ~5.2m apart (risk=medium).",
+    "narration": "MEDIUM Car and truck in close proximity at 5.2 metres distance in urban area.",
+    "thumbnail": "thumbnails/evt_1776238877935_0161_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": "black",
+      "vehicle_type": "classic/vintage coupe",
+      "readability": "unreadable",
+      "notes": "Vehicle shown in inset 'Notable Vehicles' panel is a classic/vintage automobile with whitewall tires, photographed during daytime. Main surveillance footage shows nighttime street scene with multiple "
+    }
+  },
+  "sampled_at": "2026-04-15T07:41:31Z"
+}

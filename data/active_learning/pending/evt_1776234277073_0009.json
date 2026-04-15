@@ -1,0 +1,41 @@
+{
+  "event_id": "evt_1776234277073_0009",
+  "reason": "decision_boundary",
+  "confidence": 0.354,
+  "risk_level": "low",
+  "thumbnail_internal": "data/thumbnails/evt_1776234277073_0009.jpg",
+  "event_json": {
+    "event_id": "evt_1776234277073_0009",
+    "video_id": "live_stream",
+    "timestamp_sec": 127.56,
+    "wall_time": "2026-04-15T06:24:48Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "low",
+    "confidence": 0.354,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      72,
+      74
+    ],
+    "episode_duration_sec": 10.32,
+    "ttc_sec": null,
+    "distance_m": 23.53,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 122.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and truck ~23.5m apart (risk=low).",
+    "narration": "LOW Car and truck are 23.53 metres apart in urban area.",
+    "thumbnail": "thumbnails/evt_1776234277073_0009_public.jpg",
+    "perception_state": "nominal",
+    "enrichment_skipped": "low_risk_event"
+  },
+  "sampled_at": "2026-04-15T06:24:51Z"
+}

@@ -1,8 +1,8 @@
 """
-Fleet safety event extraction.
+Fleet safety event extraction — batch mode.
 
-Reads a video, samples frames, runs object detection, and emits structured
-safety events (pedestrian proximity, vehicle proximity) with thumbnails.
+Reads a video file, samples frames, runs YOLO, emits structured safety events
+with thumbnails. Shares core detection logic with the live server (detection.py).
 
 Usage:
     python analyze.py data/input.mp4
@@ -13,11 +13,21 @@ from __future__ import annotations
 import json
 import sys
 import time
-from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import cv2
-from ultralytics import YOLO
+
+from detection import (
+    TrackHistory,
+    build_event_summary,
+    classify_risk,
+    detect_frame,
+    estimate_distance_m,
+    estimate_ttc_sec,
+    find_interactions,
+    load_model,
+)
+from redact import public_thumbnail_name, write_thumbnails
 
 DATA_DIR = Path(__file__).parent / "data"
 THUMBS_DIR = DATA_DIR / "thumbnails"
@@ -25,115 +35,10 @@ EVENTS_PATH = DATA_DIR / "events.json"
 SUMMARY_PATH = DATA_DIR / "summary.json"
 
 SAMPLE_FPS = 2
-VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
-PEDESTRIAN_CLASSES = {"person"}
-
-HIGH_RISK_PX = 60
-MED_RISK_PX = 180
-
 EVENT_MERGE_WINDOW_SEC = 2.0
 
 
-@dataclass
-class Detection:
-    cls: str
-    conf: float
-    x1: int
-    y1: int
-    x2: int
-    y2: int
-
-    @property
-    def center(self) -> tuple[float, float]:
-        return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
-
-
-@dataclass
-class Event:
-    event_id: str
-    video_id: str
-    timestamp_sec: float
-    event_type: str
-    risk_level: str
-    confidence: float
-    objects: list[str]
-    summary: str
-    thumbnail: str
-
-
-def bbox_edge_distance(a: Detection, b: Detection) -> float:
-    """Minimum pixel distance between two bounding boxes (0 if overlapping)."""
-    dx = max(a.x1 - b.x2, b.x1 - a.x2, 0)
-    dy = max(a.y1 - b.y2, b.y1 - a.y2, 0)
-    return (dx * dx + dy * dy) ** 0.5
-
-
-def classify_risk(distance_px: float) -> str:
-    if distance_px <= HIGH_RISK_PX:
-        return "high"
-    if distance_px <= MED_RISK_PX:
-        return "medium"
-    return "low"
-
-
-def draw_thumbnail(frame, primary: Detection, secondary: Detection, path: Path) -> None:
-    annotated = frame.copy()
-    for det, color in [(primary, (0, 0, 255)), (secondary, (0, 200, 255))]:
-        cv2.rectangle(annotated, (det.x1, det.y1), (det.x2, det.y2), color, 2)
-        cv2.putText(
-            annotated,
-            f"{det.cls} {det.conf:.2f}",
-            (det.x1, max(det.y1 - 6, 12)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            color,
-            1,
-            cv2.LINE_AA,
-        )
-    cv2.imwrite(str(path), annotated)
-
-
-def detect_frame(model: YOLO, frame) -> list[Detection]:
-    results = model(frame, verbose=False)[0]
-    names = results.names
-    out: list[Detection] = []
-    for box in results.boxes:
-        cls = names[int(box.cls)]
-        if cls not in VEHICLE_CLASSES and cls not in PEDESTRIAN_CLASSES:
-            continue
-        conf = float(box.conf)
-        if conf < 0.4:
-            continue
-        x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
-        out.append(Detection(cls=cls, conf=conf, x1=x1, y1=y1, x2=x2, y2=y2))
-    return out
-
-
-def find_interactions(
-    detections: list[Detection],
-) -> list[tuple[str, Detection, Detection, float]]:
-    """Return (event_type, primary, secondary, distance) candidates for one frame."""
-    pedestrians = [d for d in detections if d.cls in PEDESTRIAN_CLASSES]
-    vehicles = [d for d in detections if d.cls in VEHICLE_CLASSES]
-    candidates = []
-
-    for ped in pedestrians:
-        for veh in vehicles:
-            dist = bbox_edge_distance(ped, veh)
-            if dist <= MED_RISK_PX:
-                candidates.append(("pedestrian_proximity", ped, veh, dist))
-
-    for i, a in enumerate(vehicles):
-        for b in vehicles[i + 1 :]:
-            dist = bbox_edge_distance(a, b)
-            if dist <= HIGH_RISK_PX:
-                candidates.append(("vehicle_close_interaction", a, b, dist))
-
-    return candidates
-
-
 def merge_events(raw: list[dict]) -> list[dict]:
-    """Collapse consecutive same-type events into one representative event."""
     merged: list[dict] = []
     for ev in sorted(raw, key=lambda e: e["timestamp_sec"]):
         if merged:
@@ -164,9 +69,7 @@ def build_summary(video_id: str, duration_sec: float, events: list[dict]) -> dic
     else:
         trip_class = "safe"
 
-    parts = []
-    for etype, count in by_type.items():
-        parts.append(f"{count} {etype.replace('_', ' ')}")
+    parts = [f"{count} {etype.replace('_', ' ')}" for etype, count in by_type.items()]
     narrative = (
         f"This trip contained {len(events)} safety event(s): " + ", ".join(parts) + "."
         if events
@@ -194,6 +97,8 @@ def analyze(video_path: Path) -> None:
     THUMBS_DIR.mkdir(parents=True, exist_ok=True)
     for old in THUMBS_DIR.glob("*.jpg"):
         old.unlink()
+    for old in THUMBS_DIR.glob("*_public.jpg"):
+        old.unlink()
 
     video_id = video_path.stem
     cap = cv2.VideoCapture(str(video_path))
@@ -205,7 +110,8 @@ def analyze(video_path: Path) -> None:
     print(f"Video: {video_id}  fps={fps:.1f}  frames={total_frames}  duration={duration_sec:.1f}s")
     print(f"Sampling every {step} frames (~{SAMPLE_FPS} fps)")
 
-    model = YOLO("yolov8n.pt")
+    model = load_model()
+    track_history = TrackHistory()
 
     raw_events: list[dict] = []
     frame_idx = 0
@@ -222,13 +128,36 @@ def analyze(video_path: Path) -> None:
 
         timestamp = frame_idx / fps
         detections = detect_frame(model, frame)
+        frame_h = frame.shape[0]
+        live_ids: set[int] = set()
+        for det in detections:
+            if det.track_id is not None:
+                live_ids.add(det.track_id)
+                track_history.update(det, timestamp)
+        track_history.prune(live_ids, timestamp)
+
         for event_type, a, b, distance in find_interactions(detections):
-            risk = classify_risk(distance)
+            ttc = None
+            for sub in (a, b):
+                cand = estimate_ttc_sec(track_history.samples(sub.track_id))
+                if cand is not None and (ttc is None or cand < ttc):
+                    ttc = cand
+            dist_m = None
+            for sub in (a, b):
+                cand = estimate_distance_m(sub, frame_h)
+                if cand is not None and (dist_m is None or cand < dist_m):
+                    dist_m = cand
+            risk = classify_risk(ttc, dist_m, distance)
             if event_type == "pedestrian_proximity" and risk == "low":
                 continue
             event_id = f"evt_{len(raw_events):04d}"
-            thumb_name = f"{event_id}.jpg"
-            draw_thumbnail(frame, a, b, THUMBS_DIR / thumb_name)
+            internal_name = f"{event_id}.jpg"
+            public_name = public_thumbnail_name(internal_name)
+            write_thumbnails(
+                frame, detections, a, b,
+                THUMBS_DIR / internal_name,
+                THUMBS_DIR / public_name,
+            )
             raw_events.append(
                 {
                     "event_id": event_id,
@@ -238,11 +167,15 @@ def analyze(video_path: Path) -> None:
                     "risk_level": risk,
                     "confidence": round(min(a.conf, b.conf), 3),
                     "objects": sorted({a.cls, b.cls}),
-                    "summary": (
-                        f"{a.cls.title()} and {b.cls} within {int(distance)}px "
-                        f"(risk={risk})."
+                    "track_ids": [t for t in (a.track_id, b.track_id) if t is not None],
+                    "ttc_sec": ttc,
+                    "distance_m": dist_m,
+                    "distance_px": round(distance, 1),
+                    "summary": build_event_summary(
+                        event_type, a, b, distance, risk,
+                        ttc_sec=ttc, distance_m=dist_m,
                     ),
-                    "thumbnail": f"thumbnails/{thumb_name}",
+                    "thumbnail": f"thumbnails/{public_name}",
                     "_distance": distance,
                 }
             )

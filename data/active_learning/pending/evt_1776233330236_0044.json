@@ -1,0 +1,41 @@
+{
+  "event_id": "evt_1776233330236_0044",
+  "reason": "decision_boundary",
+  "confidence": 0.462,
+  "risk_level": "low",
+  "thumbnail_internal": "data/thumbnails/evt_1776233330236_0044.jpg",
+  "event_json": {
+    "event_id": "evt_1776233330236_0044",
+    "video_id": "live_stream",
+    "timestamp_sec": 855.92,
+    "wall_time": "2026-04-15T06:08:55Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "low",
+    "confidence": 0.462,
+    "objects": [
+      "bus",
+      "truck"
+    ],
+    "track_ids": [
+      413,
+      544
+    ],
+    "episode_duration_sec": 0.62,
+    "ttc_sec": null,
+    "distance_m": 14.29,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 100.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Bus and truck ~14.3m apart (risk=low).",
+    "narration": "LOW: Bus and truck maintained safe separation at 14.29 metres distance in urban environment.",
+    "thumbnail": "thumbnails/evt_1776233330236_0044_public.jpg",
+    "perception_state": "nominal",
+    "enrichment_skipped": "low_risk_event"
+  },
+  "sampled_at": "2026-04-15T06:08:56Z"
+}

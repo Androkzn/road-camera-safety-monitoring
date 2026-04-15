@@ -1,0 +1,46 @@
+{
+  "event_id": "evt_1776234779874_0048",
+  "reason": "decision_boundary",
+  "confidence": 0.41,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776234779874_0048.jpg",
+  "event_json": {
+    "event_id": "evt_1776234779874_0048",
+    "video_id": "live_stream",
+    "timestamp_sec": 630.37,
+    "wall_time": "2026-04-15T06:33:02Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.41,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      453,
+      521
+    ],
+    "episode_duration_sec": 1.3,
+    "ttc_sec": 27.97,
+    "distance_m": 4.63,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 111.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and truck ~4.6m apart TTC 28.0s (risk=medium).",
+    "narration": "MEDIUM Car and truck 4.6 metres apart with TTC 28.0 seconds in urban area.",
+    "thumbnail": "thumbnails/evt_1776234779874_0048_public.jpg",
+    "perception_state": "nominal",
+    "enrichment": {
+      "vehicle_color": null,
+      "vehicle_type": null,
+      "readability": "unreadable",
+      "notes": "skipped \u2014 client-side rate budget exhausted"
+    }
+  },
+  "sampled_at": "2026-04-15T06:33:10Z"
+}

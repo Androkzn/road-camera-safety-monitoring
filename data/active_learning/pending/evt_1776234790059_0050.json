@@ -1,0 +1,40 @@
+{
+  "event_id": "evt_1776234790059_0050",
+  "reason": "decision_boundary",
+  "confidence": 0.449,
+  "risk_level": "medium",
+  "thumbnail_internal": "data/thumbnails/evt_1776234790059_0050.jpg",
+  "event_json": {
+    "event_id": "evt_1776234790059_0050",
+    "video_id": "live_stream",
+    "timestamp_sec": 640.55,
+    "wall_time": "2026-04-15T06:33:14Z",
+    "event_type": "vehicle_close_interaction",
+    "risk_level": "medium",
+    "confidence": 0.449,
+    "objects": [
+      "car",
+      "truck"
+    ],
+    "track_ids": [
+      453,
+      547
+    ],
+    "episode_duration_sec": 0.47,
+    "ttc_sec": 7.36,
+    "distance_m": 5.5,
+    "distance_px": 0.0,
+    "scene_context": {
+      "label": "urban",
+      "confidence": 0.7,
+      "speed_proxy_mps": null,
+      "reason": "pedestrian rate 160.0/min > 3"
+    },
+    "ego_flow": null,
+    "summary": "Car and truck ~5.5m apart TTC 7.4s (risk=medium).",
+    "narration": "MEDIUM Car and truck approaching with 5.5 metre separation, TTC 7.36 seconds in urban area.",
+    "thumbnail": "thumbnails/evt_1776234790059_0050_public.jpg",
+    "perception_state": "nominal"
+  },
+  "sampled_at": "2026-04-15T06:33:35Z"
+}
