@@ -1,4 +1,4 @@
-# Fleet-safety test suite
+# Road-safety test suite
 
 Regression corpus for the dashcam event detector. Each clip is a short video
 plus a hand-labelled JSON of the events it should produce. `eval.py --suite`

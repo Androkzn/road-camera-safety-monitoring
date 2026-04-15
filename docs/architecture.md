@@ -30,7 +30,7 @@ redacted thumbnails cross the wire, signed with HMAC.
 +--------------------------------------------|--------------------------+
                                              |
                       HTTPS + Signature: sha256=...
-                      X-Fleet-Timestamp: <unix>
+                      X-Road-Timestamp: <unix>
                                              |
 +-------------------------------- CLOUD ---------------------------------+
 |                                            v                          |
@@ -73,7 +73,7 @@ HMAC-SHA256 over `f"{timestamp}.{body}"` is one shared secret per edge node,
 trivial to rotate via config, and works through any HTTPS proxy. Because the
 payload is already scrubbed, confidentiality is provided by TLS and integrity
 by the HMAC; we do not need strong client identity. mTLS is a reasonable
-upgrade once there is a real PKI and a fleet-management plane to rotate
+upgrade once there is a real PKI and a road-management plane to rotate
 client certs; for a demo it is operational overkill.
 
 ## Offline resilience
@@ -87,11 +87,11 @@ side dedupes on it (see `INSERT OR IGNORE` in `cloud_receiver.py`).
 
 ## Failure modes
 
-- **Clock skew:** signed `X-Fleet-Timestamp` enforced within +/- 300 s. Clocks
+- **Clock skew:** signed `X-Road-Timestamp` enforced within +/- 300 s. Clocks
   drift; 5 min is the standard webhook window (Stripe, Slack).
 - **Replay:** `event_id` dedup on cloud side means a replayed batch is a
   no-op. The timestamp window additionally bounds replay to 5 minutes.
-- **Secret leak:** rotate `FLEET_CLOUD_HMAC_SECRET`, redeploy both sides;
+- **Secret leak:** rotate `ROAD_CLOUD_HMAC_SECRET`, redeploy both sides;
   events signed with the old secret fail verification and get 401'd.
 - **Queue growth during long outage:** JSONL is trimmed from the head once
   ack'd; operator alert wired through `/stats.last_received_at` staleness.
@@ -131,10 +131,10 @@ Max iteration cap (5 steps) prevents runaway loops.
 - **DSAR workflow:** unredacted thumbnails require `X-DSAR-Token` header; denied
   attempts are audit-logged.
 
-## Multi-Vehicle Fleet Model
+## Multi-Vehicle Road Model
 
-- Each event carries `vehicle_id`, `fleet_id`, `driver_id` from env config.
-- `fleet.py` maintains an in-memory registry with per-vehicle event counts,
+- Each event carries `vehicle_id`, `road_id`, `driver_id` from env config.
+- `road.py` maintains an in-memory registry with per-vehicle event counts,
   safety scores (decaying penalty model), and driver leaderboard.
-- `/api/fleet/summary` provides fleet-wide aggregation; `/api/fleet/drivers`
+- `/api/road/summary` provides road-wide aggregation; `/api/road/drivers`
   ranks drivers by safety score (worst-first for manager attention).

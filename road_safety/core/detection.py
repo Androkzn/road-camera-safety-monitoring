@@ -29,7 +29,7 @@ VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 PEDESTRIAN_CLASSES = {"person"}
 
 CONF_THRESHOLD = 0.35
-MODEL_PATH = "yolov8n.pt"
+from road_safety.config import MODEL_PATH
 TRACKER_CFG = "bytetrack.yaml"
 
 # Pinhole/ground-plane approximation — dashcam mounted ~1.4m above road,

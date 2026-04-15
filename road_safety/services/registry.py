@@ -1,35 +1,32 @@
-"""Multi-vehicle fleet readiness layer.
+"""Multi-vehicle road safety readiness layer.
 
-Adds vehicle/fleet identity, fleet-wide event aggregation, and
-cross-vehicle pattern detection. This module sits between the
-single-stream processing (server.py) and the API layer, providing
-the data model that a production multi-vehicle deployment needs.
+Adds vehicle identity, system-wide event aggregation, and cross-vehicle
+pattern detection. This module sits between the single-stream processing
+(server.py) and the API layer, providing the data model that a production
+multi-vehicle deployment needs.
 
 Design goals:
-  * Backwards-compatible — a single-vehicle demo still works; vehicle_id
+  * Backwards-compatible -- a single-vehicle demo still works; vehicle_id
     defaults to the env var or "vehicle_01".
-  * Fleet-wide queries — aggregate events across vehicles, find hotspots.
-  * Driver scoring — rolling safety score per driver based on events +
+  * System-wide queries -- aggregate events across vehicles, find hotspots.
+  * Driver scoring -- rolling safety score per driver based on events +
     feedback.
-  * Pattern detection — flag when multiple vehicles report events at the
+  * Pattern detection -- flag when multiple vehicles report events at the
     same location/time window (intersection hotspot).
 
-In production, the fleet registry would live in a database. For this demo
+In production, the registry would live in a database. For this demo
 it's an in-memory dict keyed by vehicle_id, populated from events as they
 arrive.
 """
 
 from __future__ import annotations
 
-import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-VEHICLE_ID = os.getenv("FLEET_VEHICLE_ID", "vehicle_01")
-FLEET_ID = os.getenv("FLEET_ID", "fleet_demo")
-DRIVER_ID = os.getenv("FLEET_DRIVER_ID", "driver_01")
+from road_safety.config import DRIVER_ID, ROAD_ID, VEHICLE_ID
 
 RISK_WEIGHTS = {"high": 10, "medium": 3, "low": 1}
 SCORE_DECAY_PER_HOUR = 0.5
@@ -39,7 +36,7 @@ MAX_SCORE = 100.0
 @dataclass
 class VehicleState:
     vehicle_id: str
-    fleet_id: str
+    road_id: str
     driver_id: str | None = None
     total_events: int = 0
     events_by_risk: dict[str, int] = field(default_factory=lambda: {"high": 0, "medium": 0, "low": 0})
@@ -52,7 +49,7 @@ class VehicleState:
     def as_dict(self) -> dict:
         return {
             "vehicle_id": self.vehicle_id,
-            "fleet_id": self.fleet_id,
+            "road_id": self.road_id,
             "driver_id": self.driver_id,
             "total_events": self.total_events,
             "events_by_risk": dict(self.events_by_risk),
@@ -67,25 +64,25 @@ class VehicleState:
         }
 
 
-class FleetRegistry:
-    """In-memory fleet registry for multi-vehicle aggregation."""
+class RoadRegistry:
+    """In-memory vehicle registry for multi-vehicle aggregation."""
 
     def __init__(self):
         self._vehicles: dict[str, VehicleState] = {}
         self._event_locations: list[dict] = []
 
-    def _ensure(self, vehicle_id: str, fleet_id: str = FLEET_ID, driver_id: str | None = None) -> VehicleState:
+    def _ensure(self, vehicle_id: str, road_id: str = ROAD_ID, driver_id: str | None = None) -> VehicleState:
         if vehicle_id not in self._vehicles:
             self._vehicles[vehicle_id] = VehicleState(
-                vehicle_id=vehicle_id, fleet_id=fleet_id, driver_id=driver_id,
+                vehicle_id=vehicle_id, road_id=road_id, driver_id=driver_id,
             )
         return self._vehicles[vehicle_id]
 
     def record_event(self, event: dict) -> None:
         vid = event.get("vehicle_id", VEHICLE_ID)
-        fid = event.get("fleet_id", FLEET_ID)
+        rid = event.get("road_id", ROAD_ID)
         did = event.get("driver_id", DRIVER_ID)
-        v = self._ensure(vid, fid, did)
+        v = self._ensure(vid, rid, did)
 
         v.total_events += 1
         risk = event.get("risk_level", "low")
@@ -114,11 +111,11 @@ class FleetRegistry:
         v = self._vehicles.get(vehicle_id)
         return v.as_dict() if v else None
 
-    def fleet_summary(self) -> dict[str, Any]:
+    def road_summary(self) -> dict[str, Any]:
         vehicles = list(self._vehicles.values())
         if not vehicles:
             return {
-                "fleet_id": FLEET_ID,
+                "road_id": ROAD_ID,
                 "vehicle_count": 0,
                 "total_events": 0,
                 "aggregate_by_risk": {},
@@ -140,7 +137,7 @@ class FleetRegistry:
         worst = min(vehicles, key=lambda v: v.safety_score)
 
         return {
-            "fleet_id": FLEET_ID,
+            "road_id": ROAD_ID,
             "vehicle_count": len(vehicles),
             "total_events": total,
             "aggregate_by_risk": dict(agg_risk),
@@ -176,4 +173,4 @@ class FleetRegistry:
         return ranked[:limit]
 
 
-fleet_registry = FleetRegistry()
+road_registry = RoadRegistry()

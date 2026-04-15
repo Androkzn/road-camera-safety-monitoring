@@ -19,7 +19,7 @@ import asyncio
 import os
 import traceback
 
-import slack_notify
+from road_safety.integrations import slack as slack_notify
 
 DIGEST_INTERVAL_SEC: int = int(os.getenv("DIGEST_INTERVAL_SEC", "3600"))
 DAILY_INTERVAL_SEC: int = int(os.getenv("DAILY_INTERVAL_SEC", "86400"))

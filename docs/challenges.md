@@ -8,7 +8,7 @@ This document maps the **major pain points** in production dashcam safety AI sys
 
 ### The Challenge
 
-False positives are the #1 complaint from fleet operators. Basic detection systems fire on every close proximity event without understanding context — a stop sign that doesn't apply to the driver's lane, normal close-quarters maneuvering in a parking lot, or highway following distances that look dangerously close at city-street thresholds. The result: drivers learn to ignore the system, and the safety value drops to zero.
+False positives are the #1 complaint from road operators. Basic detection systems fire on every close proximity event without understanding context — a stop sign that doesn't apply to the driver's lane, normal close-quarters maneuvering in a parking lot, or highway following distances that look dangerously close at city-street thresholds. The result: drivers learn to ignore the system, and the safety value drops to zero.
 
 Industry data: even state-of-the-art systems generate enough false alerts that inconsistent coaching and reduced driver trust remain the dominant operational problems (Netradyne, 2026).
 
@@ -76,7 +76,7 @@ Industry data: 80% of RAG failures trace to ingestion/chunking, not the LLM itse
 
 ### The Challenge
 
-Fleet cameras capture faces, license plates, and location data — all classified as PII under GDPR and CCPA. GDPR fines can exceed 70M EUR. License plates create tracking profiles that trigger data protection obligations. Driver-facing cameras raise biometric data concerns in jurisdictions requiring explicit consent. Organizations must demonstrate what personal data they hold, who accessed it, and when (GDPR Art. 30).
+Road cameras capture faces, license plates, and location data — all classified as PII under GDPR and CCPA. GDPR fines can exceed 70M EUR. License plates create tracking profiles that trigger data protection obligations. Driver-facing cameras raise biometric data concerns in jurisdictions requiring explicit consent. Organizations must demonstrate what personal data they hold, who accessed it, and when (GDPR Art. 30).
 
 ### How We Address It
 
@@ -99,9 +99,9 @@ Fleet cameras capture faces, license plates, and location data — all classifie
 
 ### The Challenge
 
-Computer vision models degrade in production. Weather changes, new camera angles, seasonal lighting shifts, fleet expansion to new geographies — all cause the training distribution to diverge from production data. Without monitoring, precision silently degrades until operators lose trust. Retraining requires labeled data, which is expensive to collect and curate.
+Computer vision models degrade in production. Weather changes, new camera angles, seasonal lighting shifts, road expansion to new geographies — all cause the training distribution to diverge from production data. Without monitoring, precision silently degrades until operators lose trust. Retraining requires labeled data, which is expensive to collect and curate.
 
-Industry data: automated error classification frameworks can reduce manual review workload by up to 78%, but most fleet operators lack any drift monitoring at all.
+Industry data: automated error classification frameworks can reduce manual review workload by up to 78%, but most road operators lack any drift monitoring at all.
 
 ### How We Address It
 
@@ -119,11 +119,11 @@ Industry data: automated error classification frameworks can reduce manual revie
 
 ---
 
-## 6. Scaling to Multi-Vehicle Fleets
+## 6. Scaling to Multi-Vehicle Roads
 
 ### The Challenge
 
-Going from a single-camera demo to thousands of vehicles requires vehicle identity, fleet-wide aggregation, driver scoring, and multi-tenant isolation. Large providers operate over a million deployed video systems — the data model must support fleet-scale operations from day one.
+Going from a single-camera demo to thousands of vehicles requires vehicle identity, road-wide aggregation, driver scoring, and multi-tenant isolation. Large providers operate over a million deployed video systems — the data model must support road-scale operations from day one.
 
 Industry data: traditional monolithic systems designed for 100 cameras cannot handle modern deployments. Async processing, message queues, and horizontal scaling become requirements.
 
@@ -131,13 +131,13 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Vehicle/fleet identity** | `fleet.py`, `server.py` | Every event carries `vehicle_id`, `fleet_id`, and `driver_id` from environment configuration. Events are attributable to a specific vehicle and driver from the moment they are created. |
-| **Per-vehicle state tracking** | `fleet.py` (`FleetRegistry`) | In-memory registry maintains per-vehicle event counts (by risk and type), safety scores, and feedback precision. |
-| **Driver safety scoring** | `fleet.py` | Decaying penalty model: high-risk events deduct 10 points, medium 3, low 1, from a max score of 100. Scores recover over time (0.5 points/hour decay). |
-| **Fleet-wide aggregation API** | `server.py` | `/api/fleet/summary` provides aggregate event counts, risk breakdowns, and identifies the lowest-scoring vehicle. `/api/fleet/drivers` ranks drivers worst-first for manager attention. |
+| **Vehicle/road identity** | `road.py`, `server.py` | Every event carries `vehicle_id`, `road_id`, and `driver_id` from environment configuration. Events are attributable to a specific vehicle and driver from the moment they are created. |
+| **Per-vehicle state tracking** | `road.py` (`RoadRegistry`) | In-memory registry maintains per-vehicle event counts (by risk and type), safety scores, and feedback precision. |
+| **Driver safety scoring** | `road.py` | Decaying penalty model: high-risk events deduct 10 points, medium 3, low 1, from a max score of 100. Scores recover over time (0.5 points/hour decay). |
+| **Road-wide aggregation API** | `server.py` | `/api/road/summary` provides aggregate event counts, risk breakdowns, and identifies the lowest-scoring vehicle. `/api/road/drivers` ranks drivers worst-first for manager attention. |
 | **Edge/cloud split** | `edge_publisher.py`, `cloud_receiver.py` | Each vehicle runs its own edge node. Events flow to a central cloud receiver via HMAC-signed HTTPS. Cloud deduplicates on `event_id`. |
 
-**Key design principle:** the single-vehicle demo and the multi-vehicle fleet use the same data model. Adding vehicles is a configuration change, not a code change.
+**Key design principle:** the single-vehicle demo and the multi-vehicle road use the same data model. Adding vehicles is a configuration change, not a code change.
 
 ---
 
@@ -156,7 +156,7 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 | **Idempotent tool calls** | `agents.py` | Every tool is a pure function: `get_event`, `get_policy`, `get_feedback`, `get_drift_report`, `count_by_type`. Same input always produces the same output. |
 | **Hard stop condition** | `agents.py` | Maximum 5 iteration steps. If the agent hasn't produced a final answer by step 5, it returns with what it has rather than looping indefinitely. |
 | **Observability** | `llm_obs.py`, `audit.py` | Agent LLM calls are instrumented with the same cost/latency tracking as all other LLM calls. Agent invocations are audit-logged with the event_id being investigated. |
-| **Coaching agent** | `agents.py` | Given a safety event, retrieves the event details and fleet policy, then generates a structured coaching note: what happened, why it matters, what the driver should do differently, and the relevant policy reference. |
+| **Coaching agent** | `agents.py` | Given a safety event, retrieves the event details and road policy, then generates a structured coaching note: what happened, why it matters, what the driver should do differently, and the relevant policy reference. |
 | **Investigation agent** | `agents.py` | Correlates an event with recent similar events, operator feedback, and drift data to produce a root-cause hypothesis with confidence level. |
 | **Report agent** | `agents.py` | Queries event counts, feedback, and drift data across the session to produce a structured safety summary with top issues and recommendations. |
 
@@ -173,5 +173,5 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 | LLM reliability | Rate limits, hallucination, cost | Multi-provider failover, circuit breaker, self-consistency, rate budget | `llm.py`, `llm_obs.py` |
 | Privacy compliance | GDPR fines >70M EUR, PII exposure | Dual thumbnails, plate hashing, DSAR gating, audit trail, auto-retention | `redact.py`, `audit.py`, `retention.py` |
 | Model drift | Silent precision degradation | Rolling precision, trend detection, active learning, disputed sampling | `drift.py`, `feedback_routes.py` |
-| Fleet scaling | Single-camera to 1.5M vehicles | Vehicle/fleet identity, driver scoring, fleet-wide aggregation | `fleet.py` |
+| Road scaling | Single-camera to 1.5M vehicles | Vehicle/road identity, driver scoring, road-wide aggregation | `road.py` |
 | Agent orchestration | 60% pilot failure rate | Bounded tools, structured output, hard stops, observability | `agents.py` |

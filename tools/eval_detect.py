@@ -1,5 +1,5 @@
 """
-Fleet-safety evaluation harness.
+Road-safety evaluation harness.
 
 Three modes:
   1. Single-clip (backwards compatible):
@@ -46,8 +46,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-ROOT = Path(__file__).parent
-DATA_DIR = ROOT / "data"
+from road_safety.config import DATA_DIR, PROJECT_ROOT
+
+ROOT = PROJECT_ROOT
 DEFAULT_TOLERANCE_SEC = 1.5
 DEFAULT_MANIFEST = DATA_DIR / "test_suite" / "manifest.json"
 DEFAULT_SUITE_RESULTS = DATA_DIR / "test_suite" / "results.json"
@@ -524,7 +525,7 @@ def run_compare(baseline_path: Path, current_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fleet-safety eval harness")
+    parser = argparse.ArgumentParser(description="Road-safety eval harness")
     parser.add_argument(
         "--suite",
         action="store_true",

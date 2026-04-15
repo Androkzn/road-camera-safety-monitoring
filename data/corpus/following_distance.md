@@ -1,4 +1,4 @@
-# Safe Following Distance — Fleet Policy
+# Safe Following Distance — Road Safety Policy
 
 Governs classification and coaching thresholds for `vehicle_close_interaction` events.
 
@@ -28,6 +28,6 @@ The detector emits `vehicle_close_interaction` with `risk_level` in {low, medium
 
 - `risk_level=low`: 120–200 px edge distance ≈ 2–3s following — within policy in dry conditions.
 - `risk_level=medium`: 60–120 px ≈ 1–2s following — sub-policy; log for weekly review.
-- `risk_level=high`: ≤60 px ≈ <1s following — **tailgating**. Triggers an automatic driver coaching flag per `fleet_policy.md`.
+- `risk_level=high`: ≤60 px ≈ <1s following — **tailgating**. Triggers an automatic driver coaching flag per `road_policy.md`.
 
 High-risk events sustained >2s or repeated >3x in a trip escalate directly to the safety manager. Weather context (from vehicle telematics) adjusts thresholds up one tier when wipers are active.

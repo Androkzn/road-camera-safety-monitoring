@@ -23,10 +23,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_DATA_DIR = Path(__file__).parent / "data"
+from road_safety.config import DATA_DIR
+
+_DATA_DIR = DATA_DIR
 _AUDIT_PATH = _DATA_DIR / "audit.jsonl"
 _MAX_TAIL = 200
-_ENABLED = os.getenv("FLEET_AUDIT_LOG", "1").lower() not in ("0", "false", "no")
+_ENABLED = os.getenv("ROAD_AUDIT_LOG", "1").lower() not in ("0", "false", "no")
 
 _lock = threading.Lock()
 

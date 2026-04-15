@@ -33,7 +33,7 @@ Real-time safety requires sub-second inference, but edge devices have limited co
 
 ### 3. LLM reliability in production
 
-80% of RAG failures trace to ingestion, not the model. Hallucination in safety-critical contexts is dangerous. LLM costs compound at fleet scale. Rate limiting and provider outages cause service degradation.
+80% of RAG failures trace to ingestion, not the model. Hallucination in safety-critical contexts is dangerous. LLM costs compound at road scale. Rate limiting and provider outages cause service degradation.
 
 **How we solve it:**
 
@@ -48,7 +48,7 @@ Real-time safety requires sub-second inference, but edge devices have limited co
 
 ### 4. Privacy and compliance (GDPR / CCPA)
 
-Fleet cameras capture faces, license plates, and location data — all PII. Fines for mishandling can be severe. Plate data creates tracking profiles. External sharing (Slack, LLM providers, cloud dashboards) multiplies the exposure surface.
+Road cameras capture faces, license plates, and location data — all PII. Fines for mishandling can be severe. Plate data creates tracking profiles. External sharing (Slack, LLM providers, cloud dashboards) multiplies the exposure surface.
 
 **How we solve it:**
 
@@ -63,7 +63,7 @@ Fleet cameras capture faces, license plates, and location data — all PII. Fine
 
 ### 5. Model drift and continuous improvement
 
-CV models degrade in production — weather changes, new camera angles, seasonal lighting, fleet expansion to new geographies. Without a feedback loop, precision drops silently.
+CV models degrade in production — weather changes, new camera angles, seasonal lighting, road expansion to new geographies. Without a feedback loop, precision drops silently.
 
 **How we solve it:**
 
@@ -80,22 +80,22 @@ Enterprise AI agent pilots frequently fail to scale. Common causes: tool overloa
 
 - **Three focused agents** (`agents.py`), each with a single responsibility and a bounded tool set (< 5 tools):
   - **CoachingAgent** — given a high/medium-risk event, generates a structured coaching note (what happened, why it matters, what the driver should do differently).
-  - **InvestigationAgent** — correlates a single event with historical data, fleet policy, and drift reports to build a root-cause narrative.
+  - **InvestigationAgent** — correlates a single event with historical data, road policy, and drift reports to build a root-cause narrative.
   - **ReportAgent** — queries events, feedback, and drift data to produce a structured safety summary.
 - **Hard iteration cap** (MAX_STEPS = 5) — prevents runaway loops.
 - **Structured JSON output** with schema enforcement — outputs are machine-parseable, not free text.
 - **Idempotent tool calls** — re-running with the same input produces the same output.
 - **Full observability** — agent calls flow through `llm_obs` for cost, latency, and error tracking.
 
-### 7. Fleet-scale operations
+### 7. Road-scale operations
 
-Going from a single camera to thousands of vehicles requires per-vehicle state, driver-level accountability, fleet-wide rollups, and tiered alerting that doesn't drown the operations team.
+Going from a single camera to thousands of vehicles requires per-vehicle state, driver-level accountability, road-wide rollups, and tiered alerting that doesn't drown the operations team.
 
 **How we solve it:**
 
-- **Multi-vehicle registry** (`fleet.py`) — per-vehicle event counts by risk and type, safety score (100 baseline with risk-weighted penalties and time-decay recovery), per-vehicle precision from feedback.
+- **Multi-vehicle registry** (`road.py`) — per-vehicle event counts by risk and type, safety score (100 baseline with risk-weighted penalties and time-decay recovery), per-vehicle precision from feedback.
 - **Driver leaderboard** — merges vehicles by driver ID and ranks by worst safety score for coaching prioritization.
-- **Fleet-wide aggregation** — total risk/type counts and automatic identification of the lowest-scoring vehicle.
+- **Road-wide aggregation** — total risk/type counts and automatic identification of the lowest-scoring vehicle.
 - **Tiered Slack alerting** (`slack_notify.py`) — high-risk events post immediately with Block Kit and annotated thumbnails; medium-risk events batch into hourly digests; low-risk events into daily summaries. Keeps the channel usable instead of noisy.
 - **Edge/cloud integrity** — signed payloads with replay protection and bandwidth-efficient thumbnail fetch, matching real telematics architectures.
 
@@ -118,7 +118,7 @@ Going from a single camera to thousands of vehicles requires per-vehicle state, 
    ├─► POST  /chat                (RAG over corpus + live events)
    ├─► GET   /api/live/*          (status, event history, scene, perception)
    ├─► GET   /api/drift           (precision monitoring)
-   ├─► GET   /api/fleet/*         (multi-vehicle aggregation, driver scores)
+   ├─► GET   /api/road/*         (multi-vehicle aggregation, driver scores)
    ├─► GET   /api/llm/*           (LLM cost/latency observability)
    ├─► GET   /api/audit           (compliance audit trail)
    ├─► POST  /api/agents/*        (AI coaching, investigation, reports)
@@ -128,7 +128,7 @@ Going from a single camera to thousands of vehicles requires per-vehicle state, 
    │                   Auto-failover: Anthropic ↔ Azure OpenAI
    │
    ├──► agents.py      Tool-calling AI agents (coaching, investigation, report)
-   ├──► fleet.py       Multi-vehicle registry + driver scoring
+   ├──► road.py       Multi-vehicle registry + driver scoring
    ├──► drift.py       Rolling precision + active learning sampler
    ├──► retention.py   GDPR-compliant data expiry (thumbnails, feedback, queues)
    ├──► audit.py       Access audit trail (GDPR Art. 30 / SOC 2)
@@ -166,7 +166,7 @@ uvicorn server:app --reload
 Defaults to a Times Square 24/7 live cam. Override with any RTSP, HLS `.m3u8`, YouTube live URL, or local mp4:
 
 ```bash
-FLEET_STREAM_SOURCE="rtsp://…" uvicorn server:app --reload
+ROAD_STREAM_SOURCE="rtsp://…" uvicorn server:app --reload
 ```
 
 The UI has:
@@ -208,7 +208,7 @@ Hand-label ground truth in `data/labels.json`, then `python eval.py` writes `dat
 - **AI agent orchestration.** Tool-calling agents for coaching, investigation, and report generation — each with bounded tool sets to avoid hallucination.
 - **Privacy by design.** Dual-thumbnail PII redaction, plate hashing, DSAR-gated access, audit logging, configurable data retention.
 - **Production observability.** Token cost tracking, latency percentiles, error/skip rates, drift monitoring with Slack alerts.
-- **Fleet-ready data model.** Vehicle ID, fleet ID, driver scoring, fleet-wide aggregation — ready for multi-vehicle expansion.
+- **Road-ready data model.** Vehicle ID, road ID, driver scoring, road-wide aggregation — ready for multi-vehicle expansion.
 
 ## API reference
 
@@ -224,9 +224,9 @@ Hand-label ground truth in `data/labels.json`, then `python eval.py` writes `dat
 | `/api/feedback` | POST/GET | Operator verdict submission |
 | `/api/coaching_queue` | GET | Pending medium-risk events for review |
 | `/api/active_learning/export` | POST | Export samples for labeling |
-| `/api/fleet/summary` | GET | Fleet-wide aggregation |
-| `/api/fleet/vehicle/{id}` | GET | Per-vehicle stats + score |
-| `/api/fleet/drivers` | GET | Driver safety leaderboard |
+| `/api/road/summary` | GET | Road-wide aggregation |
+| `/api/road/vehicle/{id}` | GET | Per-vehicle stats + score |
+| `/api/road/drivers` | GET | Driver safety leaderboard |
 | `/api/agents/coaching` | POST | AI coaching note generator |
 | `/api/agents/investigation` | POST | AI event investigation |
 | `/api/agents/report` | POST | AI safety summary report |

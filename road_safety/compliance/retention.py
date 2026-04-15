@@ -1,7 +1,7 @@
 """Data retention policy — automatic expiry of old events, thumbnails, and feedback.
 
 GDPR Art. 5(1)(e) requires that personal data be kept only as long as
-necessary. Fleet video thumbnails contain faces and plates (even redacted
+necessary. Dashcam video thumbnails contain faces and plates (even redacted
 copies carry metadata risk). This module enforces configurable retention
 windows and runs as a periodic background task.
 
@@ -33,7 +33,7 @@ AL_PENDING_DAYS = int(os.getenv("RETENTION_AL_PENDING_DAYS", "60"))
 OUTBOUND_DAYS = int(os.getenv("RETENTION_OUTBOUND_DAYS", "7"))
 INTERVAL_SEC = int(os.getenv("RETENTION_INTERVAL_SEC", "3600"))
 
-DATA_DIR = Path(__file__).parent / "data"
+from road_safety.config import DATA_DIR
 
 
 def _age_days(path: Path) -> float:

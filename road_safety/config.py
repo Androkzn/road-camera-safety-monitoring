@@ -1,0 +1,57 @@
+"""Centralized configuration — all paths, env vars, and constants.
+
+Every module imports from here instead of computing its own
+``Path(__file__).parent``. This is the single source of truth for
+directory layout and environment-driven settings.
+"""
+
+from __future__ import annotations
+
+import os
+import secrets
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# ── Project root is the parent of the road_safety/ package directory ──
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
+# ── Directory layout ──
+DATA_DIR = PROJECT_ROOT / "data"
+THUMBS_DIR = DATA_DIR / "thumbnails"
+STATIC_DIR = PROJECT_ROOT / "static"
+CORPUS_DIR = DATA_DIR / "corpus"
+
+# ── YOLO model ──
+MODEL_PATH = os.getenv("ROAD_MODEL_PATH", str(PROJECT_ROOT / "yolov8n.pt"))
+
+# ── yt-dlp binary (inside venv or system) ──
+_VENV_YT_DLP = PROJECT_ROOT / ".venv" / "bin" / "yt-dlp"
+YT_DLP_PATH = str(_VENV_YT_DLP) if _VENV_YT_DLP.exists() else "yt-dlp"
+
+# ── Stream settings ──
+DEFAULT_STREAM_SOURCE = os.getenv("ROAD_STREAM_SOURCE", "")
+TARGET_FPS = float(os.getenv("ROAD_TARGET_FPS", "2.0"))
+
+# ── Event buffer ──
+MAX_RECENT_EVENTS = int(os.getenv("ROAD_MAX_EVENTS", "500"))
+SSE_REPLAY_COUNT = 20
+
+# ── Episode model ──
+PAIR_COOLDOWN_SEC = float(os.getenv("ROAD_PAIR_COOLDOWN_SEC", "8.0"))
+EPISODE_IDLE_FLUSH_SEC = 1.5
+
+# ── Privacy / compliance ──
+DSAR_TOKEN = os.getenv("ROAD_DSAR_TOKEN")
+PLATE_SALT = os.getenv("ROAD_PLATE_SALT", secrets.token_hex(16))
+AUDIT_ENABLED = os.getenv("ROAD_AUDIT_LOG", "1") != "0"
+
+# ── Vehicle identity (all required via env in production) ──
+VEHICLE_ID = os.getenv("ROAD_VEHICLE_ID", "")
+ROAD_ID = os.getenv("ROAD_ID", "")
+DRIVER_ID = os.getenv("ROAD_DRIVER_ID", "")
+
+# ── Server ──
+SERVER_HOST = os.getenv("ROAD_HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("ROAD_PORT", "8000"))

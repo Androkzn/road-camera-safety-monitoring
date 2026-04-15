@@ -11,14 +11,25 @@ __pycache__/
 # YOLO weights (downloaded on first run)
 *.pt
 
+# Packaging artifacts
+*.egg-info/
+dist/
+build/
+
 # Generated artifacts
 data/events.json
 data/summary.json
 data/eval.json
 data/thumbnails/*.jpg
+data/cloud.db
 
 # Input video (usually too big for git)
 data/*.mp4
 data/*.mov
 data/*.MOV
 !data/.gitkeep
+
+# Test / coverage
+.pytest_cache/
+htmlcov/
+.coverage

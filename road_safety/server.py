@@ -9,23 +9,33 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 
 import cv2
-from dotenv import load_dotenv
-
-load_dotenv()
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from detection import (
+from road_safety.config import (
+    DATA_DIR,
+    DEFAULT_STREAM_SOURCE as DEFAULT_SOURCE,
+    DSAR_TOKEN,
+    DRIVER_ID,
+    EPISODE_IDLE_FLUSH_SEC,
+    ROAD_ID,
+    MAX_RECENT_EVENTS,
+    MODEL_PATH,
+    PAIR_COOLDOWN_SEC,
+    SSE_REPLAY_COUNT,
+    STATIC_DIR,
+    TARGET_FPS,
+    THUMBS_DIR,
+    VEHICLE_ID,
+)
+from road_safety.core.detection import (
     VEHICLE_CLASSES,
     TrackHistory,
     bbox_edge_distance,
@@ -37,47 +47,22 @@ from detection import (
     find_interactions,
     load_model,
 )
-from llm import chat as llm_chat, enrich_event, llm_configured, narrate_event
-from quality import QualityMonitor
-from redact import hash_plate, public_thumbnail_name, write_thumbnails
-from slack_notify import notify_event as slack_notify, slack_configured
-from stream import StreamReader, resolve_hls
-
-# --- New modules (April 2026 build) ---
-from context import SceneContextClassifier
-from digest import start_schedulers as start_digest_schedulers
-from drift import ActiveLearningSampler, DriftMonitor, drift_warning_message
-from edge_publisher import EdgePublisher
-from egomotion import EgoMotionEstimator
-from feedback_routes import mount as mount_feedback_routes
-
-# --- Improvements (April 2026 v2) ---
-import audit
-from agents import AgentExecutor, run_coaching_agent, run_investigation_agent, run_report_agent
-from fleet import fleet_registry, VEHICLE_ID, FLEET_ID, DRIVER_ID
-from llm_obs import observer as llm_observer
-from retention import retention_loop, run_sweep as retention_sweep
-
-ROOT = Path(__file__).parent
-DATA_DIR = ROOT / "data"
-THUMBS_DIR = DATA_DIR / "thumbnails"
-STATIC_DIR = ROOT / "static"
-
-DEFAULT_SOURCE = os.getenv(
-    "FLEET_STREAM_SOURCE",
-    "https://www.youtube.com/watch?v=rnXIjl_Rzy4",  # Times Square live
-)
-TARGET_FPS = float(os.getenv("FLEET_TARGET_FPS", "2.0"))
-MAX_RECENT_EVENTS = 500
-SSE_REPLAY_COUNT = 20
-
-# Per-pair dedup: once a (track_id_a, track_id_b) interaction has emitted, hold
-# the episode open for PAIR_COOLDOWN_SEC and only publish the peak-severity
-# frame when it ends. This replaces the type-level 2s merge window, which
-# incorrectly collapsed different pedestrians into one event.
-PAIR_COOLDOWN_SEC = 8.0
-EPISODE_IDLE_FLUSH_SEC = 1.5
-DSAR_TOKEN = os.getenv("FLEET_DSAR_TOKEN")
+from road_safety.core.stream import StreamReader, resolve_hls
+from road_safety.core.quality import QualityMonitor
+from road_safety.core.context import SceneContextClassifier
+from road_safety.core.egomotion import EgoMotionEstimator
+from road_safety.services.llm import chat as llm_chat, enrich_event, llm_configured, narrate_event
+from road_safety.services.llm_obs import observer as llm_observer
+from road_safety.services.redact import hash_plate, public_thumbnail_name, write_thumbnails
+from road_safety.services.agents import AgentExecutor, run_coaching_agent, run_investigation_agent, run_report_agent
+from road_safety.services.registry import road_registry
+from road_safety.services.drift import ActiveLearningSampler, DriftMonitor, drift_warning_message
+from road_safety.services.digest import start_schedulers as start_digest_schedulers
+from road_safety.integrations.slack import notify_event as slack_notify, slack_configured
+from road_safety.integrations.edge_publisher import EdgePublisher
+from road_safety.api.feedback import mount as mount_feedback_routes
+from road_safety.compliance import audit
+from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
 
 
 class Episode:
@@ -411,9 +396,9 @@ def _flush_episode(ep: Episode, wall_ts: float) -> None:
     event = {
         "event_id": event_id,
         "vehicle_id": VEHICLE_ID,
-        "fleet_id": FLEET_ID,
+        "road_id": ROAD_ID,
         "driver_id": DRIVER_ID,
-        "video_id": "live_stream",
+        "video_id": DEFAULT_SOURCE or "stream",
         "timestamp_sec": round(stream_t, 2),
         "wall_time": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "event_type": ep.event_type,
@@ -525,8 +510,8 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
     if len(state.recent_events) > MAX_RECENT_EVENTS:
         state.recent_events.pop(0)
 
-    # Fleet registry — track per-vehicle event counts + safety score.
-    fleet_registry.record_event(event)
+    # Road registry — track per-vehicle event counts + safety score.
+    road_registry.record_event(event)
 
     for q in list(state.subscribers):
         try:
@@ -545,7 +530,7 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
         print(f"[active_learning] sample failed: {exc}")
 
     # Edge -> Cloud publisher: enqueues to a local JSONL, drained by a
-    # background task. No-op if FLEET_CLOUD_ENDPOINT / FLEET_CLOUD_HMAC_SECRET
+    # background task. No-op if ROAD_CLOUD_ENDPOINT / ROAD_CLOUD_HMAC_SECRET
     # aren't set. Only redacted thumbs + hashed plate cross the wire.
     if state.edge_publisher.enabled():
         try:
@@ -590,7 +575,7 @@ async def lifespan(app: FastAPI):
         edge_task = asyncio.create_task(state.edge_publisher.run_forever())
         print("[server] edge publisher started")
     else:
-        print("[server] edge publisher disabled (FLEET_CLOUD_ENDPOINT / _HMAC_SECRET unset)")
+        print("[server] edge publisher disabled (ROAD_CLOUD_ENDPOINT / _HMAC_SECRET unset)")
 
     # Data retention background sweep.
     retention_task = asyncio.create_task(retention_loop())
@@ -637,7 +622,7 @@ async def _on_feedback(record: dict, matched: dict | None) -> None:
         "submit_feedback", record.get("event_id", "unknown"),
         detail={"verdict": record.get("verdict"), "note": record.get("note")},
     )
-    fleet_registry.record_feedback(
+    road_registry.record_feedback(
         record.get("event_id", ""), record.get("verdict", ""),
     )
     if record.get("verdict") == "fp" and matched is not None:
@@ -659,7 +644,7 @@ async def _on_feedback(record: dict, matched: dict | None) -> None:
     # Piggyback on slack_notify's webhook — use the digest post path so it
     # renders as a section, not a full block-kit high-risk card.
     try:
-        from slack_notify import _post_digest  # intentional internal use
+        from road_safety.integrations.slack import _post_digest
         await _post_digest(
             title="Drift warning",
             summary=f"Precision {report.precision:.2f} over {report.window_size} labels",
@@ -701,7 +686,7 @@ def thumbnail(name: str, request: Request):
         raise HTTPException(
             403,
             "unredacted thumbnail — present X-DSAR-Token header "
-            "(set FLEET_DSAR_TOKEN env var on the server)",
+            "(set ROAD_DSAR_TOKEN env var on the server)",
         )
     audit.log("access_unredacted_thumbnail", name, outcome="success", ip=ip)
     return FileResponse(path)
@@ -915,27 +900,27 @@ def api_retention_sweep():
 
 
 # ---------------------------------------------------------------------------
-# Fleet / multi-vehicle endpoints
+# Road / multi-vehicle endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/api/fleet/summary")
-def api_fleet_summary():
-    """Fleet-wide aggregation: all vehicles, scores, event counts."""
-    return fleet_registry.fleet_summary()
+@app.get("/api/road/summary")
+def api_road_summary():
+    """System-wide aggregation: all vehicles, scores, event counts."""
+    return road_registry.road_summary()
 
 
-@app.get("/api/fleet/vehicle/{vehicle_id}")
-def api_fleet_vehicle(vehicle_id: str):
-    v = fleet_registry.get_vehicle(vehicle_id)
+@app.get("/api/road/vehicle/{vehicle_id}")
+def api_road_vehicle(vehicle_id: str):
+    v = road_registry.get_vehicle(vehicle_id)
     if v is None:
         raise HTTPException(404, "vehicle not found")
     return v
 
 
-@app.get("/api/fleet/drivers")
-def api_fleet_drivers(limit: int = 20):
+@app.get("/api/road/drivers")
+def api_road_drivers(limit: int = 20):
     """Driver safety leaderboard (worst-first)."""
-    return {"drivers": fleet_registry.driver_leaderboard(min(limit, 100))}
+    return {"drivers": road_registry.driver_leaderboard(min(limit, 100))}
 
 
 # ---------------------------------------------------------------------------
@@ -1004,7 +989,7 @@ def admin_health():
             "active_episodes": len(state.episodes),
             "tracker": "bytetrack",
             "risk_model": "ttc+ground_plane",
-            "model": "yolov8n.pt",
+            "model": Path(MODEL_PATH).name,
         },
         "integrations": {
             "llm_configured": llm_configured(),

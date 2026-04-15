@@ -2,7 +2,7 @@
 
 Async, append-only JSONL queue + batched HMAC-signed HTTPS delivery to a cloud
 receiver. Designed to be imported by server.py without forcing network config:
-if FLEET_CLOUD_ENDPOINT or FLEET_CLOUD_HMAC_SECRET is missing, the publisher
+if ROAD_CLOUD_ENDPOINT or ROAD_CLOUD_HMAC_SECRET is missing, the publisher
 silently disables itself (``enabled() -> False``) and ``enqueue`` is a no-op
 append for audit only. ``flush_once`` short-circuits.
 
@@ -88,15 +88,15 @@ class EdgePublisher:
         edge_base_url: str | None = None,
         source_name: str | None = None,
     ) -> None:
-        self.endpoint_url = endpoint_url or os.getenv("FLEET_CLOUD_ENDPOINT")
-        self.shared_secret = shared_secret or os.getenv("FLEET_CLOUD_HMAC_SECRET")
+        self.endpoint_url = endpoint_url or os.getenv("ROAD_CLOUD_ENDPOINT")
+        self.shared_secret = shared_secret or os.getenv("ROAD_CLOUD_HMAC_SECRET")
         self.queue_path = Path(queue_path)
         self.batch_size = batch_size
         self.flush_interval_sec = flush_interval_sec
         self.edge_base_url = edge_base_url or os.getenv(
-            "FLEET_EDGE_PUBLIC_URL", "http://localhost:8000"
+            "ROAD_EDGE_PUBLIC_URL", "http://localhost:8000"
         )
-        self.source_name = source_name or os.getenv("FLEET_EDGE_NODE_ID", "edge_node_01")
+        self.source_name = source_name or os.getenv("ROAD_EDGE_NODE_ID", "edge_node_01")
         self._lock = asyncio.Lock()
         self._backoff = _BackoffState()
         self.queue_path.parent.mkdir(parents=True, exist_ok=True)
@@ -204,8 +204,8 @@ class EdgePublisher:
         ts = int(time.time())
         headers = {
             "Content-Type": "application/json",
-            "X-Fleet-Timestamp": str(ts),
-            "X-Fleet-Source": self.source_name,
+            "X-Road-Timestamp": str(ts),
+            "X-Road-Source": self.source_name,
             "Signature": self._sign(body, ts),
         }
 

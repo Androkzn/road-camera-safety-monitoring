@@ -20,15 +20,12 @@ from typing import Awaitable, Callable, Literal, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-import slack_notify
+from road_safety.config import DATA_DIR
+from road_safety.integrations import slack as slack_notify
 
-# Optional async hook: called with (record, matched_event) after each
-# successful feedback write. Lets the server layer trigger drift
-# recompute + active-learning sampling without feedback_routes knowing
-# anything about those modules.
 FeedbackHook = Callable[[dict, Optional[dict]], Awaitable[None]]
 
-_DATA_DIR = Path(__file__).parent / "data"
+_DATA_DIR = DATA_DIR
 _FEEDBACK_PATH = _DATA_DIR / "feedback.jsonl"
 _EVENTS_PATH = _DATA_DIR / "events.json"
 

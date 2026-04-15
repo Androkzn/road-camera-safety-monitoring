@@ -5,12 +5,11 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
-from pathlib import Path
 from typing import Callable
 
 import cv2
 
-YT_DLP = str(Path(__file__).parent / ".venv" / "bin" / "yt-dlp")
+from road_safety.config import YT_DLP_PATH as YT_DLP  # noqa: E402
 
 
 def resolve_hls(source: str) -> str:

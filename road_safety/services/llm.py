@@ -8,7 +8,7 @@ from pathlib import Path
 
 from anthropic import AsyncAnthropic
 
-from llm_obs import observer as llm_observer
+from road_safety.services.llm_obs import observer as llm_observer
 
 MODEL_NARRATION = "claude-haiku-4-5-20251001"
 MODEL_ENRICH = "claude-haiku-4-5-20251001"

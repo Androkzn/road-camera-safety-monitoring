@@ -45,7 +45,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from detection import TrackHistory, TrackSample  # noqa: F401  (TrackSample re-exported for callers)
+from road_safety.core.detection import TrackHistory, TrackSample  # noqa: F401
 
 
 # Pinhole / ground-plane constants mirrored from detection.py so this module

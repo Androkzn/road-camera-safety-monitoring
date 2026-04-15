@@ -1,7 +1,7 @@
-# Fleet Safety AI Platform — Business Requirements Document (BRD)
+# Road Safety AI Platform — Business Requirements Document (BRD)
 
-**Feature:** Fleet Safety — Live Event Detection + LLM Copilot
-**Product:** Fleet Safety AI Platform (Python / FastAPI)
+**Feature:** Road Safety — Live Event Detection + LLM Copilot
+**Product:** Road Safety AI Platform (Python / FastAPI)
 **Document Type:** Business Requirements Document (BRD)
 **Version:** v1.0
 **Status:** APPROVED
@@ -17,7 +17,7 @@
 |---|---|---|---|
 | v0.1 | 2026-04-01 | A. Tekhtelev | Initial draft — core detection + narration |
 | v0.5 | 2026-04-08 | A. Tekhtelev | Added edge/cloud, drift, privacy modules |
-| v1.0 | 2026-04-15 | A. Tekhtelev | Added agents, fleet readiness, LLM observability, retention |
+| v1.0 | 2026-04-15 | A. Tekhtelev | Added agents, road readiness, LLM observability, retention |
 
 ---
 
@@ -25,10 +25,10 @@
 
 ### 1.1 Summary
 
-- **Feature Name:** Fleet Safety AI Platform — Real-Time Event Detection & LLM Copilot
+- **Feature Name:** Road Safety AI Platform — Real-Time Event Detection & LLM Copilot
 - **Status:** Approved
-- **Objective:** Build a production-grade fleet safety system that detects pedestrian-vehicle and vehicle-vehicle proximity events in real-time from live video, classifies risk using physical-unit kinematics, narrates events with LLM, and provides operator tools (chat copilot, AI coaching agents, drift monitoring) — while maintaining GDPR/CCPA compliance and fleet-scale readiness.
-- **Stakeholders:** Fleet Safety Operators, Fleet Managers, Compliance Officers, ML/AI Engineers
+- **Objective:** Build a production-grade road safety system that detects pedestrian-vehicle and vehicle-vehicle proximity events in real-time from live video, classifies risk using physical-unit kinematics, narrates events with LLM, and provides operator tools (chat copilot, AI coaching agents, drift monitoring) — while maintaining GDPR/CCPA compliance and road-scale readiness.
+- **Stakeholders:** Road Safety Operators, Road Managers, Compliance Officers, ML/AI Engineers
 - **Success Metrics (KPIs):**
   - Event detection precision ≥ 70% (measured via operator feedback)
   - High-risk event recall ≥ 80%
@@ -55,7 +55,7 @@
   - Camera is forward-facing dashcam or fixed-position traffic camera
   - Stream provides ≥ 2 fps of frames suitable for YOLO inference
   - LLM API keys may or may not be present (system must degrade gracefully)
-  - Single vehicle per edge node; fleet aggregation at cloud layer
+  - Single vehicle per edge node; road aggregation at cloud layer
 
 - **Constraints:**
   - **Regulatory:** GDPR Art. 4 (PII), Art. 5(1)(e) (retention), Art. 30 (records of processing); CCPA PI definitions
@@ -71,7 +71,7 @@
 | Technical | YOLO false positives on crowded scenes | Alert fatigue, operator distrust | Scene-adaptive thresholds + episode dedup + operator feedback loop |
 | Compliance | PII leakage through thumbnails or event data | Regulatory fines, reputational damage | Dual-thumbnail architecture, plate hashing, DSAR gating, audit trail |
 | Operational | Model drift from new camera angles / weather | Silent precision degradation | Rolling precision monitor + Slack alerts + active learning pipeline |
-| Scalability | Single-process architecture limits fleet growth | Cannot support multi-vehicle fleets | Fleet-ready data model with vehicle/driver identity from day one |
+| Scalability | Single-process architecture limits road growth | Cannot support multi-vehicle roads | Road-ready data model with vehicle/driver identity from day one |
 | AI Agents | Agent hallucination or runaway tool loops | Incorrect coaching / wasted cost | Bounded tool sets (≤5), hard stop at 5 iterations, structured output schema |
 
 ### 1.5 Glossary
@@ -92,13 +92,13 @@
 | ID | Requirement |
 |---|---|
 | FR-01 | As an operator, I can view a live feed of safety events with thumbnails, risk badges, and narrations so I can prioritize my review. |
-| FR-02 | As an operator, I can ask questions about recent events and fleet policy via a chat copilot so I can make informed decisions. |
+| FR-02 | As an operator, I can ask questions about recent events and road policy via a chat copilot so I can make informed decisions. |
 | FR-03 | As an operator, I can mark events as true positive or false positive so the system tracks its own precision. |
-| FR-04 | As a fleet manager, I can receive tiered Slack alerts (high=instant, medium=hourly, low=daily) so I am not overwhelmed. |
-| FR-05 | As a fleet manager, I can view a fleet-wide safety summary with per-vehicle scores and driver rankings. |
-| FR-06 | As a fleet manager, I can request an AI coaching note for any event to generate a structured coaching document. |
-| FR-07 | As a fleet manager, I can request an AI investigation of any event to find patterns and root causes. |
-| FR-08 | As a fleet manager, I can request an AI safety report summarizing all recent activity. |
+| FR-04 | As a road manager, I can receive tiered Slack alerts (high=instant, medium=hourly, low=daily) so I am not overwhelmed. |
+| FR-05 | As a road manager, I can view a road-wide safety summary with per-vehicle scores and driver rankings. |
+| FR-06 | As a road manager, I can request an AI coaching note for any event to generate a structured coaching document. |
+| FR-07 | As a road manager, I can request an AI investigation of any event to find patterns and root causes. |
+| FR-08 | As a road manager, I can request an AI safety report summarizing all recent activity. |
 | FR-09 | As a compliance officer, I can access an audit trail showing who accessed sensitive data and when. |
 | FR-10 | As a compliance officer, I can verify that data retention policies are enforced automatically. |
 | FR-11 | As an ML engineer, I can export active-learning samples for relabeling in Label Studio / CVAT. |
@@ -124,7 +124,7 @@
 | **Privacy** | Plate text retained only as salted SHA-256 hash |
 | **Privacy** | Unredacted thumbnails gated by DSAR token |
 | **Privacy** | Configurable data retention with automatic expiry |
-| **Scalability** | Fleet-ready data model (vehicle_id, fleet_id, driver_id on every event) |
+| **Scalability** | Road-ready data model (vehicle_id, road_id, driver_id on every event) |
 | **Observability** | Per-call LLM token cost, latency percentiles, error/skip rates |
 | **Observability** | Rolling precision monitoring with drift alerts |
 | **Observability** | Audit trail for all sensitive data access |
@@ -156,7 +156,7 @@
 | AC-08 | Edge→cloud delivery uses HMAC-signed batches with at-least-once semantics |
 | AC-09 | AI coaching agent produces structured JSON coaching note given an event_id |
 | AC-10 | AI investigation agent correlates events with history and produces root-cause hypothesis |
-| AC-11 | Fleet summary API returns aggregated stats across vehicles |
+| AC-11 | Road summary API returns aggregated stats across vehicles |
 | AC-12 | Data retention sweep removes expired artifacts automatically |
 | AC-13 | Audit trail logs all access to unredacted thumbnails, feedback, and agent invocations |
 
@@ -173,7 +173,7 @@ See `docs/architecture.md` for the full edge/cloud diagram and data flow.
 - `cloud_receiver.py` — separate FastAPI ingest app (port 8001)
 - `llm.py` — Anthropic / Azure OpenAI with failover
 - `agents.py` — tool-calling AI agents
-- `fleet.py` — multi-vehicle registry
+- `road.py` — multi-vehicle registry
 
 ### 3.2 Data Schema
 
@@ -185,7 +185,7 @@ See `docs/architecture.md` for the full edge/cloud diagram and data flow.
 | Feedback | JSONL (`data/feedback.jsonl`) | `event_id`, `verdict` (tp/fp), `note`, `operator_ts` |
 | Active Learning Sample | JSON files (`data/active_learning/pending/`) | `event_id`, `reason`, `confidence`, `event_json` |
 | Audit Record | JSONL (`data/audit.jsonl`) | `ts`, `action`, `resource`, `actor`, `outcome`, `ip` |
-| Fleet Vehicle State | In-memory (`fleet.py`) | `vehicle_id`, `fleet_id`, `driver_id`, `safety_score`, `events_by_risk` |
+| Road Vehicle State | In-memory (`road.py`) | `vehicle_id`, `road_id`, `driver_id`, `safety_score`, `events_by_risk` |
 
 ### 3.3 API Interfaces
 
@@ -222,7 +222,7 @@ See `README.md` — API Reference section for the complete endpoint table (21 en
 | `slack_notify.py` | Tiered Slack alerting | Shipped |
 | `digest.py` | Hourly/daily digest schedulers | Shipped |
 | `agents.py` | AI coaching, investigation, report agents | Shipped |
-| `fleet.py` | Multi-vehicle registry + driver scoring | Shipped |
+| `road.py` | Multi-vehicle registry + driver scoring | Shipped |
 | `llm_obs.py` | LLM cost/latency observability | Shipped |
 | `retention.py` | GDPR-compliant data retention sweeps | Shipped |
 | `audit.py` | Compliance audit trail | Shipped |
@@ -259,5 +259,5 @@ See `docs/challenges.md` for detailed industry challenge mapping:
 | 3 | LLM Reliability in Production | Multi-provider failover, circuit breaker, self-consistency |
 | 4 | Privacy & Regulatory Compliance | Dual thumbnails, plate hashing, DSAR gating, audit, retention |
 | 5 | Model Drift & Continuous Improvement | Rolling precision, active learning, disputed sampling |
-| 6 | Scaling to Multi-Vehicle Fleets | Fleet identity, driver scoring, fleet-wide aggregation |
+| 6 | Scaling to Multi-Vehicle Roads | Road identity, driver scoring, road-wide aggregation |
 | 7 | AI Agent Orchestration | Bounded tools, structured output, hard stops, observability |

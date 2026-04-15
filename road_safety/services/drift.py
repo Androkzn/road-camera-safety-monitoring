@@ -1,4 +1,4 @@
-"""Drift monitor + active-learning sampler for the fleet dashcam pipeline.
+"""Drift monitor + active-learning sampler for the road safety dashcam pipeline.
 
 Two responsibilities, intentionally colocated because they share the same
 "what went wrong?" signal:
@@ -8,7 +8,7 @@ Two responsibilities, intentionally colocated because they share the same
      rolling-window precision. It also slices by ``risk_level`` and
      ``event_type`` so an operator can tell whether degradation is global or
      localized (e.g. one event_type is suddenly noisy because a new camera
-     angle landed on the fleet).
+     angle landed on the system).
 
   2. ``ActiveLearningSampler`` — pulls the *ambiguous* and *disputed* events
      off the wire and packages them for re-labeling in Label Studio / CVAT.

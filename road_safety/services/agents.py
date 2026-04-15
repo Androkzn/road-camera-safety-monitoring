@@ -3,10 +3,10 @@
 Three production agents, each with a focused tool set:
 
   1. CoachingAgent   — given a high/medium-risk event, generates a structured
-                       coaching note for the fleet manager (what happened, why
+                       coaching note for the road safety manager (what happened, why
                        it matters, what the driver should do differently).
   2. InvestigationAgent — correlates a single event with historical data,
-                          fleet policy, and drift reports to build a root-cause
+                          road safety policy, and drift reports to build a root-cause
                           narrative.
   3. ReportAgent     — queries events, feedback, and drift data to produce a
                        structured daily/weekly safety summary.
@@ -32,10 +32,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from llm_obs import observer as llm_observer
-
-CORPUS_DIR = Path("data/corpus")
-DATA_DIR = Path(__file__).parent / "data"
+from road_safety.config import CORPUS_DIR, DATA_DIR
+from road_safety.services.llm_obs import observer as llm_observer
 MAX_STEPS = 5
 
 
@@ -64,7 +62,7 @@ def tool_get_recent_events(
 
 
 def tool_get_policy(filename: str | None = None) -> str:
-    """Load fleet policy corpus documents."""
+    """Load road safety policy corpus documents."""
     if not CORPUS_DIR.exists():
         return "No policy corpus available."
     if filename:
@@ -144,7 +142,7 @@ COACHING_TOOLS = [
     },
     {
         "name": "get_policy",
-        "description": "Load fleet policy documents. Optionally specify a filename like 'fleet_policy.md'",
+        "description": "Load road safety policy documents. Optionally specify a filename like 'road_policy.md'",
         "input_schema": {
             "type": "object",
             "properties": {"filename": {"type": "string"}},
@@ -314,7 +312,7 @@ class AgentExecutor:
         max_tokens: int = 1024,
     ) -> AgentResult:
         from anthropic import AsyncAnthropic
-        from llm import _ANTHROPIC_KEY, llm_configured
+        from road_safety.services.llm import _ANTHROPIC_KEY, llm_configured
 
         if not llm_configured() or not _ANTHROPIC_KEY:
             return AgentResult(
@@ -400,8 +398,8 @@ class AgentExecutor:
 
 COACHING_SYSTEM = (
     "You are a safety coaching assistant. Given a safety event, generate "
-    "a structured coaching note for the fleet manager. Use the available tools "
-    "to retrieve the event details and relevant fleet policy.\n\n"
+    "a structured coaching note for the road safety manager. Use the available tools "
+    "to retrieve the event details and relevant road safety policy.\n\n"
     "Your output MUST be a JSON object with these fields:\n"
     '  "event_id": string,\n'
     '  "severity": "high" | "medium" | "low",\n'
@@ -415,7 +413,7 @@ COACHING_SYSTEM = (
 INVESTIGATION_SYSTEM = (
     "You are a safety investigator. Given an event_id, conduct a "
     "structured investigation by gathering event details, checking for "
-    "similar recent events, reviewing operator feedback, consulting fleet "
+    "similar recent events, reviewing operator feedback, consulting road safety "
     "policy, and checking drift reports.\n\n"
     "Your output MUST be a JSON object with these fields:\n"
     '  "event_id": string,\n'

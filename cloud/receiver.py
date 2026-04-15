@@ -12,7 +12,7 @@ Run it standalone:
 It verifies HMAC-signed webhooks from ``edge_publisher.EdgePublisher``, dedupes
 by ``event_id``, and persists to a local SQLite file at ``data/cloud.db``.
 
-The receiver fails loudly at startup if ``FLEET_CLOUD_HMAC_SECRET`` is missing:
+The receiver fails loudly at startup if ``ROAD_CLOUD_HMAC_SECRET`` is missing:
 an unsigned-accepting ingest endpoint is worse than a disabled one.
 """
 
@@ -33,8 +33,8 @@ from fastapi import FastAPI, HTTPException, Request
 
 logger = logging.getLogger("cloud_receiver")
 
-ROOT = Path(__file__).parent
-DB_PATH = Path(os.getenv("FLEET_CLOUD_DB", ROOT / "data" / "cloud.db"))
+ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = Path(os.getenv("ROAD_CLOUD_DB", ROOT / "data" / "cloud.db"))
 TIMESTAMP_WINDOW_SEC = 300  # +/- 5 minutes
 
 SCHEMA = """
@@ -51,10 +51,10 @@ CREATE INDEX IF NOT EXISTS idx_events_source       ON events(source);
 
 
 def _require_secret() -> str:
-    secret = os.getenv("FLEET_CLOUD_HMAC_SECRET")
+    secret = os.getenv("ROAD_CLOUD_HMAC_SECRET")
     if not secret:
         raise RuntimeError(
-            "FLEET_CLOUD_HMAC_SECRET is required. Refusing to start an ingest "
+            "ROAD_CLOUD_HMAC_SECRET is required. Refusing to start an ingest "
             "endpoint without a signing key."
         )
     return secret
@@ -117,7 +117,7 @@ async def ingest_events(request: Request) -> dict[str, int]:
     secret = request.app.state.shared_secret
     _verify_signature(
         secret,
-        request.headers.get("X-Fleet-Timestamp"),
+        request.headers.get("X-Road-Timestamp"),
         request.headers.get("Signature"),
         body,
     )
@@ -127,7 +127,7 @@ async def ingest_events(request: Request) -> dict[str, int]:
         raise HTTPException(status_code=400, detail="invalid json") from None
 
     events = payload.get("events")
-    source = payload.get("source") or request.headers.get("X-Fleet-Source") or "unknown"
+    source = payload.get("source") or request.headers.get("X-Road-Source") or "unknown"
     if not isinstance(events, list):
         raise HTTPException(status_code=400, detail="events must be list")
 

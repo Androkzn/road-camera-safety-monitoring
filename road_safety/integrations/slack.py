@@ -130,7 +130,7 @@ def _build_blocks(event: dict, image_url: str | None) -> list:
         f"*Time:* `{event['wall_time']}`   *Stream t+:* `{event['timestamp_sec']}s`"
         + (f"   {duration_line}" if duration_line else "") + "\n"
         f"*Objects:* {objs}   {kinematics_line}   *Confidence:* `{confidence_pct}%`\n"
-        f"*Review SLA:* {_SLA.get(risk, '—')} _(per fleet_policy.md)_"
+        f"*Review SLA:* {_SLA.get(risk, '—')} _(per road_policy.md)_"
     )
     if enrich_fields:
         fields_md += f"\n{enrich_fields}"
@@ -140,7 +140,7 @@ def _build_blocks(event: dict, image_url: str | None) -> list:
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": f"{risk.upper()}-risk fleet event — {etype_pretty}",
+                "text": f"{risk.upper()}-risk road event — {etype_pretty}",
             },
         },
         {
@@ -192,7 +192,7 @@ async def notify_high(event: dict, thumb_path: Path) -> None:
             payload = {
                 "blocks": _build_blocks(event, image_url),
                 "text": (
-                    f"{event['risk_level'].upper()} fleet event: {event['event_type']} — "
+                    f"{event['risk_level'].upper()} road event: {event['event_type']} — "
                     f"{event.get('narration') or event.get('summary', '')}"
                 ),
             }
@@ -285,7 +285,7 @@ async def flush_medium_digest() -> None:
     body = _format_digest_lines(events)
     print(f"[slack] flushing medium digest: {len(events)} events — {summary}")
     await _post_digest(
-        title="Medium-risk fleet digest (hourly)",
+        title="Medium-risk road digest (hourly)",
         summary=summary,
         body=body,
     )
@@ -301,7 +301,7 @@ async def flush_low_daily() -> None:
     body = _format_digest_lines(events)
     print(f"[slack] flushing low daily: {len(events)} events — {summary}")
     await _post_digest(
-        title="Low-risk fleet summary (daily)",
+        title="Low-risk road summary (daily)",
         summary=summary,
         body=body,
     )
