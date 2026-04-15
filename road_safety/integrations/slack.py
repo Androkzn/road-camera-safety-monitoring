@@ -1,25 +1,25 @@
-"""Slack notifier — uses an Incoming Webhook + a public anonymous image relay
-(0x0.st) so screenshots render in Slack without exposing localhost.
+"""Slack notifier — Incoming Webhook + public anonymous image relay so
+screenshots render in Slack without exposing localhost.
 
-Enable by setting:
+Configuration:
     SLACK_WEBHOOK_URL   full https://hooks.slack.com/... URL
     SLACK_MIN_RISK      "high" | "medium" | "low"  (default "high")
 
-Production note: 0x0.st is a third-party public host. For real deployments,
-swap the _upload_public_image() call for your own S3/Azure Blob + signed URL.
+The image relay (catbox.moe) is a third-party public host appropriate for
+non-PII content (thumbnails are face- and plate-redacted before egress).
+For deployments requiring private hosting, replace ``_upload_public_image``
+with an S3 / Azure Blob + signed URL upload.
 
-Tiered alerting (April 2026):
-  high    -> notify_high()            fires immediately (Slack, rich block-kit)
-  medium  -> buffer_medium()          batched, flushed hourly as a text digest
-  low     -> buffer_low()             batched, flushed daily as a text digest
+Tiered alerting:
+  high    -> notify_high()        fires immediately, rich Block Kit card,
+                                  subject to the high-risk quality gate
+  medium  -> buffer_medium()      batched, flushed hourly as a text digest
+  low     -> buffer_low()         batched, flushed daily as a text digest
 
-The public ``notify_event(event, thumb_path)`` entry point still works and now
-dispatches to the correct tier, so existing callers (server.py) don't break
-while digest wiring is pending.
+The public ``notify_event(event, thumb_path)`` dispatcher routes by tier.
 
-Production note: the medium/low buffers are plain in-memory lists. That's fine
-For production, persist to SQLite (or equivalent) and cap memory —
-otherwise a long Slack outage would cause unbounded growth.
+The medium/low buffers are in-memory; deployments expecting long Slack
+outages should persist them (SQLite or equivalent) with a memory cap.
 """
 
 from __future__ import annotations
@@ -38,6 +38,15 @@ _RISK_EMOJI = {"high": ":rotating_light:", "medium": ":warning:", "low": ":infor
 _SLA = {"high": "15 minutes", "medium": "24 hours", "low": "weekly batch"}
 
 _IMAGE_HOST = "https://catbox.moe/user/api.php"
+
+# High-risk Slack quality gate. The immediate Slack alert fires only when
+# the underlying episode has sustained evidence: minimum duration, minimum
+# number of high-risk frames, and minimum detection confidence. Events that
+# fail the gate route to the hourly medium digest — never silently dropped.
+# All thresholds tunable via environment variables.
+SLACK_HIGH_MIN_DURATION_SEC = float(os.getenv("SLACK_HIGH_MIN_DURATION_SEC", "1.5"))
+SLACK_HIGH_MIN_FRAMES = int(os.getenv("SLACK_HIGH_MIN_FRAMES", "2"))
+SLACK_HIGH_MIN_CONFIDENCE = float(os.getenv("SLACK_HIGH_MIN_CONFIDENCE", "0.55"))
 
 # ---------------------------------------------------------------------------
 # Tiered buffers — drained by digest.py schedulers.
@@ -311,16 +320,51 @@ async def flush_low_daily() -> None:
 # Backwards-compatible shim. Existing server.py calls notify_event(...)
 # which now routes by tier. High fires immediately; medium/low buffer.
 # ---------------------------------------------------------------------------
-async def notify_event(event: dict, thumb_path: Path) -> None:
-    """Tier-aware dispatcher — preserves the old API for existing callers.
+def _passes_high_quality_gate(event: dict) -> tuple[bool, str | None]:
+    """High-risk events must clear sustained-evidence gates before firing
+    the immediate Slack alert.
 
-    Unlike the previous behaviour, this no longer silently drops medium/low
-    events based on ``SLACK_MIN_RISK`` — those tiers are now buffered and
-    surfaced via ``flush_medium_digest()`` / ``flush_low_daily()`` instead.
-    High-risk events still respect the min-risk gate for the immediate path.
+    Returns (passes, reason_if_not). Failed events are downgraded to the
+    medium digest rather than silently dropped.
+
+    Gates:
+      - episode_duration_sec >= SLACK_HIGH_MIN_DURATION_SEC
+      - risk_frame_counts['high'] >= SLACK_HIGH_MIN_FRAMES
+      - confidence >= SLACK_HIGH_MIN_CONFIDENCE
+    """
+    duration = float(event.get("episode_duration_sec") or 0.0)
+    if duration < SLACK_HIGH_MIN_DURATION_SEC:
+        return False, f"episode {duration:.2f}s < min {SLACK_HIGH_MIN_DURATION_SEC}s"
+
+    risk_counts = event.get("risk_frame_counts") or {}
+    high_frames = int(risk_counts.get("high", 0))
+    if high_frames < SLACK_HIGH_MIN_FRAMES:
+        return False, f"only {high_frames} high-risk frame(s) < min {SLACK_HIGH_MIN_FRAMES}"
+
+    confidence = float(event.get("confidence") or 0.0)
+    if confidence < SLACK_HIGH_MIN_CONFIDENCE:
+        return False, f"confidence {confidence:.2f} < min {SLACK_HIGH_MIN_CONFIDENCE:.2f}"
+
+    return True, None
+
+
+async def notify_event(event: dict, thumb_path: Path) -> None:
+    """Tier-aware dispatcher with high-risk quality gate.
+
+    High-risk events that fail the sustained-evidence gate are downgraded to
+    the medium digest rather than firing an immediate Slack alert. Medium
+    and low events buffer for periodic digests.
     """
     risk = (event.get("risk_level") or "").lower()
     if risk == "high":
+        passes, reason = _passes_high_quality_gate(event)
+        if not passes:
+            print(
+                f"[slack] high-risk event {event.get('event_id')} downgraded "
+                f"to medium digest: {reason}"
+            )
+            buffer_medium(event)
+            return
         if _should_notify("high"):
             await notify_high(event, thumb_path)
     elif risk == "medium":

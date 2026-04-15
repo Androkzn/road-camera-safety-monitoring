@@ -283,22 +283,27 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 ### 6.3 Data Flow
 
-1. **Frame capture:** `stream.py` reads frames from live video source
-2. **Detection:** `detection.py` runs YOLOv8n inference + ByteTrack
-3. **Ego-motion:** `egomotion.py` estimates camera motion via optical flow
-4. **Scene context:** `context.py` classifies scene and adjusts thresholds
-5. **Quality check:** `quality.py` assesses frame quality → may tighten thresholds
-6. **Risk classification:** `server.py` computes TTC and distance per pair
-7. **Episode management:** `server.py` tracks per-pair episodes, emits at peak severity
-8. **PII redaction:** `redact.py` creates dual thumbnails (internal + public)
-9. **LLM enrichment:** `llm.py` narrates event and optionally runs ALPR
-10. **Event emission:** SSE to dashboard, Slack alert, edge publish, road registry update
-11. **Feedback ingestion:** `road_safety/api/feedback.py` receives operator verdicts
-12. **Drift update:** `drift.py` recomputes rolling precision
-13. **Active learning:** `drift.py` selects informative samples for relabeling
-14. **Agent invocation:** `agents.py` runs tool-calling loop on operator request
-15. **Audit logging:** `audit.py` records all sensitive operations
-16. **Retention sweep:** `retention.py` expires old data on schedule
+1. **Frame capture:** `stream.py` reads frames from the live video source.
+2. **Detection:** `detection.py` runs YOLOv8n inference + ByteTrack.
+3. **Quality observation:** `quality.py` updates the perception state machine; degraded states tighten downstream multipliers and may skip vision enrichment.
+4. **Ego-motion:** `egomotion.py` runs Farneback optical flow on the masked background to produce an ego flow vector + speed proxy.
+5. **Scene context:** `context.py` classifies scene as urban / highway / parking / unknown and emits adaptive TTC + distance thresholds.
+6. **Interaction discovery:** `find_interactions` enumerates candidate pairs from class membership and edge-pixel proximity.
+7. **Pair gates:** for vehicle-vehicle pairs, the depth-aware proximity gate and convergence-angle filter discard pairs that are not real conflicts.
+8. **Ego-relative motion gate:** TTC is discarded when neither track shows a positive approach residual against the ego flow estimate.
+9. **Multi-gate TTC:** `estimate_pair_ttc` (preferred) or `estimate_ttc_sec` (fallback) returns a value only when sustained-evidence gates pass (monotonic growth, jitter-floor pixel delta, non-trivial track motion, scale ratio, closing rate).
+10. **Distance estimation:** `estimate_inter_distance_m` returns 3D inter-object distance (depth difference + lateral offset).
+11. **Risk classification:** `_classify_with_scene` ladders TTC > distance > pixel fallback against the scene-adaptive thresholds, then applies the speed-aware floor.
+12. **Episode management:** per-pair episodes accumulate risk-frame counts and the peak-severity frame; on flush, `Episode.final_risk()` downgrades unsupported peaks.
+13. **PII redaction:** `redact.py` writes dual thumbnails (internal unredacted + public face-/plate-blurred); plate text is salted-hashed before egress.
+14. **LLM enrichment:** `llm.py` narrates the event and optionally runs ALPR (skipped in degraded perception states).
+15. **Event emission:** SSE to dashboard, tier-aware Slack dispatch (high-risk subject to the Slack quality gate; medium / low buffered), edge publish, road-registry update.
+16. **Feedback ingestion:** `road_safety/api/feedback.py` receives operator verdicts.
+17. **Drift update:** `drift.py` recomputes rolling precision and trend.
+18. **Active learning:** `drift.py` selects decision-boundary and disputed events for relabeling.
+19. **Agent invocation:** `agents.py` runs the tool-calling loop on operator request.
+20. **Audit logging:** `audit.py` records all sensitive operations.
+21. **Retention sweep:** `retention.py` expires old data on schedule.
 
 ---
 
@@ -325,13 +330,21 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | `road_id` | str | Y | from env `ROAD_ID` | Server only | |
 | `driver_id` | str | N | from env `ROAD_DRIVER_ID` | Server only | |
 | `video_id` | str | Y | `"live_stream"` | Server only | |
-| `event_type` | str | Y | — | Detection pipeline | `pedestrian_proximity`, `vehicle_proximity`, `cyclist_proximity` |
-| `risk_level` | str | Y | — | Risk engine | `high`, `medium`, `low` |
+| `event_type` | str | Y | — | Detection pipeline | `pedestrian_proximity`, `vehicle_close_interaction` |
+| `risk_level` | str | Y | — | Risk engine | `high`, `medium`, `low` — final tier after sustained-risk downgrade |
+| `peak_risk_level` | str | Y | — | Server | Pre-downgrade peak risk observed during the episode |
+| `risk_demoted` | bool | Y | — | Server | True if `risk_level` was downgraded from `peak_risk_level` |
+| `risk_frame_counts` | object | Y | `{low,medium,high}` | Server | Frame counts per risk tier across episode lifetime |
+| `frame_count` | int | Y | — | Server | Total frames observed in the episode |
+| `episode_duration_sec` | float | Y | — | Server | Wall-clock duration the episode stayed open |
 | `confidence` | float | Y | — | Detection pipeline | YOLO detection confidence [0, 1] |
-| `ttc_sec` | float | N | — | Risk engine | Time-to-collision in seconds |
-| `distance_m` | float | N | — | Risk engine | Estimated ground-plane distance |
-| `scene_type` | str | Y | `"unknown"` | Context engine | `highway`, `urban`, `parking`, `unknown` |
-| `perception_state` | str | Y | `"normal"` | Quality monitor | `normal`, `degraded` |
+| `ttc_sec` | float | N | — | Risk engine | Multi-gate time-to-collision in seconds; null when gates fail |
+| `distance_m` | float | N | — | Risk engine | Inter-object 3D distance (depth diff + lateral offset) |
+| `distance_px` | float | Y | — | Detection pipeline | Image-plane bbox edge distance |
+| `track_ids` | int[] | Y | — | Detection pipeline | The two ByteTrack IDs that form the interaction pair |
+| `scene_context` | object | Y | — | Context engine | `{label, confidence, speed_proxy_mps, reason}` |
+| `ego_flow` | object | N | — | Ego-motion | `{speed_proxy_mps, confidence}` |
+| `perception_state` | str | Y | `"nominal"` | Quality monitor | `nominal`, `degraded_low_light`, `degraded_blur`, `degraded_low_confidence`, `degraded_overexposed` |
 | `summary` | str | N | None | LLM layer | Narration text (may be templated fallback) |
 | `plate_hash` | str | N | None | LLM layer (enrichment) | Salted SHA-256 hash of plate text |
 | `plate_readable` | str | N | None | LLM layer | `"yes"`, `"partial"`, `"no"` |
@@ -389,25 +402,26 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 | State | Description | Owner |
 |---|---|---|
-| DETECTING | Object pair is being tracked but has not triggered risk threshold | Detection pipeline |
-| EPISODE_OPEN | Pair has triggered threshold; episode is accumulating peak severity | Server |
-| EMITTED | Episode has emitted (peak severity reached or pair separated) | Server |
+| DETECTING | Object pair is being tracked but has not yet passed all conflict gates | Detection pipeline |
+| EPISODE_OPEN | Pair passed depth, convergence, ego-residual, and TTC gates; episode accumulates per-frame risk counts | Server |
+| EMITTED | Episode flushed; `final_risk` computed (with possible sustained-risk downgrade) and dispatched | Server |
 | COOLDOWN | Pair is in 8-second post-emission cooldown | Server |
 | ENRICHED | LLM narration and/or vision enrichment completed | LLM layer |
 | FEEDBACK_RECEIVED | Operator has submitted tp/fp verdict | Feedback service |
-| SAMPLED | Event selected for active learning relabeling | Drift monitor |
+| SAMPLED | Event selected for active-learning relabeling | Drift monitor |
 
 ### 8.2 Allowed Transitions
 
 | From | Event | To | Validation |
 |---|---|---|---|
-| DETECTING | Risk threshold exceeded | EPISODE_OPEN | TTC < scene threshold for risk band |
-| EPISODE_OPEN | Peak severity reached or pair idle > 2s | EMITTED | At least one frame in episode |
+| DETECTING | All conflict gates pass for the pair this frame | EPISODE_OPEN | Depth gate, convergence filter, ego-residual gate, multi-gate TTC, scene-adaptive thresholds, low-speed floor |
+| EPISODE_OPEN | Same-frame update | EPISODE_OPEN | Episode accumulates risk frame counts and peak frame |
+| EPISODE_OPEN | Pair idle > `EPISODE_IDLE_FLUSH_SEC` | EMITTED | `Episode.final_risk()` computed; risk may be downgraded |
 | EMITTED | — | COOLDOWN | 8-second timer starts |
 | COOLDOWN | Timer expires | DETECTING | Same pair can re-trigger |
 | EMITTED | LLM narration completes | ENRICHED | LLM available and rate budget OK |
 | EMITTED | Operator submits verdict | FEEDBACK_RECEIVED | Valid event_id |
-| EMITTED | Confidence in [0.35, 0.50] or verdict=fp | SAMPLED | Active learning sampler accepts |
+| EMITTED | Confidence in active-learning band or verdict=fp | SAMPLED | Active-learning sampler accepts |
 
 ### 8.3 Forbidden Transitions
 

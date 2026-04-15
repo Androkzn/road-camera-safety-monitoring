@@ -27,18 +27,29 @@ def resolve_hls(source: str) -> str:
     if not _is_youtube(source):
         return source
 
-    cmd = [YT_DLP, "-g", "-f", "bv[height<=720]"]
+    fmt_selectors = [
+        "bv[height<=720]",       # video-only ≤720p (preferred)
+        "b[height<=720]",        # combined ≤720p
+        "best[height<=720]",     # legacy alias
+        "b",                     # best combined
+    ]
     node = _find_bin("node")
-    if node:
-        cmd += ["--js-runtimes", "node"]
-    cmd.append(source)
 
-    try:
-        return subprocess.check_output(
-            cmd, stderr=subprocess.PIPE, timeout=30,
-        ).decode().strip()
-    except Exception as exc:
-        raise RuntimeError(f"Failed to resolve YouTube live URL: {exc}")
+    for fmt in fmt_selectors:
+        cmd = [YT_DLP, "-g", "-f", fmt]
+        if node:
+            cmd += ["--js-runtimes", "node"]
+        cmd.append(source)
+        try:
+            url = subprocess.check_output(
+                cmd, stderr=subprocess.PIPE, timeout=30,
+            ).decode().strip()
+            if url:
+                return url
+        except Exception:
+            continue
+
+    raise RuntimeError("Failed to resolve YouTube live URL: all format selectors exhausted")
 
 
 class StreamReader:
@@ -121,7 +132,8 @@ class StreamReader:
         width, height = 640, 360
         fps = max(int(self.target_fps), 1)
 
-        ytdlp_cmd = [YT_DLP, "-f", "bv[height<=720]", "-o", "-"]
+        fmt = "bv[height<=720]/b[height<=720]/best[height<=720]/b"
+        ytdlp_cmd = [YT_DLP, "-f", fmt, "-o", "-"]
         node = _find_bin("node")
         if node:
             ytdlp_cmd += ["--js-runtimes", "node"]

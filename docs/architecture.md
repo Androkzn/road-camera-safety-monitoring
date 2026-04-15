@@ -99,6 +99,58 @@ side dedupes on it (see `INSERT OR IGNORE` in `cloud/receiver.py`).
 - **Queue growth during long outage:** JSONL is trimmed from the head once
   ack'd; operator alert wired through `/stats.last_received_at` staleness.
 
+## Conflict-Detection Pipeline
+
+Each frame passes through an independent stack of gates before an event is
+emitted. A real conflict satisfies all of them; a noisy frame fails at the
+first.
+
+```
+  detect_frame  ─►  YOLOv8 + ByteTrack         identity-persistent detections
+       │
+       ▼
+  TrackHistory  ─►  trailing N-sample ring     per-track centre + height + bottom
+       │
+       ▼
+  EgoMotionEstimator (Farneback on background) ego flow vector + speed proxy
+       │
+       ▼
+  SceneContextClassifier                       urban / highway / parking / unknown
+       │                                       → AdaptiveThresholds (TTC, distance)
+       ▼
+  find_interactions                            candidate pairs by class + edge px
+       │
+       ▼
+  depth-aware proximity gate (vehicle-vehicle) reject pairs > 8 m apart in 3D
+       │
+       ▼
+  convergence-angle filter (vehicle-vehicle)   reject parallel / same-direction
+       │
+       ▼
+  ego-relative motion gate                     discard TTC if no track approaching
+       │
+       ▼
+  multi-gate TTC (estimate_pair_ttc /          monotonic growth, jitter floor,
+   estimate_ttc_sec)                           min track motion, scale ratio
+       │
+       ▼
+  speed-aware risk floor                       cap at medium when ego < 2 m/s
+       │                                       and no approach detected
+       ▼
+  Episode (per-pair, peak-frame buffered)      accumulate risk frame counts
+       │                                       across episode lifetime
+       ▼
+  sustained-risk downgrade (Episode.final_risk)
+       │                                       demote peak risk if not supported
+       ▼
+  _emit_event                                  redact, narrate, broadcast (SSE),
+                                               tier dispatch (Slack), publish (cloud)
+```
+
+Slack `notify_high` applies a final quality gate on episode duration,
+sustained high-risk frame count, and detection confidence; failed events
+route to the medium digest.
+
 ## LLM Resilience
 
 - **Multi-provider failover:** if Anthropic returns an error, the completion

@@ -115,7 +115,7 @@ def print_status(data: dict, port: int):
     perception = data.get("perception", {})
     p_state = perception.get("state", "—")
     dot = f"{G}●{Z}" if running else f"{R}●{Z}"
-    admin_url = f"http://{SERVER_HOST}:{port}/admin"
+    dashboard_url = f"http://{SERVER_HOST}:{port}/dashboard"
     health_url = f"http://{SERVER_HOST}:{port}/api/live/status"
 
     print(f"""
@@ -131,8 +131,8 @@ def print_status(data: dict, port: int):
     LLM           {"configured" if llm else "not configured"}
     Slack         {"configured" if slack else "not configured"}
   ─────────────────────────────────────
-  {C}Admin UI{Z}      {admin_url}
-  {C}Dashboard{Z}     http://{SERVER_HOST}:{port}/
+  {C}Admin UI{Z}      http://{SERVER_HOST}:{port}/
+  {C}Dashboard{Z}     {dashboard_url}
   {C}API status{Z}    {health_url}
   ─────────────────────────────────────
 """)

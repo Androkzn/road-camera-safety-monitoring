@@ -1,18 +1,28 @@
-"""Shared detection + event logic. Used by both analyze.py (batch) and server.py (live).
+"""Detection and event logic — used by both batch (tools/analyze.py) and the
+live server (road_safety/server.py).
 
-Upgraded from per-frame detection to identity-persistent tracking (ByteTrack) so
-downstream code can reason about the *same* object across frames. This unlocks
-two things the pixel-distance heuristic could never deliver:
+Identity-persistent tracking via ByteTrack so downstream code reasons about
+the *same* object across frames. This enables:
 
-  1. Per-pair event dedup (a single episode between track_id=7 and track_id=12
-     fires once, not N times at 2 fps).
-  2. Kinematic risk — time-to-collision from bbox-scale growth, and rough
-     distance-in-meters from the pinhole/ground-plane assumption. Risk is now
-     a physical quantity (TTC seconds / metres), not a pixel count.
+  1. Per-pair episode dedup — a single conflict between track_id=7 and
+     track_id=12 emits once, not N times at the source FPS.
+  2. Kinematic risk — TTC from bbox-scale growth and pair-wise closing rate;
+     monocular distance from the pinhole / ground-plane prior. Risk is a
+     physical quantity (seconds / metres), not a pixel count.
 
-Falls back gracefully: if the tracker returns no IDs (first frames, or
+Conflict-detection methodology aligns with published SSAM / SAFE-UP / PET
+research. TTC is published only after multi-gate validation:
+  - pair-wise closing-rate TTC preferred over single-object scale-expansion
+  - inter-object 3D distance (depth difference + lateral offset), not
+    image-plane bbox proximity, gates vehicle-vehicle interactions
+  - convergence-angle filter rejects parallel / same-direction traffic
+  - sustained-growth requirement (monotonic, jitter-floor pixel delta,
+    non-trivial track motion) before any TTC value is returned
+  - per-pair confidence floor for vehicle-vehicle pairs
+
+Graceful degradation: if the tracker returns no IDs (first frames, or
 non-trackable inputs), detections still flow through with track_id=None and
-downstream code degrades to the old per-frame behaviour.
+downstream code degrades to per-frame behaviour.
 """
 
 from __future__ import annotations
@@ -29,15 +39,16 @@ VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 PEDESTRIAN_CLASSES = {"person"}
 
 CONF_THRESHOLD = 0.60
+VEHICLE_PAIR_CONF_FLOOR = 0.70
 MIN_BBOX_AREA = 1500
 from road_safety.config import MODEL_PATH
 TRACKER_CFG = "bytetrack.yaml"
 
-# Pinhole/ground-plane approximation — dashcam mounted ~1.4m above road,
-# ~800px horizontal focal length for a typical 1080p wide-angle lens.
+# Pinhole/ground-plane approximation — observation camera mounted ~5m above
+# road, ~600px focal length for a typical wide-angle surveillance lens.
 # These are deliberately coarse: real systems calibrate per-camera.
-CAMERA_HEIGHT_M = 1.4
-FOCAL_PX = 800.0
+CAMERA_HEIGHT_M = 5.0
+FOCAL_PX = 600.0
 
 # Typical real-world heights (m) used to back out distance from bbox height
 # when the ground-plane assumption fails (e.g. occluded feet).
@@ -49,15 +60,54 @@ TYPICAL_HEIGHT_M = {
     "motorcycle": 1.3,
 }
 
-# Risk thresholds in *physical* units — these are defensible across any camera,
-# resolution, or framing, unlike pixel thresholds.
-TTC_HIGH_SEC = 1.5      # FCW trigger band per NHTSA / AXA research
-TTC_MED_SEC = 3.0
-DIST_HIGH_M = 3.0       # arm's length + a step
-DIST_MED_M = 8.0        # roughly 1.5 vehicle lengths
+# Risk thresholds in *physical* units.  Calibrated for *observation/analytics*
+# cameras (SSAM / SAFE-UP / PET research), NOT in-vehicle FCW. Tightened to
+# reduce false positives: only genuinely imminent collisions trigger high.
+TTC_HIGH_SEC = 0.5
+TTC_MED_SEC = 1.0
+DIST_HIGH_M = 2.0       # within arm's reach
+DIST_MED_M = 5.0        # roughly 1 vehicle length
 
-# Trailing-frames ring per track for TTC (need ≥ 2 samples to differentiate).
-TRACK_HISTORY_LEN = 8
+# Trailing-frames ring per track for TTC (need ≥ 4 samples for sustained-growth).
+TRACK_HISTORY_LEN = 12
+
+# Minimum scale-expansion ratio to consider an object "approaching".
+# At 2fps, bbox jitter of ±2px on a 50px box is ±4%, so we need >10%
+# growth to distinguish real approach from noise.
+MIN_SCALE_GROWTH = 1.10
+
+# Sustained-evidence gates for TTC. A single-frame TTC < 1 s on a stationary
+# object is almost always bbox jitter, not a real conflict. TTC is only
+# returned after all of the following hold over the trailing window:
+#   - bbox height grows MONOTONICALLY (one tracker dip allowed)
+#   - absolute height delta exceeds the pixel-jitter floor
+#   - track centre moves more than sub-pixel jitter across the window
+#   - for pair-TTC: distance decreases monotonically and at least one track
+#     shows non-trivial motion
+TTC_REQUIRED_SAMPLES = 4
+TTC_MIN_HEIGHT_DELTA_PX = 6
+PAIR_TTC_REQUIRED_SAMPLES = 4
+PAIR_TTC_MIN_DISTANCE_REDUCTION_PX = 8.0
+TTC_MIN_TRACK_MOTION_PX = 4.0
+
+# Minimum closing rate (px/s) for pair-TTC to fire. Filters noise from
+# bbox center jitter at low frame rates. Raised from 1.0 → 4.0 px/s.
+MIN_CLOSING_RATE_PX = 4.0
+
+# Depth-aware proximity gate for vehicle-vehicle interactions. Two cars
+# more than this far apart in 3D depth are NOT a "close interaction" even if
+# their bboxes overlap in the image plane (perspective overlap is not collision risk).
+VEHICLE_INTER_DISTANCE_GATE_M = 8.0
+
+# Speed-aware risk floor. When ego vehicle is essentially stationary
+# (red light, parking, traffic jam) and no track is actively approaching,
+# we cap risk at 'medium' regardless of TTC — close-quarters-low-speed is
+# normal, not a conflict.
+LOW_SPEED_FLOOR_MPS = 2.0
+
+# Convergence angle: pair must be closing at > this angle from parallel.
+# cos(45°) ≈ 0.71 — only nearly head-on or crossing trajectories pass.
+CONVERGE_COS_MAX = 0.35  # cos(70°) — strict, rejects most parallel traffic
 
 
 @dataclass
@@ -92,6 +142,8 @@ class TrackSample:
     t: float
     height: int
     bottom: int
+    cx: float = 0.0
+    cy: float = 0.0
 
 
 class TrackHistory:
@@ -104,8 +156,9 @@ class TrackHistory:
     def update(self, det: Detection, t: float) -> None:
         if det.track_id is None:
             return
+        cx, cy = det.center
         dq = self._tracks.setdefault(det.track_id, deque(maxlen=self._maxlen))
-        dq.append(TrackSample(t=t, height=det.height, bottom=det.bottom))
+        dq.append(TrackSample(t=t, height=det.height, bottom=det.bottom, cx=cx, cy=cy))
 
     def samples(self, track_id: int | None) -> list[TrackSample]:
         if track_id is None:
@@ -132,7 +185,7 @@ def bbox_edge_distance(a: Detection, b: Detection) -> float:
 
 
 def estimate_distance_m(det: Detection, frame_h: int) -> float | None:
-    """Monocular distance estimate. Returns None if we can't get a sane number.
+    """Monocular distance estimate for a single detection (depth from camera).
 
     Strategy — take the more reliable of two priors:
       (a) Ground plane: if the bbox bottom is below the horizon (assumed
@@ -160,28 +213,181 @@ def estimate_distance_m(det: Detection, frame_h: int) -> float | None:
     return round(max(candidates), 2)
 
 
+def estimate_inter_distance_m(a: Detection, b: Detection, frame_h: int) -> float | None:
+    """Rough inter-object distance from monocular depth difference + lateral offset.
+
+    More meaningful than single-object depth for conflict assessment: two cars
+    at 15 m depth but in different lanes are not interacting.
+    """
+    da = estimate_distance_m(a, frame_h)
+    db = estimate_distance_m(b, frame_h)
+    if da is None or db is None:
+        return None
+    depth_diff = abs(da - db)
+
+    avg_depth = (da + db) / 2.0
+    acx, acy = a.center
+    bcx, bcy = b.center
+    lateral_px = abs(acx - bcx)
+    lateral_m = lateral_px * avg_depth / FOCAL_PX if avg_depth > 0 else 0
+
+    inter = math.sqrt(depth_diff ** 2 + lateral_m ** 2)
+    return round(inter, 2) if 0.3 < inter < 200 else None
+
+
+def _is_monotonic_increasing(seq: list[float]) -> bool:
+    """True if seq is monotonically non-decreasing, allowing one transient
+    dip to absorb tracker bbox jitter. Stricter than 'last > first': a
+    zigzag pattern is rejected even if the endpoints satisfy the inequality."""
+    if len(seq) < 2:
+        return False
+    dips = 0
+    for prev, curr in zip(seq, seq[1:]):
+        if curr < prev:
+            dips += 1
+            if dips > 1:
+                return False
+    return True
+
+
+def _is_monotonic_decreasing(seq: list[float]) -> bool:
+    if len(seq) < 2:
+        return False
+    bumps = 0
+    for prev, curr in zip(seq, seq[1:]):
+        if curr > prev:
+            bumps += 1
+            if bumps > 1:
+                return False
+    return True
+
+
 def estimate_ttc_sec(history: list[TrackSample]) -> float | None:
     """Time-to-collision from bbox-scale growth (scale-expansion TTC).
 
-    If the object's bbox height is growing frame-over-frame, the object is
-    approaching. TTC ≈ Δt / (scale - 1). Ego-motion-invariant in the
-    longitudinal axis — doesn't need to know whether we're moving or they are.
+    Sustained-evidence gates (a 1-pixel bbox jitter on a stationary object
+    can otherwise produce TTC < 1 s from noise alone):
 
-    Returns None if shrinking, static, or insufficient data.
+      Gate 1: ≥ TTC_REQUIRED_SAMPLES samples, ≥ 1.5 s window.
+      Gate 2: bbox heights MONOTONICALLY increasing (zigzag rejected).
+      Gate 3: absolute height delta exceeds TTC_MIN_HEIGHT_DELTA_PX (jitter floor).
+      Gate 4: track shows non-trivial center motion (rejects stationary jitter).
+      Gate 5: full-window scale ratio exceeds MIN_SCALE_GROWTH.
+
+    Only after all five gates pass is TTC = Δt / (scale - 1) returned.
+    Ego-motion-invariant in the longitudinal axis.
     """
-    if len(history) < 3:
+    if len(history) < TTC_REQUIRED_SAMPLES:
         return None
-    first, last = history[0], history[-1]
+    window = history[-TTC_REQUIRED_SAMPLES:]
+    first, last = window[0], window[-1]
     dt = last.t - first.t
-    if dt <= 0.1:
+    if dt < 1.5:
         return None
+
+    # Gate 2: monotonic growth — single noisy frame can't fire TTC alone.
+    if not _is_monotonic_increasing([float(s.height) for s in window]):
+        return None
+
+    # Gate 3: absolute pixel delta must clear jitter floor.
+    if (last.height - first.height) < TTC_MIN_HEIGHT_DELTA_PX:
+        return None
+
+    # Gate 4: track must move across the window — sub-pixel jitter on a
+    # stationary bbox is not a conflict.
+    motion_px = math.hypot(last.cx - first.cx, last.cy - first.cy)
+    if motion_px < TTC_MIN_TRACK_MOTION_PX:
+        return None
+
+    # Gate 5: scale ratio.
     scale = last.height / max(first.height, 1)
-    if scale <= 1.02:  # not approaching (or noise)
+    if scale <= MIN_SCALE_GROWTH:
         return None
+
     ttc = dt / (scale - 1.0)
     if not math.isfinite(ttc) or ttc <= 0 or ttc > 30:
         return None
     return round(ttc, 2)
+
+
+def estimate_pair_ttc(
+    hist_a: list[TrackSample], hist_b: list[TrackSample],
+) -> float | None:
+    """Pair-wise TTC from the closing rate of two tracks' centres (SSAM method).
+
+    Sustained-evidence gates:
+      Gate 1: ≥ PAIR_TTC_REQUIRED_SAMPLES samples per track, ≥ 1.5 s overlap.
+      Gate 2: pair-distance MONOTONICALLY decreasing across the window.
+      Gate 3: total distance reduction exceeds PAIR_TTC_MIN_DISTANCE_REDUCTION_PX.
+      Gate 4: at least ONE track shows non-trivial motion (two stationary
+              bboxes with center jitter cannot have a real closing rate).
+      Gate 5: closing_rate > MIN_CLOSING_RATE_PX.
+
+    Returns TTC = D / (-dD/dt) only when all five gates pass.
+    """
+    if len(hist_a) < PAIR_TTC_REQUIRED_SAMPLES or len(hist_b) < PAIR_TTC_REQUIRED_SAMPLES:
+        return None
+
+    # Align windows to the same trailing length so per-step distances make sense.
+    n = min(len(hist_a), len(hist_b), PAIR_TTC_REQUIRED_SAMPLES)
+    wa = hist_a[-n:]
+    wb = hist_b[-n:]
+
+    a0, a1 = wa[0], wa[-1]
+    b0, b1 = wb[0], wb[-1]
+    dt = min(a1.t - a0.t, b1.t - b0.t)
+    if dt < 1.5:
+        return None
+
+    # Gate 2 + 3: monotonic decrease + minimum total reduction.
+    distances = [math.hypot(sa.cx - sb.cx, sa.cy - sb.cy) for sa, sb in zip(wa, wb)]
+    if not _is_monotonic_decreasing(distances):
+        return None
+    if (distances[0] - distances[-1]) < PAIR_TTC_MIN_DISTANCE_REDUCTION_PX:
+        return None
+
+    # Gate 4: at least one track must show real motion. Two parked cars'
+    # centers will always jitter a few pixels — that's not a closing rate.
+    motion_a = math.hypot(a1.cx - a0.cx, a1.cy - a0.cy)
+    motion_b = math.hypot(b1.cx - b0.cx, b1.cy - b0.cy)
+    if motion_a < TTC_MIN_TRACK_MOTION_PX and motion_b < TTC_MIN_TRACK_MOTION_PX:
+        return None
+
+    closing_rate = (distances[0] - distances[-1]) / dt
+    if closing_rate <= MIN_CLOSING_RATE_PX:
+        return None
+    if distances[-1] <= 0:
+        return None
+
+    ttc = distances[-1] / closing_rate
+    if not math.isfinite(ttc) or ttc <= 0 or ttc > 30:
+        return None
+    return round(ttc, 2)
+
+
+def tracks_converging(hist_a: list[TrackSample], hist_b: list[TrackSample]) -> bool:
+    """Return True if two tracks' velocity vectors are converging (not parallel).
+
+    Rejects same-direction, same-lane "following" traffic which produces low TTC
+    from scale growth but is not a conflict. Requires ≥5 samples to avoid
+    triggering on noisy short tracks.
+    """
+    if len(hist_a) < 5 or len(hist_b) < 5:
+        return False  # insufficient data → default to safe (reject)
+
+    a0, a1 = hist_a[0], hist_a[-1]
+    b0, b1 = hist_b[0], hist_b[-1]
+
+    va = (a1.cx - a0.cx, a1.cy - a0.cy)
+    vb = (b1.cx - b0.cx, b1.cy - b0.cy)
+
+    mag_a = math.hypot(*va)
+    mag_b = math.hypot(*vb)
+    if mag_a < 3.0 or mag_b < 3.0:
+        return False  # nearly stationary objects rarely collide at intersections
+
+    dot = (va[0] * vb[0] + va[1] * vb[1]) / (mag_a * mag_b)
+    return dot < CONVERGE_COS_MAX
 
 
 def classify_risk(ttc_sec: float | None, distance_m: float | None, fallback_px: float) -> str:
@@ -202,9 +408,9 @@ def classify_risk(ttc_sec: float | None, distance_m: float | None, fallback_px: 
         elif distance_m <= DIST_MED_M:
             levels.append("medium")
     if ttc_sec is None and distance_m is None:
-        if fallback_px <= 60:
+        if fallback_px <= 20:
             levels.append("high")
-        elif fallback_px <= 180:
+        elif fallback_px <= 80:
             levels.append("medium")
 
     if "high" in levels:
@@ -261,13 +467,16 @@ def find_interactions(
     for ped in pedestrians:
         for veh in vehicles:
             dist = bbox_edge_distance(ped, veh)
-            if dist <= 180:
+            if dist <= 120:
                 candidates.append(("pedestrian_proximity", ped, veh, dist))
 
     for i, a in enumerate(vehicles):
         for b in vehicles[i + 1 :]:
+            mean_conf = (a.conf + b.conf) / 2.0
+            if mean_conf < VEHICLE_PAIR_CONF_FLOOR:
+                continue
             dist = bbox_edge_distance(a, b)
-            if dist <= 60:
+            if dist <= 30:
                 candidates.append(("vehicle_close_interaction", a, b, dist))
 
     return candidates

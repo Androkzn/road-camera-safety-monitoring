@@ -81,21 +81,23 @@ class TestEstimateDistance:
 class TestEstimateTTC:
     def test_insufficient_history(self):
         assert estimate_ttc_sec([]) is None
-        assert estimate_ttc_sec([TrackSample(t=0, height=100, bottom=300)]) is None
+        assert estimate_ttc_sec([TrackSample(t=0, height=100, bottom=300, cx=100, cy=200)]) is None
 
     def test_static_object_returns_none(self):
         samples = [
-            TrackSample(t=0.0, height=100, bottom=300),
-            TrackSample(t=0.5, height=100, bottom=300),
-            TrackSample(t=1.0, height=100, bottom=300),
+            TrackSample(t=0.0, height=100, bottom=300, cx=100, cy=200),
+            TrackSample(t=0.5, height=100, bottom=300, cx=100, cy=200),
+            TrackSample(t=1.0, height=100, bottom=300, cx=100, cy=200),
         ]
         assert estimate_ttc_sec(samples) is None
 
     def test_approaching_object(self):
         samples = [
-            TrackSample(t=0.0, height=50, bottom=300),
-            TrackSample(t=0.5, height=60, bottom=310),
-            TrackSample(t=1.0, height=75, bottom=325),
+            TrackSample(t=0.0, height=50, bottom=300, cx=100, cy=250),
+            TrackSample(t=0.5, height=55, bottom=304, cx=102, cy=254),
+            TrackSample(t=1.0, height=62, bottom=310, cx=105, cy=260),
+            TrackSample(t=1.5, height=70, bottom=318, cx=108, cy=268),
+            TrackSample(t=2.0, height=80, bottom=325, cx=112, cy=275),
         ]
         ttc = estimate_ttc_sec(samples)
         assert ttc is not None
@@ -103,9 +105,11 @@ class TestEstimateTTC:
 
     def test_receding_object_returns_none(self):
         samples = [
-            TrackSample(t=0.0, height=100, bottom=300),
-            TrackSample(t=0.5, height=90, bottom=295),
-            TrackSample(t=1.0, height=80, bottom=290),
+            TrackSample(t=0.0, height=100, bottom=300, cx=100, cy=200),
+            TrackSample(t=0.4, height=95, bottom=298, cx=100, cy=198),
+            TrackSample(t=0.8, height=92, bottom=296, cx=100, cy=196),
+            TrackSample(t=1.2, height=88, bottom=293, cx=100, cy=193),
+            TrackSample(t=1.6, height=80, bottom=290, cx=100, cy=190),
         ]
         assert estimate_ttc_sec(samples) is None
 
@@ -114,10 +118,10 @@ class TestEstimateTTC:
 
 class TestClassifyRisk:
     def test_high_ttc(self):
-        assert classify_risk(ttc_sec=1.0, distance_m=None, fallback_px=999) == "high"
+        assert classify_risk(ttc_sec=0.5, distance_m=None, fallback_px=999) == "high"
 
     def test_medium_ttc(self):
-        assert classify_risk(ttc_sec=2.5, distance_m=None, fallback_px=999) == "medium"
+        assert classify_risk(ttc_sec=0.8, distance_m=None, fallback_px=999) == "medium"
 
     def test_low_ttc(self):
         assert classify_risk(ttc_sec=10.0, distance_m=None, fallback_px=999) == "low"
@@ -132,19 +136,19 @@ class TestClassifyRisk:
         assert classify_risk(ttc_sec=None, distance_m=20.0, fallback_px=999) == "low"
 
     def test_pixel_fallback_high(self):
-        assert classify_risk(ttc_sec=None, distance_m=None, fallback_px=30) == "high"
+        assert classify_risk(ttc_sec=None, distance_m=None, fallback_px=10) == "high"
 
     def test_pixel_fallback_medium(self):
-        assert classify_risk(ttc_sec=None, distance_m=None, fallback_px=100) == "medium"
+        assert classify_risk(ttc_sec=None, distance_m=None, fallback_px=50) == "medium"
 
     def test_pixel_fallback_low(self):
         assert classify_risk(ttc_sec=None, distance_m=None, fallback_px=300) == "low"
 
     def test_ttc_overrides_distance(self):
-        assert classify_risk(ttc_sec=1.0, distance_m=50.0, fallback_px=999) == "high"
+        assert classify_risk(ttc_sec=0.5, distance_m=50.0, fallback_px=999) == "high"
 
     def test_worst_wins(self):
-        assert classify_risk(ttc_sec=2.5, distance_m=2.0, fallback_px=999) == "high"
+        assert classify_risk(ttc_sec=1.2, distance_m=2.0, fallback_px=999) == "high"
 
 
 # ── find_interactions ────────────────────────────────────────────────
@@ -165,7 +169,7 @@ class TestFindInteractions:
 
     def test_vehicle_pair_close(self):
         a = Detection(cls="car", conf=0.9, x1=100, y1=100, x2=200, y2=200, track_id=1)
-        b = Detection(cls="car", conf=0.9, x1=210, y1=100, x2=310, y2=200, track_id=2)
+        b = Detection(cls="car", conf=0.9, x1=220, y1=100, x2=320, y2=200, track_id=2)
         interactions = find_interactions([a, b])
         types = [i[0] for i in interactions]
         assert "vehicle_close_interaction" in types

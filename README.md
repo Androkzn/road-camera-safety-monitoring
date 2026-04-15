@@ -1,25 +1,14 @@
 # Road Safety
 
-Real-time dashcam safety system. Pulls a live camera stream, detects pedestrian-vehicle and vehicle-vehicle proximity events with YOLOv8 + ByteTrack, narrates each incident with Claude, and exposes an operator copilot with RAG over a statute/policy corpus.
-
-Model-agnostic LLM layer (Anthropic + Azure OpenAI failover), event metadata as the product surface, CV as a pluggable upstream.
+Real-time road safety monitoring system. Pulls a live camera stream, detects pedestrian-vehicle and vehicle-vehicle proximity events with YOLOv8 + ByteTrack, narrates each incident with Claude, and exposes an operator copilot with RAG over a statute/policy corpus.
 
 ---
 
 ## Screenshots
 
-### Live Dashboard
-Real-time event stream with safety detections, risk classification, TTC/distance metrics, operator feedback, and AI copilot chat.
-
-![Live Dashboard](docs/screenshots/dashboard.png)
-
-### Admin Panel
-Live annotated video feed with YOLO bounding boxes, detection stats, event history, notable vehicles, and system health monitoring.
-
 ![Admin Panel](docs/screenshots/admin.png)
 
-### Test Suite
-Built-in test runner (119 tests) executes automatically on startup. Slide-in panel shows real-time progress and per-test results.
+![Dashboard](docs/screenshots/dashboard.png)
 
 ![Test Suite](docs/screenshots/tests.png)
 
@@ -28,155 +17,138 @@ Built-in test runner (119 tests) executes automatically on startup. Slide-in pan
 ## Quick start
 
 ```bash
-git clone <repo-url> && cd <repo-name>
+git clone <repo-url> && cd road-safety
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env          # configure ROAD_STREAM_SOURCE + API keys
-python start.py               # runs tests → starts server → opens browser
+cp .env.example .env
+python start.py
 ```
 
-First run downloads `yolov8n.pt` (~6 MB) automatically.
+Or with Docker: `docker compose up --build`
 
-## Run with Docker
+---
 
-```bash
-docker compose up --build      # builds + starts on port 8000
-```
+## Challenges & How We Address Them
 
-## Project structure
+### 1. False Positives & Alert Fatigue
 
-```
-road_safety/                   # installable Python package
-  config.py                    # centralized env vars, paths, constants
-  server.py                    # FastAPI app — SSE, MJPEG, REST endpoints
-  core/
-    detection.py               # YOLOv8 + ByteTrack pipeline
-    stream.py                  # live video capture (YouTube/RTSP/HLS/mp4)
-    egomotion.py               # optical-flow ego-motion compensation
-    context.py                 # scene classification (highway/urban/parking)
-    quality.py                 # perception quality monitoring
-  services/
-    llm.py                     # LLM narration, vision enrichment, RAG chat
-    llm_obs.py                 # token cost, latency, error observability
-    agents.py                  # AI agents (coaching, investigation, report)
-    registry.py                # multi-vehicle registry + driver scoring
-    drift.py                   # precision monitoring + active learning
-    redact.py                  # PII redaction (faces, plates, hashing)
-    digest.py                  # tiered Slack digest scheduling
-    test_runner.py             # background pytest runner with structured results
-  api/
-    feedback.py                # operator verdict submission
-  integrations/
-    slack.py                   # Slack alerting (Block Kit + tiered digests)
-    edge_publisher.py          # edge-to-cloud HMAC-signed event delivery
-  compliance/
-    audit.py                   # GDPR Art.30 / SOC 2 audit trail
-    retention.py               # automated data expiry
+False positives are the #1 complaint from road operators. Basic systems fire on every close proximity event without understanding context — parking-lot maneuvers, highway following distances, or normal intersection crossings. Drivers learn to ignore the system and the safety value drops to zero.
 
-cloud/
-  receiver.py                  # cloud-side ingest (separate FastAPI app)
+**Our approach: layered gating where a real conflict satisfies all layers and noise fails at the first.**
 
-tools/
-  analyze.py                   # batch mode — process recorded clips
-  eval_detect.py               # detection eval harness (precision/recall)
-  eval_enrich.py               # LLM enrichment eval
+| Layer | What it does |
+|---|---|
+| **Multi-gate TTC** | Time-to-collision fires only after 5 independent gates: ≥4-sample window spanning ≥1.5s, monotonic bbox growth, jitter-floor pixel delta, non-trivial track motion, and scale ratio above noise floor. Pair-TTC adds monotonic distance decrease and minimum closing rate. |
+| **Ego-motion gating** | TTC is discarded when neither track shows approach residual against optical-flow ego-motion. Bbox jitter on stationary objects cannot fire alarms. |
+| **Depth-aware proximity** | Vehicle interactions are gated on monocular 3D depth difference, not image-plane overlap. Distant cars whose bboxes overlap due to perspective are not flagged. |
+| **Scene-adaptive thresholds** | Urban / highway / parking classification rescales TTC and distance bands dynamically. Highway widens for reaction time; parking tightens for close-quarters. |
+| **Sustained-risk episodes** | Track-pair interactions accumulate into episodes. Peak risk is downgraded if not sustained over ≥2 frames and ≥1.0s. |
+| **Perception-quality gating** | When the camera is degraded (low light, blur), thresholds tighten conservatively and low-confidence events are suppressed. |
+| **Operator feedback loop** | Operators mark events tp/fp. Drift monitor tracks rolling precision and alerts on degradation. Disputed events feed active learning. |
 
-tests/                         # pytest suite (119 tests)
-static/                        # operator dashboard + admin UI
-docs/                          # architecture, BRD, TRD, implementation spec
-start.py                       # one-command launcher
-Dockerfile                     # production container
-docker-compose.yml             # compose stack
-Makefile                       # dev workflow shortcuts
-```
+### 2. Edge/Cloud Latency & Bandwidth
 
-## Configuration
+Raw HD video at 10 Mbps produces ~1 GB/day/camera. Transmitting that from thousands of vehicles on cellular is economically impossible. Real-time safety requires sub-second latency, but cloud adds 100-500ms+ round-trip.
 
-All settings are environment-driven. See [`.env.example`](.env.example) for the full list.
+**Our approach: all perception runs on-device. Only typed JSON (~2 KB) + redacted thumbnails (~8 KB) cross the wire — a 2,000-10,000x bandwidth reduction.**
 
-| Variable | Required | Description |
+| Layer | What it does |
+|---|---|
+| **Edge-first architecture** | Detection, tracking, risk classification, and PII redaction run on-device. Cloud receives only structured events. |
+| **Lightweight model** | YOLOv8n (nano) — smallest YOLO variant, runs at 2 fps on laptop CPU. |
+| **HMAC-signed batched delivery** | Events queue locally in append-only JSONL. Batches of up to 20 are signed and POSTed together. Survives network outages with exponential backoff. |
+| **Selective LLM enrichment** | Vision enrichment is skipped when perception is degraded or for low-risk events. No wasted API calls. |
+
+### 3. LLM Reliability in Production
+
+LLM integration in safety systems faces: rate limiting, hallucination in narration/enrichment, linear cost scaling with event volume, and single-provider outages.
+
+**Our approach: the LLM is an enrichment layer, not a critical path. Detection works with zero LLM calls. Narration adds value when available and degrades silently when not.**
+
+| Layer | What it does |
+|---|---|
+| **Multi-provider failover** | Anthropic ↔ Azure OpenAI automatic fallback on errors. |
+| **Client-side rate budget** | Token-bucket limiter (3 req/min) refuses calls *before* triggering 429 errors. |
+| **Circuit breaker** | After 3 consecutive failures, breaker opens for 60s, halving API load during storms. |
+| **Self-consistency ALPR** | Two independent vision calls at different temperatures. If plate readings disagree, output is null rather than hallucinated. |
+| **Cost observability** | Every call instrumented: tokens, latency, USD cost, success/failure. Exposed via `/api/llm/stats`. |
+
+### 4. Privacy & Regulatory Compliance (GDPR/CCPA)
+
+Road cameras capture faces, plates, and location — all PII under GDPR/CCPA. Fines exceed 70M EUR. License plates create tracking profiles. Organizations must demonstrate what data they hold and who accessed it.
+
+**Our approach: privacy by design, not by policy. Raw PII never reaches an external channel by construction — the code path makes it structurally impossible.**
+
+| Layer | What it does |
+|---|---|
+| **Dual thumbnails** | Every event produces internal (unredacted, local-only) and public (faces + plates blurred) versions. All external channels receive only the public version. |
+| **Plate hashing** | Raw plate text is immediately converted to a salted SHA-256 hash. Enables cross-event correlation without storing actual plates. |
+| **DSAR-gated access** | Unredacted thumbnails require an `X-DSAR-Token` header. Denied attempts are audit-logged. |
+| **Audit trail** | Every sensitive access is logged: timestamp, actor, action, resource, outcome, IP. GDPR Art. 30 / SOC 2 ready. |
+| **Automated retention** | Hourly sweeps delete data past configurable windows: thumbnails 30d, feedback 90d, active-learning 60d. GDPR Art. 5(1)(e). |
+
+### 5. Model Drift & Continuous Improvement
+
+CV models degrade in production. Weather changes, new camera angles, seasonal lighting — all cause distribution shift. Without monitoring, precision silently degrades until operators lose trust. Retraining requires labeled data, which is expensive.
+
+**Our approach: the feedback loop is a first-class feature. Operator verdicts flow directly into precision monitoring and training data selection.**
+
+| Layer | What it does |
+|---|---|
+| **Rolling precision** | Joins operator feedback with emitted events. Computes precision sliced by risk level and event type. |
+| **Trend detection** | Compares current window against prior non-overlapping window. Reports improving / stable / degrading. |
+| **Active learning** | Events near the decision boundary (confidence 0.35-0.50) are sampled for relabeling. Disputed (fp-marked) events are always captured. |
+| **Label tool export** | Pending samples bundle into zip with manifest JSON, ready for Label Studio / CVAT import. |
+
+### 6. Scaling to Multi-Vehicle Roads
+
+Scaling from one camera to thousands of vehicles requires vehicle identity, road-wide aggregation, and driver scoring. The data model must support road-scale operations from day one.
+
+**Our approach: single-vehicle and multi-vehicle deployments use the same data model. Adding vehicles is a configuration change, not a code change.**
+
+| Layer | What it does |
+|---|---|
+| **Vehicle/road identity** | Every event carries `vehicle_id`, `road_id`, `driver_id`. Events are attributable from creation. |
+| **Driver scoring** | Decaying penalty model: high-risk events deduct 10 points from max 100. Scores recover 0.5/hour. |
+| **Road-wide aggregation** | `/api/road/summary` provides aggregate counts. `/api/road/drivers` ranks drivers worst-first. |
+
+### 7. AI Agent Orchestration
+
+60% of enterprise AI agent pilots fail to scale. Root causes: process mirroring (38%), lack of observability (27%), context collapse (22%), and tool overload (13%).
+
+**Our approach: single-responsibility agents with bounded tool sets. No agent has more than 5 tools. Agents recommend — operators decide.**
+
+| Layer | What it does |
+|---|---|
+| **Coaching agent** | Retrieves event + road policy, generates structured coaching note with specific driver action items. |
+| **Investigation agent** | Correlates event with similar events, feedback, and drift data. Produces root-cause hypothesis with confidence. |
+| **Report agent** | Queries event counts, feedback, and drift across the session. Produces structured safety summary. |
+| **Hard stops** | Max 5 iteration steps. Returns with what it has rather than looping. |
+| **Observability** | Agent LLM calls instrumented with same cost/latency tracking. Invocations audit-logged. |
+
+---
+
+## Summary
+
+| Challenge | Industry Pain | Our Approach |
 |---|---|---|
-| `ROAD_STREAM_SOURCE` | Yes | Video source URL (YouTube/RTSP/HLS/mp4) |
-| `ROAD_VEHICLE_ID` | Yes | Vehicle identifier |
-| `ROAD_ID` | Yes | Road/route identifier |
-| `ROAD_DRIVER_ID` | Yes | Driver identifier |
-| `ANTHROPIC_API_KEY` | No | Enables LLM narration + copilot chat |
-| `SLACK_WEBHOOK_URL` | No | Enables Slack alerting |
-| `ROAD_PLATE_SALT` | Recommended | Plate hash salt (auto-generated if unset) |
+| False positives | Alert fatigue, driver distrust | 7-layer gating: TTC gates, ego-motion, depth, scene-adaptive, episodes, perception quality, feedback |
+| Edge/cloud bandwidth | 1 GB/day/camera | 2,000-10,000x reduction, edge-first, batched delivery |
+| LLM reliability | Rate limits, hallucination, cost | Multi-provider failover, circuit breaker, self-consistency, rate budget |
+| Privacy compliance | GDPR fines >70M EUR | Dual thumbnails, plate hashing, DSAR gating, audit trail, auto-retention |
+| Model drift | Silent precision degradation | Rolling precision, trend detection, active learning, disputed sampling |
+| Road scaling | Single camera → 1.5M vehicles | Vehicle/road identity, driver scoring, road-wide aggregation |
+| Agent orchestration | 60% pilot failure | Bounded tools, structured output, hard stops, observability |
 
-## Architecture
-
-```
-Live stream (YouTube/HLS/RTSP/mp4)
-    │
-    ▼
-stream.py  ──►  StreamReader (background thread, configurable FPS)
-    │
-    ▼
-detection.py ──► YOLOv8 + ByteTrack ──► TTC / distance ──► typed events
-    │
-    ▼
-server.py  ──► egomotion.py (optical flow) + context.py (scene adaptive)
-  │              + quality.py (perception gating) + redact.py (PII)
-  │
-  ├─► SSE    /stream/events       real-time event push
-  ├─► MJPEG  /admin/video_feed    annotated video stream
-  ├─► POST   /chat                RAG copilot (corpus + live events)
-  ├─► GET    /api/live/*          status, events, scene, perception
-  ├─► GET    /api/drift           precision monitoring
-  ├─► GET    /api/road/*          multi-vehicle aggregation
-  ├─► GET    /api/llm/*           LLM cost/latency observability
-  ├─► GET    /api/audit           compliance audit trail
-  ├─► GET    /api/tests/*         live test runner status + results
-  └─► POST   /api/agents/*        AI coaching, investigation, reports
-```
-
-## Key design decisions
-
-- **Scene-adaptive thresholds** — highway / urban / parking classification adjusts TTC and distance bands dynamically.
-- **Ego-motion compensation** — optical flow separates camera motion from object motion.
-- **Episode model** — groups detections of the same track pair into episodes, emits only peak-severity moment.
-- **Dual-thumbnail PII redaction** — internal (unredacted, local-only) vs public (face + plate blurred) for all external paths.
-- **Token-bucket + circuit breaker** on LLM calls — prevents rate limiting and cascading failures.
-- **Edge/cloud split** — perception runs on-device, only typed JSON + redacted thumbnails cross the wire.
-- **Drift monitoring** — rolling precision from operator feedback, with active learning for model improvement.
-- **Built-in test runner** — 119 tests execute on startup; live results visible in the dashboard UI.
-
-## API reference
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/stream/events` | GET | SSE live event feed |
-| `/admin/video_feed` | GET | MJPEG annotated video stream |
-| `/admin/detections` | GET | SSE per-frame detection snapshots |
-| `/chat` | POST | RAG copilot chat |
-| `/api/live/status` | GET | System status + perception state |
-| `/api/live/events` | GET | Recent events (filterable) |
-| `/api/live/scene` | GET | Scene context + adaptive thresholds |
-| `/api/drift` | GET | Rolling precision + trend |
-| `/api/feedback` | POST/GET | Operator verdict submission |
-| `/api/coaching_queue` | GET | Pending medium-risk events |
-| `/api/active_learning/export` | POST | Export samples for labeling |
-| `/api/road/summary` | GET | System-wide aggregation |
-| `/api/road/vehicle/{id}` | GET | Per-vehicle stats + score |
-| `/api/road/drivers` | GET | Driver safety leaderboard |
-| `/api/agents/coaching` | POST | AI coaching note generator |
-| `/api/agents/investigation` | POST | AI event investigation |
-| `/api/agents/report` | POST | AI safety summary report |
-| `/api/llm/stats` | GET | LLM cost, latency, error rates |
-| `/api/audit` | GET | Compliance audit trail |
-| `/api/retention/sweep` | POST | Trigger data retention sweep |
-| `/api/tests/status` | GET | Test run status + per-test results |
-| `/api/tests/run` | POST | Trigger a new test run |
-| `/api/admin/health` | GET | Detailed server health check |
+---
 
 ## Testing
 
 ```bash
-make test                      # or: pytest tests/ -v
+make test    # or: pytest tests/ -v
 ```
 
-119 tests covering core detection pipeline, services, API routes, compliance, and integrations. Tests also run automatically when the server starts — results are visible in the dashboard test panel.
+119 tests covering detection pipeline, services, API routes, compliance, and integrations.
 
 ## License
 

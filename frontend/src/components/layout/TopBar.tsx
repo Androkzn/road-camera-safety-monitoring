@@ -40,10 +40,10 @@ export function TopBar({ sourceName = "—", connected, children }: TopBarProps)
       </Link>
       <nav className={styles.nav}>
         <Link to="/" className={pathname === "/" ? styles.active : ""}>
-          Dashboard
-        </Link>
-        <Link to="/admin" className={pathname === "/admin" ? styles.active : ""}>
           Admin
+        </Link>
+        <Link to="/dashboard" className={pathname === "/dashboard" ? styles.active : ""}>
+          Dashboard
         </Link>
       </nav>
       <span className={styles.spacer} />

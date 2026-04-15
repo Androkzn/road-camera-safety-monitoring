@@ -46,10 +46,10 @@ _PARKING_WINDOW_SEC = 30.0
 
 # Default thresholds — these mirror detection.py's module constants so an
 # "unknown" scene behaves exactly like today.
-_DEFAULT_TTC_HIGH = 1.5
-_DEFAULT_TTC_MED = 3.0
-_DEFAULT_DIST_HIGH = 3.0
-_DEFAULT_DIST_MED = 8.0
+_DEFAULT_TTC_HIGH = 0.5
+_DEFAULT_TTC_MED = 1.0
+_DEFAULT_DIST_HIGH = 2.0
+_DEFAULT_DIST_MED = 5.0
 
 
 @dataclass
@@ -180,24 +180,28 @@ class SceneContextClassifier:
         )
 
     def adaptive_thresholds(self, ctx: SceneContext) -> AdaptiveThresholds:
-        """Scene-calibrated replacements for detection.py's module constants."""
+        """Scene-calibrated replacements for detection.py's module constants.
+
+        Calibrated for *observation/analytics* cameras, not in-vehicle FCW.
+        Based on SSAM, SAFE-UP, and PET research:
+        - PET > 1.0 s → low severity (no evasive action needed)
+        - Only sub-second closing at converging angles is genuinely high-risk
+        """
         if ctx.label == "highway":
-            # 65 mph ~ 29 m/s — need >=3s TTC per NHTSA FCW research.
+            # 65 mph ~ 29 m/s — higher speed requires more reaction time.
             return AdaptiveThresholds(
-                ttc_high_sec=2.8, ttc_med_sec=4.5,
-                dist_high_m=8.0, dist_med_m=25.0,
+                ttc_high_sec=1.5, ttc_med_sec=3.0,
+                dist_high_m=5.0, dist_med_m=15.0,
             )
         if ctx.label == "urban":
-            # Closer thresholds OK; pedestrian density means more true-positives.
             return AdaptiveThresholds(
-                ttc_high_sec=1.2, ttc_med_sec=2.5,
-                dist_high_m=2.5, dist_med_m=6.0,
+                ttc_high_sec=0.4, ttc_med_sec=0.8,
+                dist_high_m=1.5, dist_med_m=3.0,
             )
         if ctx.label == "parking":
-            # Tight space, slow speeds — anything under 1m at 0.8s matters.
             return AdaptiveThresholds(
-                ttc_high_sec=0.8, ttc_med_sec=1.5,
-                dist_high_m=1.0, dist_med_m=3.0,
+                ttc_high_sec=0.5, ttc_med_sec=1.0,
+                dist_high_m=0.8, dist_med_m=2.5,
             )
         # unknown — identical to detection.py defaults.
         return AdaptiveThresholds(

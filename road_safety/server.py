@@ -43,16 +43,21 @@ from road_safety.config import (
     VEHICLE_ID,
 )
 from road_safety.core.detection import (
+    LOW_SPEED_FLOOR_MPS,
     VEHICLE_CLASSES,
+    VEHICLE_INTER_DISTANCE_GATE_M,
     TrackHistory,
     bbox_edge_distance,
     build_event_summary,
     classify_risk,
     detect_frame,
     estimate_distance_m,
+    estimate_inter_distance_m,
+    estimate_pair_ttc,
     estimate_ttc_sec,
     find_interactions,
     load_model,
+    tracks_converging,
 )
 from road_safety.core.stream import StreamReader, resolve_hls
 from road_safety.core.quality import QualityMonitor
@@ -73,13 +78,26 @@ from road_safety.compliance.retention import retention_loop, run_sweep as retent
 from road_safety.services.test_runner import run_state as test_run_state, start_test_run
 
 
+# Sustained-risk requirements for episode emission. A single high-risk frame
+# in an otherwise calm episode is almost always a transient detection artefact;
+# real conflicts produce ≥ 2 high-risk frames over ≥ 1 s of episode duration.
+MIN_HIGH_RISK_FRAMES = 2
+MIN_MEDIUM_RISK_FRAMES = 2
+MIN_HIGH_RISK_EPISODE_SEC = 1.0
+
+
 class Episode:
     """An ongoing interaction between a specific *pair* of tracked objects.
 
     The episode is held open while the pair stays in view, accumulating the
-    worst risk and tightest distance across its lifetime. A single event is
-    emitted on idle flush or cooldown expiry. This is the standard episode
-    model used to suppress per-frame alert flooding in production systems.
+    worst risk and tightest distance across its lifetime, plus per-risk-level
+    frame counts. On flush, the peak risk is **downgraded** if it lacks
+    sustained support — a single high-risk frame is treated as a transient and
+    reported as medium; a single medium frame becomes low.
+
+    The episode model suppresses per-frame detection-artefact spam by
+    requiring sustained evidence before promoting a peak risk into the
+    emitted event.
     """
 
     def __init__(self, event_type: str, pair: tuple[int, int], started_at: float):
@@ -95,6 +113,8 @@ class Episode:
         self.peak_ttc: float | None = None
         self.peak_distance_m: float | None = None
         self.peak_risk: str = "low"
+        self.frame_count: int = 0
+        self.risk_frame_counts: dict[str, int] = {"low": 0, "medium": 0, "high": 0}
         self.emitted: bool = False
 
     def update(
@@ -110,6 +130,9 @@ class Episode:
         now: float,
     ) -> None:
         self.last_seen_at = now
+        self.frame_count += 1
+        if risk in self.risk_frame_counts:
+            self.risk_frame_counts[risk] += 1
         risk_rank = {"low": 0, "medium": 1, "high": 2}
         is_new_peak = (
             risk_rank[risk] > risk_rank[self.peak_risk]
@@ -124,6 +147,29 @@ class Episode:
             self.peak_ttc = ttc
             self.peak_distance_m = dist_m
             self.peak_risk = risk
+
+    def final_risk(self) -> str:
+        """Sustained-risk-aware downgrade.
+
+        A peak risk only stands if supported by enough frames AND enough
+        episode duration. Otherwise it is downgraded one level.
+        """
+        duration = max(self.last_seen_at - self.started_at, 0.0)
+        high = self.risk_frame_counts.get("high", 0)
+        med = self.risk_frame_counts.get("medium", 0)
+
+        if self.peak_risk == "high":
+            if high >= MIN_HIGH_RISK_FRAMES and duration >= MIN_HIGH_RISK_EPISODE_SEC:
+                return "high"
+            # Demote to medium if the medium support is there, else low.
+            if (high + med) >= MIN_MEDIUM_RISK_FRAMES:
+                return "medium"
+            return "low"
+        if self.peak_risk == "medium":
+            if (high + med) >= MIN_MEDIUM_RISK_FRAMES:
+                return "medium"
+            return "low"
+        return "low"
 
 
 class LiveState:
@@ -140,7 +186,8 @@ class LiveState:
         self.pair_cooldown: dict[tuple[int, int], float] = {}
         self.quality = QualityMonitor()
         self.last_perception_state: str | None = None
-        # New (April 2026): ego-motion, scene context, drift, active learning, edge publisher.
+        # Ego-motion, scene context, drift monitor, active-learning sampler,
+        # edge publisher, and agent executor.
         self.ego = EgoMotionEstimator()
         self.scene = SceneContextClassifier()
         self.last_ego_flow = None
@@ -148,7 +195,7 @@ class LiveState:
         self.drift = DriftMonitor()
         self.active_learner = ActiveLearningSampler()
         self.edge_publisher = EdgePublisher()
-        # v2: agent executor (wired after lifespan sets event_lookup)
+        # Agent executor is wired after lifespan sets event_lookup.
         self.agent_executor: AgentExecutor | None = None
         # Admin video feed: latest annotated JPEG bytes + per-frame detection snapshot.
         self._frame_lock = threading.Lock()
@@ -174,11 +221,24 @@ def _pair_key(event_type: str, a, b) -> tuple | None:
     return (event_type, lo, hi)
 
 
-def _classify_with_scene(ttc_sec, distance_m, fallback_px, thr) -> str:
-    """Same shape as classify_risk but uses scene-adaptive thresholds.
+def _classify_with_scene(
+    ttc_sec,
+    distance_m,
+    fallback_px,
+    thr,
+    ego_speed_mps: float | None = None,
+    any_track_approaching: bool = False,
+) -> str:
+    """Scene-adaptive risk classification with low-speed floor.
 
-    Highway raises TTC thresholds (need more reaction time at speed); parking
-    tightens them (close-quarters, slow). Priority: TTC > distance > pixels.
+    Priority: TTC > distance > pixels. Highway widens TTC (more reaction
+    time at speed); parking tightens it (close-quarters, slow).
+
+    Low-speed floor: when ego is essentially stationary AND no track is
+    actively approaching, risk is capped at 'medium'. Close-quarters
+    proximity in stopped traffic is normal, not a conflict. A genuine
+    approach by another moving object still upgrades the risk via
+    `any_track_approaching`.
     """
     levels = []
     if ttc_sec is not None:
@@ -196,11 +256,24 @@ def _classify_with_scene(ttc_sec, distance_m, fallback_px, thr) -> str:
             levels.append("high")
         elif fallback_px <= 180:
             levels.append("medium")
+
+    risk = "low"
     if "high" in levels:
-        return "high"
-    if "medium" in levels:
+        risk = "high"
+    elif "medium" in levels:
+        risk = "medium"
+
+    # Speed-aware floor: in low-speed regimes (red light, traffic jam,
+    # parking), close-quarters proximity is normal. Cap at medium unless
+    # there is independent evidence of approach (ego-motion residual).
+    if (
+        risk == "high"
+        and ego_speed_mps is not None
+        and ego_speed_mps < LOW_SPEED_FLOOR_MPS
+        and not any_track_approaching
+    ):
         return "medium"
-    return "low"
+    return risk
 
 
 def _render_annotated_frame(frame, detections, interactions):
@@ -293,23 +366,69 @@ def _on_frame(wall_ts: float, frame) -> None:
     seen_pairs_this_frame: set[tuple] = set()
 
     for event_type, a, b, distance_px in interactions:
-        ttc = None
-        for sub in (a, b):
-            hist = state.track_history.samples(sub.track_id)
-            cand = estimate_ttc_sec(hist)
-            if cand is not None and (ttc is None or cand < ttc):
-                ttc = cand
-        dist_m = None
-        for sub in (a, b):
-            cand = estimate_distance_m(sub, frame_h)
-            if cand is not None and (dist_m is None or cand < dist_m):
-                dist_m = cand
+        hist_a = state.track_history.samples(a.track_id)
+        hist_b = state.track_history.samples(b.track_id)
+
+        # Inter-object distance (depth difference + lateral offset), not
+        # single-object range-to-camera.
+        dist_m = estimate_inter_distance_m(a, b, frame_h)
+        if dist_m is None:
+            for sub in (a, b):
+                cand = estimate_distance_m(sub, frame_h)
+                if cand is not None and (dist_m is None or cand < dist_m):
+                    dist_m = cand
+
+        # Depth-aware proximity for vehicle-vehicle pairs. Two cars more than
+        # VEHICLE_INTER_DISTANCE_GATE_M apart in 3D are not a close interaction
+        # even when their bboxes overlap in the image plane — perspective
+        # overlap of distant objects is not collision risk.
+        if event_type == "vehicle_close_interaction":
+            if dist_m is not None and dist_m > VEHICLE_INTER_DISTANCE_GATE_M:
+                continue
+            # Convergence filter: reject parallel / same-direction traffic.
+            if not tracks_converging(hist_a, hist_b):
+                continue
+
+        # Ego-relative motion gate. If neither track shows a positive approach
+        # residual against the optical-flow ego-motion estimate, TTC from
+        # bbox noise alone is not a conflict — discard it.
+        approaching_a = approaching_b = False
+        if ego_flow is not None:
+            try:
+                rm_a = state.ego.relative_motion(a.track_id, a, ego_flow, state.track_history)
+                rm_b = state.ego.relative_motion(b.track_id, b, ego_flow, state.track_history)
+                approaching_a = bool(rm_a and rm_a.approaching)
+                approaching_b = bool(rm_b and rm_b.approaching)
+            except Exception as exc:
+                log.debug("relative_motion failed: %s", exc)
+        any_approaching = approaching_a or approaching_b
+
+        # Pair-wise TTC from closing rate between the two tracks (SSAM method).
+        # Falls back to per-object scale-expansion TTC if pair TTC unavailable.
+        ttc = estimate_pair_ttc(hist_a, hist_b)
+        if ttc is None:
+            for sub in (a, b):
+                hist = state.track_history.samples(sub.track_id)
+                cand = estimate_ttc_sec(hist)
+                if cand is not None and (ttc is None or cand < ttc):
+                    ttc = cand
+
+        # If a TTC value passed the upstream gates but neither track shows
+        # an approach residual, treat it as unreliable and discard. Distance
+        # and edge-pixel gates still apply.
+        if ttc is not None and ego_flow is not None and not any_approaching:
+            ttc = None
 
         # Quality-adjusted classification: divide effective TTC / px to tighten
         # thresholds when perception is degraded (earlier triggers, more cautious).
         eff_ttc = ttc / adj["ttc_multiplier"] if ttc is not None else None
         eff_px = distance_px / adj["pixel_dist_multiplier"]
-        risk = _classify_with_scene(eff_ttc, dist_m, eff_px, thr)
+        ego_speed_mps = ego_flow.speed_proxy_mps if ego_flow is not None else None
+        risk = _classify_with_scene(
+            eff_ttc, dist_m, eff_px, thr,
+            ego_speed_mps=ego_speed_mps,
+            any_track_approaching=any_approaching,
+        )
         if event_type == "pedestrian_proximity" and risk == "low":
             continue
 
@@ -374,10 +493,21 @@ def _on_frame(wall_ts: float, frame) -> None:
 
 def _flush_episode(ep: Episode, wall_ts: float) -> None:
     """Materialise an episode's peak frame into an Event and hand off to the
-    asyncio side for LLM enrichment + egress."""
+    asyncio side for LLM enrichment + egress.
+
+    The peak risk is downgraded by ``Episode.final_risk()`` if it lacks
+    sustained support — a single high-risk frame in an otherwise calm
+    episode is treated as a transient and emitted at the lower tier. This
+    rejects single-frame TTC spikes from bbox jitter without losing the
+    peak-frame thumbnail for review.
+    """
     if ep.emitted or ep.peak_frame is None:
         return
     ep.emitted = True
+
+    # Sustained-risk downgrade — see Episode.final_risk().
+    final_risk = ep.final_risk()
+    risk_demoted = final_risk != ep.peak_risk
 
     state.event_counter += 1
     event_id = f"evt_{int(ep.started_at * 1000)}_{state.event_counter:04d}"
@@ -410,7 +540,11 @@ def _flush_episode(ep: Episode, wall_ts: float) -> None:
         "timestamp_sec": round(stream_t, 2),
         "wall_time": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "event_type": ep.event_type,
-        "risk_level": ep.peak_risk,
+        "risk_level": final_risk,
+        "peak_risk_level": ep.peak_risk,
+        "risk_demoted": risk_demoted,
+        "risk_frame_counts": dict(ep.risk_frame_counts),
+        "frame_count": ep.frame_count,
         "confidence": round(min(a.conf, b.conf), 3),
         "objects": sorted({a.cls, b.cls}),
         "track_ids": pair_ids,
@@ -438,7 +572,7 @@ def _flush_episode(ep: Episode, wall_ts: float) -> None:
             if ego is not None else None
         ),
         "summary": build_event_summary(
-            ep.event_type, a, b, ep.peak_distance_px, ep.peak_risk,
+            ep.event_type, a, b, ep.peak_distance_px, final_risk,
             ttc_sec=ep.peak_ttc, distance_m=ep.peak_distance_m,
         ),
         "narration": None,
@@ -1051,6 +1185,12 @@ def admin_page():
     if _REACT_BUILD:
         return FileResponse(STATIC_DIR / "index.html")
     return FileResponse(STATIC_DIR / "admin.html")
+
+@app.get("/dashboard")
+def dashboard_page():
+    if _REACT_BUILD:
+        return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/admin/video_feed")
