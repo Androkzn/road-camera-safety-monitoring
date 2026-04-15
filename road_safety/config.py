@@ -54,7 +54,6 @@ THUMB_SIGNING_SECRET = os.getenv(
     os.getenv("ROAD_CLOUD_HMAC_SECRET", ""),
 )
 ALPR_MODE = os.getenv("ROAD_ALPR_MODE", "off").strip().lower()
-API_KEY = os.getenv("ROAD_API_KEY", "")
 
 # ── Vehicle identity (all required via env in production) ──
 VEHICLE_ID = os.getenv("ROAD_VEHICLE_ID", "")

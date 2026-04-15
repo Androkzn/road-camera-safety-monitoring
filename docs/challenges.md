@@ -97,7 +97,7 @@ Road cameras capture faces, license plates, and location data — all classified
 | **Audit trail** | `road_safety/compliance/audit.py` | Every access to sensitive resources is logged: unredacted thumbnail access, feedback submissions, active-learning exports, chat queries, agent invocations. Each record includes timestamp, actor, action, resource, outcome, and IP. GDPR Art. 30 / SOC 2 ready. |
 | **Configurable data retention** | `road_safety/compliance/retention.py` | Automatic hourly sweeps delete data past retention windows: thumbnails (30d), feedback (90d), active-learning samples (60d), outbound queue (7d). All configurable via environment variables. GDPR Art. 5(1)(e) compliance — data kept only as long as necessary. |
 | **PII scrub at LLM boundary (structural)** | `road_safety/services/llm.py` (`_hash_and_strip_plate`) | `enrich_event()` hashes the plate string and **removes** `plate_text` / `plate_state` from the returned dict before it ever reaches a shared buffer. A future caller that forgets to scrub at egress cannot leak, because the raw plate was never in the event object to begin with. `server.py` keeps a defence-in-depth `pop()` as a second line. |
-| **Optional external vision enrichment disclosure** | `road_safety/server.py` | If the Anthropic vision pass is enabled, the internal thumbnail is sent to Anthropic for ALPR. This is an explicit processor integration — not zero-external-PII — and can be disabled for stricter deployments by unsetting `ANTHROPIC_API_KEY`. |
+| **Optional external vision enrichment disclosure** | `road_safety/server.py` | External ALPR is policy-gated: set `ROAD_ALPR_MODE=third_party` to allow the Anthropic vision pass; default is `off`. When enabled, the internal thumbnail is sent to Anthropic for ALPR and must be treated as a processor integration (not zero-external-PII). |
 
 **Key design principle:** shared channels stay redacted by default, and the raw plate never enters any in-memory event buffer. Privacy is enforced at ingest, not at egress — the code path makes a leak structurally impossible, not just procedurally discouraged.
 
@@ -136,7 +136,7 @@ Over 70% of organizations report experiencing substantial data drift within the 
 
 Scaling from a single camera to thousands of vehicles requires vehicle identity, road-wide aggregation, driver scoring, and multi-tenant isolation. Industry deployments operate over a million video systems concurrently — the data model must support road-scale operations from day one.
 
-The video telematics market reached ~6 million active units in North America alone in 2024, projected to hit 17 million by 2029. Traditional monolithic systems designed for small fleets cannot handle modern deployments.
+The video telematics market reached ~6.1 million active units in North America in 2024, projected to reach ~13.8 million by 2029 (and ~17 million when North America + Europe are combined). Traditional monolithic systems designed for small fleets cannot handle modern deployments.
 
 ### How We Address It
 

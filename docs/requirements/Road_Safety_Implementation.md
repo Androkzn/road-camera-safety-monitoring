@@ -92,7 +92,7 @@ Belongs in this document:
 | Agent Executor | AI Agents | `road_safety/services/agents.py` | Tool-calling agent orchestration |
 | Eval Harness | Testing | `tools/eval_detect.py` | Precision/recall evaluation |
 | Batch Analyzer | Utility | `tools/analyze.py` | Offline batch analysis |
-| Dashboard | UI | `static/index.html`, `static/admin.html` | Operator dashboard (SSE-powered) |
+| Dashboard | UI | `frontend/src/*` + `static/*` fallback | Operator dashboard (SSE-powered) |
 
 ### File Structure
 
@@ -138,10 +138,11 @@ road-safety/
 │   ├── analyze.py            ← Offline batch analysis
 │   ├── eval_detect.py        ← Detection evaluation harness
 │   └── eval_enrich.py        ← LLM enrichment evaluation
-├── tests/                    ← pytest suite (119 tests)
+├── tests/                    ← pytest suite (125 tests)
+├── frontend/                 ← React/Vite dashboard source
 ├── static/
-│   ├── index.html            ← Operator dashboard UI
-│   └── admin.html            ← Admin video + detection UI
+│   ├── index.html            ← Fallback operator dashboard UI
+│   └── admin.html            ← Fallback admin video + detection UI
 ├── data/
 │   ├── corpus/               ← RAG knowledge base (markdown)
 │   └── test_suite/           ← Evaluation test clips + manifests
@@ -158,27 +159,30 @@ road-safety/
 | Setting | Value | Owner | Env Variable | Default |
 |---|---|---|---|---|
 | YOLO model variant | YOLOv8n | Detection | — | Hardcoded `yolov8n.pt` |
-| Processing frame rate | 2 fps | Detection | — | Hardcoded in stream reader |
-| Episode idle timeout | 2 seconds | Server | — | Hardcoded |
-| Pair cooldown | 8 seconds | Server | — | Hardcoded |
+| Processing frame rate | 2 fps | Detection | `ROAD_TARGET_FPS` | 2.0 |
+| Episode idle timeout | 1.5 seconds | Server | — | Hardcoded |
+| Pair cooldown | 8 seconds | Server | `ROAD_PAIR_COOLDOWN_SEC` | 8.0 |
 | LLM rate limit | 3 req/min | LLM | — | Token bucket in `llm.py` |
 | Circuit breaker threshold | 3 failures | LLM | — | Hardcoded in `llm.py` |
 | Circuit breaker recovery | 60 seconds | LLM | — | Hardcoded in `llm.py` |
-| Max recent events | 200 | Server | — | Hardcoded |
+| Max recent events | 500 | Server | `ROAD_MAX_EVENTS` | 500 |
 | TTC threshold (high, urban) | 1.5 seconds | Context | — | Hardcoded in `context.py` |
 | TTC threshold (high, highway) | 2.8 seconds | Context | — | Hardcoded in `context.py` |
 | TTC threshold (high, parking) | 0.8 seconds | Context | — | Hardcoded in `context.py` |
 | Agent max iterations | 5 | Agents | — | Hardcoded in `agents.py` |
-| Retention: thumbnails | 30 days | Retention | `RETENTION_THUMBNAILS_DAYS` | 30 |
-| Retention: feedback | 90 days | Retention | `RETENTION_FEEDBACK_DAYS` | 90 |
-| Retention: active learning | 60 days | Retention | `RETENTION_AL_DAYS` | 60 |
-| Retention: outbound queue | 7 days | Retention | `RETENTION_OUTBOUND_DAYS` | 7 |
-| Retention sweep interval | 3600 seconds | Retention | `RETENTION_INTERVAL_SEC` | 3600 |
-| Vehicle ID | — | Road | `ROAD_VEHICLE_ID` | `"vehicle-01"` |
-| Road ID | — | Road | `ROAD_ID` | `"road-default"` |
+| Retention: thumbnails | 30 days | Retention | `ROAD_RETENTION_THUMBNAILS_DAYS` | 30 |
+| Retention: feedback | 90 days | Retention | `ROAD_RETENTION_FEEDBACK_DAYS` | 90 |
+| Retention: active learning | 60 days | Retention | `ROAD_RETENTION_AL_PENDING_DAYS` | 60 |
+| Retention: outbound queue | 7 days | Retention | `ROAD_RETENTION_OUTBOUND_DAYS` | 7 |
+| Retention sweep interval | 3600 seconds | Retention | `ROAD_RETENTION_INTERVAL_SEC` | 3600 |
+| Vehicle ID | — | Road | `ROAD_VEHICLE_ID` | `""` |
+| Road ID | — | Road | `ROAD_ID` | `""` |
 | Driver ID | — | Road | `ROAD_DRIVER_ID` | None |
 | DSAR token | — | Privacy | `ROAD_DSAR_TOKEN` | None (access denied) |
-| Plate salt | — | Privacy | `ROAD_PLATE_SALT` | `"default-salt"` |
+| Admin bearer token | — | Security | `ROAD_ADMIN_TOKEN` | None (protected endpoints disabled) |
+| Cloud read bearer token | — | Security | `ROAD_CLOUD_READ_TOKEN` | None (cloud reads disabled) |
+| Slack image relay | Off by default | Alerting | `SLACK_ENABLE_IMAGE_RELAY` | 0 |
+| Plate salt | — | Privacy | `ROAD_PLATE_SALT` | Random per process if unset |
 | HMAC secret | — | Security | `ROAD_CLOUD_HMAC_SECRET` | None (publishing disabled) |
 | Cloud endpoint | — | Transport | `ROAD_CLOUD_ENDPOINT` | None (publishing disabled) |
 | Slack webhook | — | Alerting | `SLACK_WEBHOOK_URL` | None (alerts disabled) |
@@ -202,7 +206,7 @@ road-safety/
 | 4 | `context.py` | CREATE | Scene classification + risk threshold engine | §6.3 step 4-5 |
 | 5 | `quality.py` | CREATE | Perception quality monitor (luminance, sharpness, confidence) | §6.3 step 5 |
 | 6 | `server.py` | CREATE | FastAPI orchestrator: episode management, event emission, SSE, REST APIs | §6.3 steps 6-10 |
-| 7 | `static/index.html` | CREATE | Operator dashboard with SSE event stream | §11.1 |
+| 7 | `frontend/src/*` + `static/index.html` fallback | CREATE | Operator dashboard with SSE event stream | §11.1 |
 | 8 | `pyproject.toml` | CREATE | Python project metadata + dependencies | §3.3 |
 
 ### Implementation Details
@@ -261,11 +265,11 @@ road-safety/
 **llm.py — Narration:**
 - System prompt with safety-analyst persona
 - Event metadata (type, risk, TTC, distance, scene, quality) as structured input
-- Returns 2-sentence narration; never sees raw video frames (TRD D-02)
+- Returns one short operator-facing sentence; never sees raw video frames
 - Graceful degradation: no API key → templated summary
 
 **llm.py — Vision Enrichment (ALPR):**
-- Thumbnail sent to vision model for license plate reading
+- Internal thumbnail may be sent to vision model for license plate reading when enrichment is enabled
 - Self-consistency: two calls at different temperatures (0.0 and 0.3)
 - Disagreeing reads → `plate_readable: "partial"` instead of guessing (TRD D-07)
 - Circuit breaker: 3 consecutive failures → 60s open (TRD §8.4)
@@ -302,13 +306,13 @@ road-safety/
 **redact.py — Dual Thumbnails:**
 - Internal: `{event_id}.jpg` — full resolution, unredacted, local disk only
 - Public: `{event_id}_public.jpg` — faces blurred, plates blurred, safe for egress
-- External channels (SSE, Slack, cloud) always use public version
+- Shared event channels (SSE, Slack, cloud) always use public version
 
 **redact.py — PII Protection:**
 - Face blur: Gaussian blur on upper 35% of person bounding box (over-blur is correct failure mode)
 - Plate blur: Gaussian blur on lower-middle strip (55-95% height, 15% inset) of vehicle bbox
 - Plate hash: `hash_plate(text, salt)` → `plate_{sha256[:16]}`; salt from `ROAD_PLATE_SALT` env
-- PII scrub in server: `plate_text` and `plate_state` stripped before SSE/Slack/cloud egress
+- PII scrub in server: `plate_text` and `plate_state` stripped before SSE/Slack/cloud payloads; optional third-party enrichment is a separately governed path
 
 ### Acceptance Criteria
 
@@ -348,6 +352,7 @@ road-safety/
 - Verifies HMAC signature on each batch
 - Deduplicates on `event_id` (set-based)
 - Persists events to SQLite
+- Read endpoints (`/events`, `/stats`) require `ROAD_CLOUD_READ_TOKEN`
 - Returns 200 on success, 401 on signature mismatch
 
 ### Acceptance Criteria
@@ -375,7 +380,7 @@ road-safety/
 ### Implementation Details
 
 **road_safety/api/feedback.py:**
-- POST `/feedback` — accepts `{event_id, verdict, note}`
+- POST `/api/feedback` — accepts `{event_id, verdict, note}`
 - Appends to `data/feedback.jsonl`
 - Updates drift monitor with new verdict
 
@@ -421,7 +426,8 @@ road-safety/
   - High risk: instant Slack notification
   - Medium risk: batched in hourly digest
   - Low risk: batched in daily digest
-- Rich message formatting with event details, thumbnail link, risk badge
+- Rich message formatting with event details and risk badge
+- Text-only by default; optional screenshot relay requires `SLACK_ENABLE_IMAGE_RELAY=1`
 - Graceful degradation: no webhook URL → alerts disabled silently
 
 **digest.py:**
@@ -457,7 +463,7 @@ road-safety/
 - Each record: `call_type`, `model`, `input_tokens`, `output_tokens`, `latency_ms`, `success`, `error`, `skip_reason`, `event_id`
 - `stats(window_sec)` → total calls, success/error/skip counts, P50/P95 latency, estimated USD cost, error rate
 - `recent(limit)` → last N records as dicts
-- Exposed via `/api/llm/stats` and `/api/llm/recent`
+- Exposed via `/api/llm/stats` and `/api/llm/recent` behind `ROAD_ADMIN_TOKEN`
 
 **llm.py — Multi-Provider Failover (TRD D-06):**
 - Primary provider: Anthropic (or Azure if configured)
@@ -512,13 +518,14 @@ road-safety/
   - Active learning export
   - Chat queries
   - Agent invocations
+- Sensitive operational endpoints are bearer-protected via `ROAD_ADMIN_TOKEN`
 
 **retention.py:**
 - `sweep_thumbnails(max_age_days)` → deletes old thumbnail files
 - `sweep_al_pending(max_age_days)` → deletes old active learning samples
 - `sweep_feedback(max_age_days)` → trims old feedback entries from JSONL
 - `sweep_outbound(max_age_days)` → trims old outbound queue entries
-- `retention_loop()` → async background task, runs every `RETENTION_INTERVAL_SEC`
+- `retention_loop()` → async background task, runs every `ROAD_RETENTION_INTERVAL_SEC`
 - `run_sweep()` → manual trigger returning counts per category
 - Defaults: thumbnails 30d, feedback 90d, AL 60d, queue 7d (TRD §10.2)
 
@@ -549,7 +556,7 @@ road-safety/
 **road_safety/services/registry.py — RoadRegistry:**
 - In-memory dict of `VehicleState` keyed by `vehicle_id`
 - `record_event(event)` → increments counters, applies score penalty
-- `record_feedback(event_id, verdict)` → updates tp/fp counts
+- `record_feedback(event_id, verdict, vehicle_id)` → updates tp/fp counts for the matched vehicle
 - `decay_scores()` → 0.5 points/hour recovery toward 100
 - `road_summary()` → aggregate stats, risk breakdown, worst vehicle
 - `driver_leaderboard(limit)` → drivers sorted by score ascending
@@ -762,7 +769,7 @@ cp .env.example .env
 # Edit .env with API keys and settings
 
 # 3. Start edge node
-uvicorn server:app --host 0.0.0.0 --port 8000
+uvicorn road_safety.server:app --host 0.0.0.0 --port 8000
 
 # 4. (Optional) Start cloud receiver
 uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
@@ -777,7 +784,7 @@ uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 - [ ] Verify LLM narration is working (if API keys configured)
 - [ ] Verify Slack alerts are firing (if webhook configured)
 - [ ] Verify drift monitor initializes cleanly
-- [ ] Monitor `/api/llm/stats` for error rate
+- [ ] Monitor `/api/llm/stats` for error rate with `Authorization: Bearer <ROAD_ADMIN_TOKEN>`
 - [ ] Submit test feedback and verify drift update
 - [ ] Test agent endpoints with known event_id
 
@@ -788,7 +795,7 @@ uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 | # | Area | Issue | Severity | Blocks Phase | Status |
 |---|---|---|---|---|---|
 | 1 | Persistence | In-memory storage resets on restart | Medium | None | Accepted for v1.0 |
-| 2 | Auth | No authentication middleware | Medium | None | Accepted for v1.0 |
+| 2 | Auth | No centralized RBAC or user identity layer; sensitive ops use shared bearer tokens | Medium | None | Accepted for v1.0 |
 | 3 | GPU | CPU-only limits to ~2 fps | Low | None | Future optimization |
 | 4 | Multi-tenant | No tenant isolation | Low | None | Out of scope for v1.0 |
 | 5 | Structured logging | Using print statements instead of structured logger | Low | None | Future improvement |
@@ -803,9 +810,9 @@ uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 | 2 | In-memory road registry with periodic snapshot | Operational state reconstructible from event stream; avoids hard dependency on Redis/DB at current scale |
 | 3 | YOLOv8n (nano) for detection model | Must run on CPU at 2 fps; smallest variant |
 | 4 | LLM on metadata only (no video frames in prompt) | Cost: $0.005/frame vs $0.001/event; privacy: no video in LLM context |
-| 5 | Edge-first architecture | Privacy boundary: PII never leaves device unredacted |
+| 5 | Edge-first architecture | Shared event path excludes raw plate text and unredacted thumbnails; optional external enrichment is governed separately |
 | 6 | Three bounded agents (≤5 tools each) | Prevents tool overload (68% hallucination rate with >10 tools) |
-| 7 | Dual-thumbnail architecture | Structural PII guarantee vs single thumbnail with ACL |
+| 7 | Dual-thumbnail architecture | Keeps shared channels redacted while preserving a local-only internal review copy |
 | 8 | Salted SHA-256 for plate text | Cross-event correlation without storing raw PII |
 | 9 | Self-consistency for ALPR (2 calls, different temps) | Eliminates 15-20% hallucinated plate readings |
 | 10 | Decaying penalty model for driver scoring | Balances accountability with recovery over time |

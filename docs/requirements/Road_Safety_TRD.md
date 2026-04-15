@@ -35,7 +35,7 @@
 | BR-01 | FR-14 | Real-time pedestrian-vehicle and vehicle-vehicle detection from live video | Y | P1 | FR-14 |
 | BR-02 | FR-15 | TTC and distance-based risk classification with scene-adaptive thresholds | Y | P1 | FR-15 |
 | BR-03 | FR-01 | Live operator feed with thumbnails, risk badges, and narrations | Y | P1 | FR-01 |
-| BR-04 | FR-16 | PII-redacted thumbnails (face + plate blur) for all external channels | Y | P1 | FR-16 |
+| BR-04 | FR-16 | PII-redacted thumbnails for shared event channels; optional external enrichment governed separately | Y | P1 | FR-16 |
 | BR-05 | FR-03 | Operator feedback (tp/fp) on events | Y | P1 | FR-03 |
 | BR-06 | FR-04 | Tiered Slack alerts (high=instant, medium=hourly, low=daily) | Y | P1 | FR-04 |
 | BR-07 | FR-02 | Chat copilot for event/policy Q&A using RAG | Y | P1 | FR-02 |
@@ -455,33 +455,36 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 ### 9.1 Endpoints
 
-| Operation | Method | Path | Caller | Purpose | Source |
-|---|---|---|---|---|---|
-| Live status | GET | `/api/live/status` | Dashboard | Current event/frame counts | BR-01 |
-| Live perception | GET | `/api/live/perception` | Dashboard | Scene, quality, ego-motion state | BR-02 |
-| Event stream | GET | `/api/events` | Dashboard (SSE) | Real-time event stream | BR-03 |
-| Recent events | GET | `/api/events/recent` | Dashboard, agents | Last N events | BR-03 |
-| Thumbnails (public) | GET | `/thumbnails/{name}` | Dashboard | Redacted thumbnails | BR-04 |
-| Thumbnails (raw) | GET | `/api/thumbnails/raw/{name}` | DSAR holder | Unredacted thumbnails (DSAR-gated) | BR-04 |
-| Feedback submit | POST | `/feedback` | Operator | Submit tp/fp verdict | BR-05 |
-| Drift report | GET | `/api/drift` | ML engineer | Rolling precision + trends | BR-10 |
-| Active learning export | GET | `/api/active-learning/export` | ML engineer | Zip of pending samples | BR-09 |
-| Chat | POST | `/chat` | Operator | RAG-based Q&A | BR-07 |
-| LLM stats | GET | `/api/llm/stats` | ML engineer | Token cost, latency, error rate | BR-11 |
-| LLM recent | GET | `/api/llm/recent` | ML engineer | Last N LLM call records | BR-11 |
-| Audit trail | GET | `/api/audit` | Compliance | Recent audit records | BR-12 |
-| Audit stats | GET | `/api/audit/stats` | Compliance | Audit event counts | BR-12 |
-| Retention sweep | POST | `/api/retention/sweep` | Ops | Trigger manual retention sweep | BR-13 |
-| Road summary | GET | `/api/road/summary` | Road manager | Aggregate road stats | BR-14 |
-| Road vehicle | GET | `/api/road/vehicle/{id}` | Road manager | Per-vehicle detail | BR-14 |
-| Road drivers | GET | `/api/road/drivers` | Road manager | Driver leaderboard | BR-14 |
-| Agent coaching | POST | `/api/agents/coaching` | Road manager | AI coaching note | BR-15 |
-| Agent investigation | POST | `/api/agents/investigation` | Road manager | AI root-cause analysis | BR-16 |
-| Agent report | POST | `/api/agents/report` | Road manager | AI safety summary | BR-17 |
+| Operation | Method | Path | Caller | Auth | Purpose | Source |
+|---|---|---|---|---|---|---|
+| Live status | GET | `/api/live/status` | Dashboard | None | Current event/frame counts | BR-01 |
+| Live perception | GET | `/api/live/perception` | Dashboard | None | Perception-quality state | BR-02 |
+| Live scene | GET | `/api/live/scene` | Dashboard | None | Scene + adaptive thresholds | BR-02 |
+| Event stream | GET | `/stream/events` | Dashboard (SSE) | None | Real-time event stream | BR-03 |
+| Recent live events | GET | `/api/live/events` | Dashboard, agents | None | Last N in-memory events | BR-03 |
+| Batch events | GET | `/api/events` | Ops, evaluation | None | Offline batch-analysis events | BR-03 |
+| Event by ID | GET | `/api/events/{event_id}` | Ops, evaluation | None | Single offline batch event | BR-03 |
+| Thumbnails | GET | `/thumbnails/{name}` | Dashboard / DSAR holder | Public for `*_public.*`; `X-DSAR-Token` for raw | Redacted or DSAR-gated unredacted thumbnails | BR-04 |
+| Feedback submit | POST | `/api/feedback` | Operator | None | Submit tp/fp verdict | BR-05 |
+| Coaching queue | GET | `/api/coaching_queue` | Operator | None | Pending medium-risk review queue | BR-05 |
+| Drift report | GET | `/api/drift` | ML engineer | None | Rolling precision + trends | BR-10 |
+| Active learning export | POST | `/api/active_learning/export` | ML engineer | Bearer `ROAD_ADMIN_TOKEN` | Zip of pending samples | BR-09 |
+| Chat | POST | `/chat` | Operator | None | RAG-based Q&A | BR-07 |
+| LLM stats | GET | `/api/llm/stats` | ML engineer | Bearer `ROAD_ADMIN_TOKEN` | Token cost, latency, error rate | BR-11 |
+| LLM recent | GET | `/api/llm/recent` | ML engineer | Bearer `ROAD_ADMIN_TOKEN` | Last N LLM call records | BR-11 |
+| Audit trail | GET | `/api/audit` | Compliance | Bearer `ROAD_ADMIN_TOKEN` | Recent audit records | BR-12 |
+| Audit stats | GET | `/api/audit/stats` | Compliance | Bearer `ROAD_ADMIN_TOKEN` | Audit event counts | BR-12 |
+| Retention sweep | POST | `/api/retention/sweep` | Ops | Bearer `ROAD_ADMIN_TOKEN` | Trigger manual retention sweep | BR-13 |
+| Road summary | GET | `/api/road/summary` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | Aggregate road stats | BR-14 |
+| Road vehicle | GET | `/api/road/vehicle/{id}` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | Per-vehicle detail | BR-14 |
+| Road drivers | GET | `/api/road/drivers` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | Driver leaderboard | BR-14 |
+| Agent coaching | POST | `/api/agents/coaching` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | AI coaching note | BR-15 |
+| Agent investigation | POST | `/api/agents/investigation` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | AI root-cause analysis | BR-16 |
+| Agent report | POST | `/api/agents/report` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | AI safety summary | BR-17 |
 
 ### 9.2 Request/Response Schemas
 
-#### POST /feedback
+#### POST /api/feedback
 
 **Request:**
 ```json
@@ -495,7 +498,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 **Response (200):**
 ```json
 {
-  "status": "ok"
+  "ok": true
 }
 ```
 
@@ -538,13 +541,15 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 **Response (200):**
 ```json
 {
-  "total_vehicles": 5,
+  "road_id": "road_01",
+  "vehicle_count": 5,
   "total_events": 142,
-  "risk_breakdown": {"high": 12, "medium": 45, "low": 85},
-  "lowest_scoring_vehicle": {
+  "aggregate_by_risk": {"high": 12, "medium": 45, "low": 85},
+  "lowest_score_vehicle": {
     "vehicle_id": "VH-003",
     "safety_score": 62.5
-  }
+  },
+  "vehicles": []
 }
 ```
 
@@ -801,7 +806,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
   - Slack: `SLACK_WEBHOOK_URL` (absent = disabled)
   - Edge publish: `ROAD_CLOUD_ENDPOINT` (absent = disabled)
   - Agents: Available when LLM is configured
-  - Retention: `RETENTION_*_DAYS` env vars with sane defaults
+  - Retention: `ROAD_RETENTION_*` env vars with sane defaults
 
 - **Phased rollout:** Deploy edge node per vehicle → verify single-vehicle operation → add vehicles → enable cloud aggregation
 
@@ -834,15 +839,15 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 | Precision dropping | Data drift (new scene type, weather, camera angle) | Review drift report; check perception quality; export AL samples for relabeling |
 | Slack alerts not firing | Webhook URL missing or Slack API issue | Check `SLACK_WEBHOOK_URL` env; test webhook manually |
 | Edge→cloud delivery failing | Network issue or HMAC secret mismatch | Check edge node connectivity; verify `ROAD_CLOUD_HMAC_SECRET` matches on both sides |
-| Audit log growing too large | Retention sweep not running | Check retention loop; trigger manual `/api/retention/sweep` |
+| Audit log growing too large | Retention sweep not running | Check retention loop; trigger manual `/api/retention/sweep` with admin bearer token |
 
 ### 16.2 Manual Recovery Procedures
 
-- **Restart server:** `uvicorn server:app --host 0.0.0.0 --port 8000`
+- **Restart server:** `uvicorn road_safety.server:app --host 0.0.0.0 --port 8000`
 - **Flush edge queue:** Delete `data/outbound_queue.jsonl`
 - **Reset drift state:** Restart server (in-memory state resets)
-- **Force retention sweep:** `POST /api/retention/sweep`
-- **Export active learning:** `GET /api/active-learning/export` → download zip
+- **Force retention sweep:** `POST /api/retention/sweep` with `Authorization: Bearer <ROAD_ADMIN_TOKEN>`
+- **Export active learning:** `POST /api/active_learning/export` with bearer token → returns zip path
 
 ### 16.3 Support/CS Notes
 

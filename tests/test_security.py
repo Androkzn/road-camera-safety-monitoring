@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 from fastapi.testclient import TestClient
 
 from road_safety.security import require_bearer_token
@@ -27,6 +28,26 @@ def _guard_app(token: str | None):
         return {"ok": True}
 
     return app
+
+
+def _make_request(path: str, query: str = "", headers: dict[str, str] | None = None) -> Request:
+    hdrs = [
+        (k.lower().encode("latin-1"), v.encode("latin-1"))
+        for k, v in (headers or {}).items()
+    ]
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("latin-1"),
+        "query_string": query.encode("latin-1"),
+        "headers": hdrs,
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    return Request(scope)
 
 
 class TestBearerGuard:
@@ -75,3 +96,76 @@ class TestSensitiveFeedback:
             "tp",
             "vehicle_02",
         )
+
+
+class TestPublicThumbnailSigning:
+    def test_valid_thumb_request_accepts_when_guard_disabled(self, monkeypatch):
+        import road_safety.server as server
+
+        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", False)
+        req = _make_request("/thumbnails/e_public.jpg")
+        assert server._valid_thumb_request("e_public.jpg", req) is True
+
+    def test_valid_thumb_request_rejects_missing_query_when_enabled(self, monkeypatch):
+        import road_safety.server as server
+
+        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
+        req = _make_request("/thumbnails/e_public.jpg")
+        assert server._valid_thumb_request("e_public.jpg", req) is False
+
+    def test_valid_thumb_request_accepts_valid_signature(self, monkeypatch):
+        import road_safety.server as server
+
+        now = 1_700_000_000
+        exp = now + 120
+        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
+        monkeypatch.setattr(server.time, "time", lambda: now)
+        token = server._thumb_token("e_public.jpg", exp)
+        req = _make_request(
+            "/thumbnails/e_public.jpg",
+            query=f"exp={exp}&token={token}",
+        )
+        assert server._valid_thumb_request("e_public.jpg", req) is True
+
+    def test_thumbnail_public_denies_invalid_token(self, monkeypatch, _isolate_data_dir):
+        import road_safety.server as server
+
+        name = "evt_public.jpg"
+        thumbs_dir = _isolate_data_dir / "thumbnails"
+        (thumbs_dir / name).write_bytes(b"jpeg")
+
+        monkeypatch.setattr(server, "THUMBS_DIR", thumbs_dir)
+        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
+        monkeypatch.setattr(server.audit, "log", MagicMock())
+
+        req = _make_request(f"/thumbnails/{name}", query="exp=1&token=bad")
+        with pytest.raises(HTTPException) as exc:
+            server.thumbnail(name, req)
+
+        assert exc.value.status_code == 403
+        server.audit.log.assert_called_once()
+
+    def test_thumbnail_public_allows_valid_token(self, monkeypatch, _isolate_data_dir):
+        import road_safety.server as server
+
+        now = 1_700_000_000
+        exp = now + 60
+        name = "evt_public.jpg"
+        thumbs_dir = _isolate_data_dir / "thumbnails"
+        (thumbs_dir / name).write_bytes(b"jpeg")
+
+        monkeypatch.setattr(server, "THUMBS_DIR", thumbs_dir)
+        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
+        monkeypatch.setattr(server.time, "time", lambda: now)
+        token = server._thumb_token(name, exp)
+
+        req = _make_request(
+            f"/thumbnails/{name}",
+            query=f"exp={exp}&token={token}",
+        )
+        resp = server.thumbnail(name, req)
+        assert isinstance(resp, FileResponse)

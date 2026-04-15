@@ -229,6 +229,49 @@ async def _none_coro():
     return None
 
 
+def _thumb_token(name: str, expiry: int) -> str:
+    mac = hmac.new(
+        THUMB_SIGNING_SECRET.encode("utf-8"),
+        f"{name}.{expiry}".encode("utf-8"),
+        hashlib.sha256,
+    )
+    return mac.hexdigest()[:32]
+
+
+def _valid_thumb_request(name: str, request: Request) -> bool:
+    if not PUBLIC_THUMBS_REQUIRE_TOKEN:
+        return True
+    if not THUMB_SIGNING_SECRET:
+        return False
+    exp_raw = request.query_params.get("exp")
+    token = (request.query_params.get("token") or "").strip()
+    if not exp_raw or not token:
+        return False
+    try:
+        exp = int(exp_raw)
+    except ValueError:
+        return False
+    now = int(time.time())
+    if exp < now:
+        return False
+    # Reject far-future signatures in case of leaked URLs.
+    if exp > now + (24 * 60 * 60):
+        return False
+    expected = _thumb_token(name, exp)
+    return hmac.compare_digest(expected, token)
+
+
+async def _score_decay_loop(interval_sec: int) -> None:
+    while True:
+        try:
+            await asyncio.sleep(interval_sec)
+            road_registry.decay_scores()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("score decay loop failed: %s", exc)
+
+
 def _pair_key(event_type: str, a, b) -> tuple | None:
     """Canonical pair key for an interaction. Returns None if either side has
     no track_id — in which case we fall back to type-level dedup."""
@@ -643,19 +686,23 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
     internal_path = THUMBS_DIR / internal_thumb_name
     public_path = THUMBS_DIR / Path(event["thumbnail"]).name
 
-    # Two skip paths for the vision call (per research pain points #1, #5):
-    #   (a) perception is degraded — low-SNR image, money wasted,
-    #   (b) low-risk events — the review SLA is weekly batch, ALPR adds no value.
-    # Both are the "senior" form of the LLM circuit breaker — prevent runaway cost
-    # before it starts, don't just absorb rate limits after.
+    # Three skip paths for the vision call:
+    #   (a) policy: ALPR disabled unless ROAD_ALPR_MODE=third_party
+    #   (b) perception is degraded — low-SNR image, money wasted
+    #   (c) low-risk events — weekly-batch review SLA, ALPR adds little value
+    # This prevents unnecessary external calls before rate limiting even starts.
+    policy_skip = ALPR_MODE != "third_party"
     perception_skip = state.quality.risk_adjustment().get("skip_vision_enrichment", False)
     low_risk_skip = event.get("risk_level") == "low"
-    skip_enrich = perception_skip or low_risk_skip
+    skip_enrich = policy_skip or perception_skip or low_risk_skip
     event["perception_state"] = state.quality.state().get("state", "nominal")
     if skip_enrich:
-        event["enrichment_skipped"] = (
-            "perception_degraded" if perception_skip else "low_risk_event"
-        )
+        if policy_skip:
+            event["enrichment_skipped"] = "alpr_policy_disabled"
+        elif perception_skip:
+            event["enrichment_skipped"] = "perception_degraded"
+        else:
+            event["enrichment_skipped"] = "low_risk_event"
 
     narrate_task = narrate_event(event)
     enrich_task = (
@@ -747,6 +794,12 @@ async def lifespan(app: FastAPI):
     # Data retention background sweep.
     retention_task = asyncio.create_task(retention_loop())
     log.info("retention policy loop started")
+    score_decay_task = None
+    if SCORE_DECAY_INTERVAL_SEC > 0:
+        score_decay_task = asyncio.create_task(
+            _score_decay_loop(SCORE_DECAY_INTERVAL_SEC)
+        )
+        log.info("score decay loop started (interval=%ds)", SCORE_DECAY_INTERVAL_SEC)
 
     # Agent executor — wired after event_lookup is available.
     state.agent_executor = AgentExecutor(
@@ -767,6 +820,8 @@ async def lifespan(app: FastAPI):
     if edge_task is not None:
         edge_task.cancel()
     retention_task.cancel()
+    if score_decay_task is not None:
+        score_decay_task.cancel()
 
 
 app = FastAPI(title="Live Safety Review", lifespan=lifespan)
@@ -800,8 +855,7 @@ async def _on_feedback(record: dict, matched: dict | None) -> None:
     )
     vehicle_id = matched.get("vehicle_id") if isinstance(matched, dict) else None
     road_registry.record_feedback(
-        record.get("event_id", ""), record.get("verdict", ""),
-        vehicle_id,
+        record.get("event_id", ""), record.get("verdict", ""), vehicle_id
     )
     if record.get("verdict") == "fp" and matched is not None:
         try:
@@ -863,10 +917,17 @@ def thumbnail(name: str, request: Request):
     path = THUMBS_DIR / name
     if not path.exists():
         raise HTTPException(404, "thumbnail not found")
+    ip = request.client.host if request.client else None
     if "_public." in name:
+        if not _valid_thumb_request(name, request):
+            audit.log("access_public_thumbnail", name, outcome="denied", ip=ip)
+            raise HTTPException(
+                403,
+                "public thumbnail requires valid exp/token query params",
+            )
+        audit.log("access_public_thumbnail", name, outcome="success", ip=ip)
         return FileResponse(path)
     token = request.headers.get("X-DSAR-Token")
-    ip = request.client.host if request.client else None
     if not DSAR_TOKEN or token != DSAR_TOKEN:
         audit.log("access_unredacted_thumbnail", name, outcome="denied", ip=ip)
         raise HTTPException(
@@ -935,6 +996,8 @@ def live_status():
         "risk_model": "ttc+ground_plane",
         "pii_redaction": "face+plate",
         "dsar_endpoint_enabled": bool(DSAR_TOKEN),
+        "public_thumb_token_required": PUBLIC_THUMBS_REQUIRE_TOKEN,
+        "alpr_mode": ALPR_MODE,
         "perception": {
             "state": q["state"],
             "reason": q["reason"],
@@ -1197,6 +1260,8 @@ def admin_health():
             "edge_publisher": state.edge_publisher.enabled(),
             "pii_redaction": "face+plate",
             "dsar_endpoint": bool(DSAR_TOKEN),
+            "public_thumb_token_required": PUBLIC_THUMBS_REQUIRE_TOKEN,
+            "alpr_mode": ALPR_MODE,
         },
         "perception": {
             "state": q["state"],

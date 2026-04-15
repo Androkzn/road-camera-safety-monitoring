@@ -132,7 +132,7 @@ class EdgePublisher:
         """Strip edge-only metadata and attach thumbnail_url if applicable."""
         out = {k: v for k, v in record.items() if not k.startswith("_")}
         thumb = record.get("_thumbnail_path")
-        if thumb and self.shared_secret:
+        if thumb and self.shared_secret and self.edge_base_url:
             p = Path(thumb)
             try:
                 url, sha = build_thumbnail_url(self.edge_base_url, self.shared_secret, p)
@@ -142,6 +142,8 @@ class EdgePublisher:
                     out["thumbnail_sha256"] = sha
             except Exception as exc:  # noqa: BLE001
                 logger.warning("thumb url build failed for %s: %s", thumb, exc)
+        elif thumb and not self.edge_base_url:
+            logger.debug("thumb url omitted: ROAD_EDGE_PUBLIC_URL not configured")
         return out
 
     def _sign(self, body: bytes, ts: int) -> str:

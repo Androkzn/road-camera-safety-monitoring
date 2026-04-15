@@ -119,6 +119,7 @@
 | **Reliability** | System operates continuously without LLM (graceful degradation to templated summaries) |
 | **Reliability** | Edge node survives network outages (local queue, at-least-once delivery) |
 | **Security** | HMAC-SHA256 signed payloads for edge→cloud; TLS for confidentiality |
+| **Security** | Sensitive operational endpoints require bearer-token access control |
 | **Security** | OWASP LLM01:2025 — image content treated as untrusted user data |
 | **Privacy** | Shared event channels (SSE, Slack, cloud) exclude raw plate text and unredacted thumbnails; optional third-party enrichment must be separately governed |
 | **Privacy** | Plate text retained only as salted SHA-256 hash |
@@ -189,7 +190,7 @@ See `docs/architecture.md` for the full edge/cloud diagram and data flow.
 
 ### 3.3 API Interfaces
 
-See `README.md` — API Reference section for the complete endpoint table (21 endpoints).
+See `docs/requirements/Road_Safety_TRD.md` §9 for the endpoint contract and auth expectations.
 
 ### 3.4 Testing Strategy
 
@@ -228,7 +229,7 @@ See `README.md` — API Reference section for the complete endpoint table (21 en
 | `road_safety/compliance/audit.py` | Compliance audit trail | Shipped |
 | `tools/eval_detect.py` | Precision/recall evaluation harness | Shipped |
 | `tools/analyze.py` | Offline batch analysis | Shipped |
-| `static/index.html`, `static/admin.html` | Operator dashboard UI | Shipped |
+| `frontend/src/*` + `static/*` fallback | Operator dashboard UI | Shipped |
 
 ### 4.2 Rollout Strategy
 
@@ -240,8 +241,8 @@ See `README.md` — API Reference section for the complete endpoint table (21 en
 | Metric | Source | Alert Threshold |
 |---|---|---|
 | Detection precision | `/api/drift` | < 70% over 50 labels |
-| LLM error rate | `/api/llm/stats` | > 20% |
-| LLM cost/hour | `/api/llm/stats` | > $1.00/hour |
+| LLM error rate | `/api/llm/stats` (admin token) | > 20% |
+| LLM cost/hour | `/api/llm/stats` (admin token) | > $1.00/hour |
 | Event emission rate | `/api/live/status` | 0 events in 30 minutes (if stream is active) |
 | Perception state | `/api/live/perception` | Degraded state > 10 minutes |
 | Active learning queue | `data/active_learning/pending/` | > 500 pending samples |

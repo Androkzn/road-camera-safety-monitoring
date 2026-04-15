@@ -43,7 +43,7 @@ thumbnails cross the wire, signed with HMAC.
 |                         SQLite  data/cloud.db                         |
 |                              |                                        |
 |                              v                                        |
-|                   GET /events, /stats  -> Dashboard                   |
+|                   GET /events, /stats  -> Protected ops access        |
 +------------------------------------------------------------------------+
 ```
 
@@ -150,7 +150,8 @@ first.
 
 Slack `notify_high` applies a final quality gate on episode duration,
 sustained high-risk frame count, and detection confidence; failed events
-route to the medium digest.
+route to the medium digest. High-risk Slack alerts are text-only by default;
+image relay is opt-in via `SLACK_ENABLE_IMAGE_RELAY=1`.
 
 ## LLM Resilience
 
@@ -162,7 +163,8 @@ route to the medium digest.
 - **Client-side rate budget:** a token-bucket limiter (3 req/min) refuses LLM
   calls *before* they 429, cheaper than absorbing failures.
 - **Cost observability:** `road_safety/services/llm_obs.py` tracks per-call token counts, latency
-  percentiles, and estimated USD cost. Exposed via `/api/llm/stats`.
+  percentiles, and estimated USD cost. Exposed via `/api/llm/stats`
+  behind `ROAD_ADMIN_TOKEN`.
 
 ## AI Agent Orchestration
 
@@ -186,6 +188,8 @@ Max iteration cap (5 steps) prevents runaway loops.
   timestamp, actor, action, resource, and outcome.
 - **DSAR workflow:** unredacted thumbnails require `X-DSAR-Token` header; denied
   attempts are audit-logged.
+- **Operational endpoint guard:** audit, LLM observability, retention, road summary,
+  and agent endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>`.
 
 ## Multi-Vehicle Road Model
 
@@ -193,4 +197,5 @@ Max iteration cap (5 steps) prevents runaway loops.
 - `road_safety/services/registry.py` maintains an in-memory registry with per-vehicle event counts,
   safety scores (decaying penalty model), and driver leaderboard.
 - `/api/road/summary` provides road-wide aggregation; `/api/road/drivers`
-  ranks drivers by safety score (worst-first for manager attention).
+  ranks drivers by safety score (worst-first for manager attention). These
+  endpoints are admin-protected.
