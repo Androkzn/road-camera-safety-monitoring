@@ -1,0 +1,78 @@
+.list {
+  padding: 10px 12px;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 40px 16px;
+  font-size: 12px;
+}
+
+.frameGroup {
+  margin-bottom: 12px;
+  animation: fadeIn 0.25s ease;
+}
+
+.frameHdr {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 4px 0;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+}
+
+.detRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  margin-bottom: 3px;
+  font-size: 12px;
+  background: var(--card);
+  border: 1px solid transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+.detRow:hover {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.detCls {
+  font-weight: 600;
+  min-width: 68px;
+}
+.person {
+  color: #86efac;
+}
+.vehicle {
+  color: #fbbf24;
+}
+
+.detConf {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 36px;
+}
+
+.detTrack {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #c4b5fd;
+  background: #1a1022;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.detBbox {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: auto;
+  opacity: 0.5;
+}

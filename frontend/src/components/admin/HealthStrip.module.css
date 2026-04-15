@@ -1,0 +1,60 @@
+.strip {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  overflow-x: auto;
+}
+
+.hg {
+  padding: 10px 16px;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.hg:hover {
+  background: rgba(255, 255, 255, 0.015);
+}
+.hg:last-child {
+  border-right: none;
+}
+
+.label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.val {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ok {
+  color: var(--green);
+}
+.warn {
+  color: var(--medium);
+}
+.err {
+  color: var(--high);
+}
+.accent {
+  color: var(--accent);
+}
+
+.sub {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

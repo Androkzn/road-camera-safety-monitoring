@@ -20,7 +20,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 # ── Directory layout ──
 DATA_DIR = PROJECT_ROOT / "data"
 THUMBS_DIR = DATA_DIR / "thumbnails"
-STATIC_DIR = PROJECT_ROOT / "static"
+_REACT_DIST = PROJECT_ROOT / "frontend" / "dist"
+STATIC_DIR = _REACT_DIST if _REACT_DIST.exists() else PROJECT_ROOT / "static"
 CORPUS_DIR = DATA_DIR / "corpus"
 
 # ── YOLO model ──
