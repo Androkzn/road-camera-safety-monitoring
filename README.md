@@ -10,6 +10,20 @@ This is a **building block** for fleet safety platforms, not a complete commerci
 
 ---
 
+## Main Features
+
+- **On-device perception** — YOLO tracking, multi-gate TTC, depth-aware proximity, and scene-adaptive thresholds keep false positives low without missing real conflicts.
+- **Privacy by default** — dual thumbnails (internal + redacted), structural plate hashing at the LLM boundary, DSAR-gated access, and automated retention sweeps.
+- **Resilient LLM layer** — Anthropic ↔ Azure failover, token-bucket rate budget, circuit breaker, self-consistency ALPR, and per-call cost/latency observability.
+- **Edge → cloud delivery** — HMAC-signed batched JSONL with exponential backoff; only typed events and redacted thumbnails cross the wire.
+- **Drift monitoring** — rolling precision sliced by risk/type, feedback-coverage metric to guard against selection bias, and active-learning sampling near the decision boundary.
+- **Fleet-ready identity** — every event carries `vehicle_id` / `road_id` / `driver_id`, with driver scoring and road-wide aggregation endpoints.
+- **Incident-queue watchdog** — findings grouped into fingerprinted incidents with impact, likely cause, owner, evidence, investigation steps, and ready-to-run debug commands.
+- **Operator-assist agents** — coaching, investigation, and reporting agents with bounded tool sets (≤5), hard iteration stops, and audit-logged invocations.
+- **Full audit trail** — every sensitive access logged with actor, resource, outcome, and IP — GDPR Art. 30 / SOC 2 ready.
+
+---
+
 ## Screenshots
 
 ![Admin Panel – live detections](docs/screenshots/admin.png)
