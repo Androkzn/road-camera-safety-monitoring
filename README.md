@@ -1,6 +1,6 @@
 # Road Safety
 
-Real-time road safety monitoring system. Pulls a live camera stream, detects pedestrian-vehicle and vehicle-vehicle proximity events with YOLOv8 + ByteTrack, narrates each incident with Claude, and exposes an operator copilot with RAG over a statute/policy corpus.
+Production-focused road safety monitoring demo centered on the hardest parts of deployment: reliable risk detection, edge latency, LLM resilience, privacy, drift monitoring, and fleet-scale operations.
 
 ---
 
@@ -14,21 +14,9 @@ Real-time road safety monitoring system. Pulls a live camera stream, detects ped
 
 ---
 
-## Quick start
-
-```bash
-git clone <repo-url> && cd road-safety
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env
-python start.py
-```
-
-Or with Docker: `docker compose up --build`
-
----
-
 ## Challenges & How We Address Them
+
+This README focuses on the operational challenges behind fleet safety systems and the concrete engineering decisions used to address them.
 
 ### 1. False Positives & Alert Fatigue
 
@@ -140,6 +128,20 @@ Enterprise AI agent projects have high failure rates — recent industry analyse
 | Model drift | 70%+ of orgs hit drift in 6 months | Rolling precision, trend detection, active learning, disputed sampling |
 | Fleet scaling | 6M+ active units in NA alone | Vehicle/road identity, driver scoring, road-wide aggregation |
 | Agent orchestration | 40-85% pilot failure rate | Bounded tools, structured output, hard stops, observability |
+
+---
+
+## Quick start
+
+```bash
+git clone <repo-url> && cd road-safety
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+python start.py
+```
+
+Or with Docker: `docker compose up --build`
 
 ---
 

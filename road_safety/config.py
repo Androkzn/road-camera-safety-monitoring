@@ -56,6 +56,16 @@ DRIVER_ID = os.getenv("ROAD_DRIVER_ID", "")
 # ── Location ──
 LOCATION = os.getenv("ROAD_LOCATION", "")
 
+# ── Camera calibration (per-vehicle, per-install) ──
+# Monocular depth and ego-speed math depend on these. Defaults are for a
+# coarse observation camera; production deployments calibrate per-camera.
+# Override via env to match each camera's focal length (px) and mounting
+# height (m). Getting these wrong biases every distance and speed signal
+# downstream — treat them as deployment config, not constants.
+CAMERA_FOCAL_PX = float(os.getenv("ROAD_CAMERA_FOCAL_PX", "600.0"))
+CAMERA_HEIGHT_M = float(os.getenv("ROAD_CAMERA_HEIGHT_M", "5.0"))
+CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.5"))
+
 # ── Server ──
 SERVER_HOST = os.getenv("ROAD_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("ROAD_PORT", "8000"))

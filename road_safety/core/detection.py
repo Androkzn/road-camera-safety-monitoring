@@ -41,14 +41,19 @@ PEDESTRIAN_CLASSES = {"person"}
 CONF_THRESHOLD = 0.60
 VEHICLE_PAIR_CONF_FLOOR = 0.70
 MIN_BBOX_AREA = 1500
-from road_safety.config import MODEL_PATH
+from road_safety.config import (  # noqa: E402
+    CAMERA_FOCAL_PX,
+    CAMERA_HEIGHT_M as _CFG_CAMERA_HEIGHT_M,
+    CAMERA_HORIZON_FRAC,
+    MODEL_PATH,
+)
 TRACKER_CFG = "bytetrack.yaml"
 
-# Pinhole/ground-plane approximation — observation camera mounted ~5m above
-# road, ~600px focal length for a typical wide-angle surveillance lens.
-# These are deliberately coarse: real systems calibrate per-camera.
-CAMERA_HEIGHT_M = 5.0
-FOCAL_PX = 600.0
+# Pinhole/ground-plane approximation — values come from per-camera config
+# (ROAD_CAMERA_FOCAL_PX, ROAD_CAMERA_HEIGHT_M). Wrong values here bias every
+# distance/speed signal downstream, so treat as deployment config.
+CAMERA_HEIGHT_M = _CFG_CAMERA_HEIGHT_M
+FOCAL_PX = CAMERA_FOCAL_PX
 
 # Typical real-world heights (m) used to back out distance from bbox height
 # when the ground-plane assumption fails (e.g. occluded feet).
@@ -196,7 +201,7 @@ def estimate_distance_m(det: Detection, frame_h: int) -> float | None:
     under-alert on distance rather than hallucinate a close call.
     """
     known_h = TYPICAL_HEIGHT_M.get(det.cls)
-    horizon_y = frame_h * 0.5
+    horizon_y = frame_h * CAMERA_HORIZON_FRAC
 
     dist_height: float | None = None
     if known_h is not None and det.height > 4:

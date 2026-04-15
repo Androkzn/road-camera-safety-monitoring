@@ -353,9 +353,31 @@ def _merge_self_consistency(a: dict, b: dict) -> dict:
             "readability": readability, "notes": notes}
 
 
+def _hash_and_strip_plate(enrichment: dict) -> dict:
+    """Convert raw plate_text/plate_state into a salted plate_hash in place.
+
+    Invariant: the dict returned by enrich_event() never contains raw plate
+    text. Hashing at the LLM boundary — not at egress — means no in-memory
+    code path downstream can accidentally leak a plate string to a log,
+    buffer, SSE subscriber, or outbound webhook. Privacy by construction.
+    """
+    from road_safety.services.redact import hash_plate
+
+    plate_text = enrichment.pop("plate_text", None)
+    enrichment.pop("plate_state", None)  # state narrows identity; treat as PII
+    digest = hash_plate(plate_text)
+    if digest:
+        enrichment["plate_hash"] = digest
+    return enrichment
+
+
 async def enrich_event(event: dict, thumb_path: Path) -> dict | None:
     """Claude Haiku vision: read plate + vehicle attributes from the annotated thumbnail.
-    Returns parsed dict or None if unavailable / failed. Never raises."""
+    Returns parsed dict (plate already hashed) or None if unavailable / failed. Never raises.
+
+    The returned dict never contains raw plate_text / plate_state — they are
+    converted to a salted plate_hash before this function returns.
+    """
     if not llm_configured() or BACKEND == "azure-openai" or not thumb_path.exists():
         return None
     if _circuit_open():
@@ -367,7 +389,6 @@ async def enrich_event(event: dict, thumb_path: Path) -> dict | None:
         print(f"[llm] enrich skipped {evt_id}: rate budget exhausted (need={cost}, have={_HAIKU_BUCKET.available():.2f})")
         llm_observer.record_skip("enrichment", MODEL_ENRICH, "rate_budget_exhausted", event_id=evt_id)
         return {
-            "plate_text": None, "plate_state": None,
             "vehicle_color": None, "vehicle_type": None,
             "readability": "unreadable",
             "notes": "skipped — client-side rate budget exhausted",
@@ -395,7 +416,7 @@ async def enrich_event(event: dict, thumb_path: Path) -> dict | None:
             call_type="enrichment", model=MODEL_ENRICH,
             latency_ms=elapsed, success=True, event_id=evt_id,
         )
-        return merged
+        return _hash_and_strip_plate(merged)
     except Exception as exc:
         _cb_record(False)
         elapsed = (time.monotonic() - t0) * 1000

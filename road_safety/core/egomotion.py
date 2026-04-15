@@ -45,14 +45,16 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from road_safety.config import CAMERA_FOCAL_PX, CAMERA_HEIGHT_M
 from road_safety.core.detection import TrackHistory, TrackSample  # noqa: F401
 
 
-# Pinhole / ground-plane constants mirrored from detection.py so this module
-# stays self-contained (we deliberately don't import them to avoid a circular
-# import surface if detection.py ever grows to import us back).
-_FOCAL_PX = 800.0
-_CAMERA_HEIGHT_M = 1.4
+# Pinhole / ground-plane constants come from per-camera config. A wrong
+# focal length or mounting height poisons the speed proxy for every scene
+# classification downstream, so this module reads the same env the
+# depth estimator reads — never drift these two apart.
+_FOCAL_PX = CAMERA_FOCAL_PX
+_CAMERA_HEIGHT_M = CAMERA_HEIGHT_M
 _DEFAULT_FPS = 2.0
 
 # Farneback params — tuned for 320x180 @ 2 fps on a dashcam scene.

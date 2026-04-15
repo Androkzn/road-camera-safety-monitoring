@@ -639,13 +639,12 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
     if narration:
         event["narration"] = narration
     if enrichment:
-        # Redact enrichment before it enters any shared buffer:
-        # plate_text -> plate_hash, keep non-PII attributes as-is.
-        plate_text = enrichment.pop("plate_text", None)
-        enrichment.pop("plate_state", None)  # state narrows identity, treat as PII
-        plate_digest = hash_plate(plate_text)
-        if plate_digest:
-            enrichment["plate_hash"] = plate_digest
+        # Defence in depth: enrich_event() already hashes plate at the LLM
+        # boundary so raw plate_text never reaches this process. Re-pop here
+        # in case a caller ever wires up a different enrichment source — the
+        # invariant "no raw plate in the event buffer" is enforced twice.
+        enrichment.pop("plate_text", None)
+        enrichment.pop("plate_state", None)
         event["enrichment"] = enrichment
 
     state.recent_events.append(event)
