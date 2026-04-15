@@ -43,6 +43,8 @@ from road_safety.config import (
     PUBLIC_THUMBS_REQUIRE_TOKEN,
     SCORE_DECAY_INTERVAL_SEC,
     SSE_REPLAY_COUNT,
+    WATCHDOG_ENABLED,
+    WATCHDOG_INTERVAL_SEC,
     STATIC_DIR,
     TARGET_FPS,
     THUMB_SIGNING_SECRET,
@@ -83,6 +85,7 @@ from road_safety.api.feedback import mount as mount_feedback_routes
 from road_safety.compliance import audit
 from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
 from road_safety.services.test_runner import run_state as test_run_state, start_test_run
+from road_safety.services.watchdog import Watchdog, tail as watchdog_tail, stats as watchdog_stats
 from road_safety.security import require_bearer_token
 
 
@@ -853,6 +856,58 @@ async def lifespan(app: FastAPI):
     start_test_run()
     log.info("test suite started in background")
 
+    # AI Watchdog — background health monitor.
+    watchdog_task = None
+    if WATCHDOG_ENABLED:
+        def _collect_snapshot() -> dict:
+            q = state.quality.state()
+            ctx = state.last_scene_ctx
+            ego = state.last_ego_flow
+            reader = state.reader
+            drift_report = state.drift.compute().as_dict()
+            llm_stats = llm_observer.stats(window_sec=300)
+            return {
+                "server": {
+                    "running": reader is not None and reader._thread is not None and reader._thread.is_alive() if reader else False,
+                    "uptime_sec": round(reader.uptime_sec(), 1) if reader else 0.0,
+                    "source": state.source_label,
+                    "target_fps": TARGET_FPS,
+                },
+                "pipeline": {
+                    "frames_read": reader.frames_read if reader else 0,
+                    "frames_processed": reader.frames_processed if reader else 0,
+                    "event_count": len(state.recent_events),
+                    "active_episodes": len(state.episodes),
+                },
+                "perception": {
+                    "state": q["state"],
+                    "reason": q["reason"],
+                    "samples": q["samples"],
+                    "avg_confidence": q.get("avg_confidence", 0),
+                    "luminance": q.get("luminance", 0),
+                    "sharpness": q.get("sharpness", 0),
+                },
+                "drift": drift_report,
+                "llm": llm_stats,
+                "scene": {
+                    "label": ctx.label if ctx else "unknown",
+                    "reason": ctx.reason if ctx else "not yet observed",
+                },
+                "ego": {
+                    "speed_proxy_mps": round(ego.speed_proxy_mps, 2) if ego else None,
+                },
+            }
+
+        state.watchdog = Watchdog(
+            collect_fn=_collect_snapshot,
+            interval_sec=WATCHDOG_INTERVAL_SEC,
+        )
+        watchdog_task = asyncio.create_task(state.watchdog.run_loop())
+        log.info("watchdog started (interval=%ds)", WATCHDOG_INTERVAL_SEC)
+    else:
+        state.watchdog = None
+        log.info("watchdog disabled (ROAD_WATCHDOG_ENABLED=0)")
+
     yield
 
     if state.reader:
@@ -862,6 +917,8 @@ async def lifespan(app: FastAPI):
     retention_task.cancel()
     if score_decay_task is not None:
         score_decay_task.cancel()
+    if watchdog_task is not None:
+        watchdog_task.cancel()
 
 
 app = FastAPI(title="Live Safety Review", lifespan=lifespan)
@@ -1333,6 +1390,20 @@ def admin_health():
             "confidence": round(ego.confidence, 2) if ego else None,
         },
     }
+
+
+@app.get("/api/watchdog")
+def watchdog_summary():
+    """Watchdog status and finding counts."""
+    if state.watchdog is None:
+        return {"enabled": False}
+    return state.watchdog.status()
+
+
+@app.get("/api/watchdog/recent")
+def watchdog_recent(n: int = 50):
+    """Most recent watchdog findings for investigation."""
+    return watchdog_tail(min(n, 200))
 
 
 @app.get("/admin")

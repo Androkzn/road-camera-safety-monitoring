@@ -77,3 +77,7 @@ CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.5"))
 SERVER_HOST = os.getenv("ROAD_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("ROAD_PORT", "8000"))
 SCORE_DECAY_INTERVAL_SEC = int(os.getenv("ROAD_SCORE_DECAY_INTERVAL_SEC", "3600"))
+
+# ── Watchdog ──
+WATCHDOG_ENABLED = os.getenv("ROAD_WATCHDOG_ENABLED", "1").lower() not in ("0", "false", "no")
+WATCHDOG_INTERVAL_SEC = int(os.getenv("ROAD_WATCHDOG_INTERVAL_SEC", "60"))
