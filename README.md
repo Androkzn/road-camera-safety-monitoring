@@ -44,8 +44,6 @@ The watchdog is designed to be an **incident queue**, not a wall of red text. Re
 
 ## Challenges & How We Address Them
 
-This README focuses on the operational challenges behind fleet safety systems and the concrete engineering decisions used to address them.
-
 ### 1. False Positives & Alert Fatigue
 
 Fleet safety managers report spending 30-60 minutes daily sorting false alerts from genuine incidents. When systems cry wolf repeatedly, drivers and managers stop trusting the technology — and the safety value drops to zero. This is consistently reported as the #1 operational problem across the fleet safety industry by vendors like Netradyne, Lytx, and GoMotive.
