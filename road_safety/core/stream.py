@@ -17,8 +17,8 @@ def resolve_hls(source: str) -> str:
     if "youtube.com" in source or "youtu.be" in source:
         try:
             return subprocess.check_output(
-                [YT_DLP, "-g", "-f", "b", source],
-                stderr=subprocess.DEVNULL,
+                [YT_DLP, "-g", "-f", "bv", source],
+                stderr=subprocess.PIPE,
                 timeout=30,
             ).decode().strip()
         except Exception as exc:

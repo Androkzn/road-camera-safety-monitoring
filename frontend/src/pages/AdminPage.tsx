@@ -12,9 +12,8 @@ import styles from "./AdminPage.module.css";
 export function AdminPage() {
   const { data: health } = useAdminHealth();
   const { frames, stats } = useDetections();
-  const { events: liveEvents } = useEventStream();
+  const { events: liveEvents, connected } = useEventStream();
 
-  const isRunning = health?.server.running ?? false;
   const startedAt = health?.server.started_at ?? null;
 
   const [uptimeSec, setUptimeSec] = useState<number | null>(null);
@@ -33,7 +32,7 @@ export function AdminPage() {
     <>
       <TopBar
         sourceName={health?.server.source ?? "—"}
-        connected={isRunning ? true : isRunning === false ? false : undefined}
+        connected={connected}
       >
         <Pill style={{ marginLeft: 8 }}>
           uptime <strong style={{ marginLeft: 4 }}>{formatUptime(uptimeSec)}</strong>

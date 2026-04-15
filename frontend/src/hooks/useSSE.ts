@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface UseSSEOptions<T> {
   url: string;
@@ -10,7 +10,7 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
-  const esRef = useRef<EventSource | null>(null);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -18,15 +18,16 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
     let backoff = 2000;
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
+    let es: EventSource | null = null;
 
     function connect() {
       if (stopped) return;
       try {
-        const es = new EventSource(url);
-        esRef.current = es;
+        es = new EventSource(url);
 
         es.onopen = () => {
           backoff = 2000;
+          setConnected(true);
         };
 
         es.onmessage = (ev) => {
@@ -39,14 +40,16 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
         };
 
         es.onerror = () => {
-          try { es.close(); } catch { /* noop */ }
-          esRef.current = null;
+          setConnected(false);
+          try { es?.close(); } catch { /* noop */ }
+          es = null;
           if (!stopped) {
             timer = setTimeout(connect, backoff);
             backoff = Math.min(backoff * 1.5, 30000);
           }
         };
       } catch {
+        setConnected(false);
         if (!stopped) {
           timer = setTimeout(connect, backoff);
           backoff = Math.min(backoff * 1.5, 30000);
@@ -59,14 +62,11 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
     return () => {
       stopped = true;
       clearTimeout(timer);
-      try { esRef.current?.close(); } catch { /* noop */ }
-      esRef.current = null;
+      try { es?.close(); } catch { /* noop */ }
+      es = null;
+      setConnected(false);
     };
   }, [url, enabled]);
 
-  const isConnected = useCallback(() => {
-    return esRef.current?.readyState === EventSource.OPEN;
-  }, []);
-
-  return { isConnected };
+  return { connected };
 }

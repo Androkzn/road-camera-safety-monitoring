@@ -7,7 +7,6 @@ const MAX_EVENTS = 100;
 export function useEventStream() {
   const [events, setEvents] = useState<SafetyEvent[]>([]);
   const [perception, setPerception] = useState<PerceptionState | null>(null);
-  const [connected, setConnected] = useState(false);
   const countsRef = useRef({ total: 0, high: 0, medium: 0 });
 
   const onMessage = useCallback((msg: SafetyEvent | PerceptionState) => {
@@ -26,19 +25,15 @@ export function useEventStream() {
     });
   }, []);
 
-  const { isConnected } = useSSE<SafetyEvent | PerceptionState>({
+  const { connected } = useSSE<SafetyEvent | PerceptionState>({
     url: "/stream/events",
-    onMessage: (data) => {
-      setConnected(true);
-      onMessage(data);
-    },
+    onMessage,
   });
 
   return {
     events,
     perception,
     connected,
-    isConnected,
     counts: countsRef.current,
   };
 }
