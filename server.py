@@ -982,6 +982,58 @@ async def api_agent_report():
 # Admin: live video + detection dashboard
 # ---------------------------------------------------------------------------
 
+@app.get("/api/admin/health")
+def admin_health():
+    """Comprehensive health snapshot for the admin dashboard."""
+    q = state.quality.state()
+    ctx = state.last_scene_ctx
+    ego = state.last_ego_flow
+    reader = state.reader
+    return {
+        "server": {
+            "running": reader is not None and reader._thread is not None and reader._thread.is_alive(),
+            "uptime_sec": round(reader.uptime_sec(), 1) if reader else 0.0,
+            "started_at": reader.started_at if reader else None,
+            "source": state.source_label,
+            "target_fps": TARGET_FPS,
+        },
+        "pipeline": {
+            "frames_read": reader.frames_read if reader else 0,
+            "frames_processed": reader.frames_processed if reader else 0,
+            "event_count": len(state.recent_events),
+            "active_episodes": len(state.episodes),
+            "tracker": "bytetrack",
+            "risk_model": "ttc+ground_plane",
+            "model": MODEL_PATH if "MODEL_PATH" in dir() else "yolov8n.pt",
+        },
+        "integrations": {
+            "llm_configured": llm_configured(),
+            "slack_configured": slack_configured(),
+            "edge_publisher": state.edge_publisher.enabled(),
+            "pii_redaction": "face+plate",
+            "dsar_endpoint": bool(DSAR_TOKEN),
+        },
+        "perception": {
+            "state": q["state"],
+            "reason": q["reason"],
+            "samples": q["samples"],
+            "avg_confidence": q["avg_confidence"],
+            "luminance": q["luminance"],
+            "sharpness": q["sharpness"],
+        },
+        "scene": {
+            "label": ctx.label if ctx else "unknown",
+            "confidence": round(ctx.confidence, 2) if ctx else None,
+            "speed_proxy_mps": round(ctx.speed_proxy_mps, 2) if ctx and ctx.speed_proxy_mps is not None else None,
+            "reason": ctx.reason if ctx else "not yet observed",
+        },
+        "ego": {
+            "speed_proxy_mps": round(ego.speed_proxy_mps, 2) if ego else None,
+            "confidence": round(ego.confidence, 2) if ego else None,
+        },
+    }
+
+
 @app.get("/admin")
 def admin_page():
     return FileResponse(STATIC_DIR / "admin.html")
