@@ -566,7 +566,7 @@ async def lifespan(app: FastAPI):
         hls = None
 
     if hls:
-        state.reader = StreamReader(hls, target_fps=TARGET_FPS)
+        state.reader = StreamReader(hls, target_fps=TARGET_FPS, original_source=DEFAULT_SOURCE)
         state.reader.start(_on_frame)
         log.info("stream reader started")
     else:
