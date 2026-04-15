@@ -35,9 +35,7 @@ Even state-of-the-art systems generate enough false alerts that inconsistent coa
 
 ### The Challenge
 
-Real-time safety requires sub-second latency, but edge devices (in-vehicle hardware) have limited compute. Cloud has unlimited power but adds 100-500ms+ round-trip time. Raw HD video at 10 Mbps produces ~1 GB/day/camera — transmitting that from thousands of vehicles is economically impossible on cellular networks.
-
-Research shows YOLOv8 large variants fail to hit 25 FPS on edge devices like Jetson Orin NX. Post-processing overhead (NMS, DFL) is a significant bottleneck on low-power hardware.
+Real-time safety requires sub-second latency, but edge devices (in-vehicle hardware) have limited compute. Cloud has unlimited power but adds 30-80ms round-trip on 4G LTE. A single 1080p dashcam streaming continuously over 8 hours generates ~28 GB/day — transmitting that from thousands of vehicles is economically impossible on cellular networks. Even event-based recording produces 1-2 GB/day/camera.
 
 ### How We Address It
 
@@ -59,7 +57,7 @@ Research shows YOLOv8 large variants fail to hit 25 FPS on edge devices like Jet
 
 LLM integration in safety-critical systems faces compounding risks: rate limiting degrades service, hallucination in narration or enrichment produces incorrect information, costs scale linearly with event volume, and single-provider outages take down the entire AI layer.
 
-Industry data: 80% of RAG failures trace to ingestion/chunking, not the LLM itself. Vision models hallucinate license plate text ~15-20% of the time without consistency checks.
+Research shows multimodal LLMs generate hallucinatory content when visual input is ambiguous or degraded — particularly problematic for OCR tasks like plate reading, where models fall back on linguistic priors rather than accurate visual-textual reasoning.
 
 ### How We Address It
 
@@ -81,7 +79,7 @@ Industry data: 80% of RAG failures trace to ingestion/chunking, not the LLM itse
 
 ### The Challenge
 
-Road cameras capture faces, license plates, and location data — all classified as PII under GDPR and CCPA. GDPR fines can exceed 70M EUR. License plates create tracking profiles that trigger data protection obligations. Driver-facing cameras raise biometric data concerns in jurisdictions requiring explicit consent. Organizations must demonstrate what personal data they hold, who accessed it, and when (GDPR Art. 30).
+Road cameras capture faces, license plates, and location data — all classified as PII under GDPR and CCPA. Cumulative GDPR enforcement has exceeded €5.8 billion across 2,245+ actions since 2018, with individual penalties reaching €1.2 billion (Meta, 2025). License plates create tracking profiles that trigger data protection obligations. Driver-facing cameras raise biometric data concerns in jurisdictions requiring explicit consent. Organizations must demonstrate what personal data they hold, who accessed it, and when (GDPR Art. 30).
 
 ### How We Address It
 
@@ -106,7 +104,7 @@ Road cameras capture faces, license plates, and location data — all classified
 
 Computer vision models degrade in production. Weather changes, new camera angles, seasonal lighting shifts, road expansion to new geographies — all cause the training distribution to diverge from production data. Without monitoring, precision silently degrades until operators lose trust. Retraining requires labeled data, which is expensive to collect and curate.
 
-Industry data: automated error classification frameworks can reduce manual review workload by up to 78%, but most road operators lack any drift monitoring at all.
+Over 70% of organizations report experiencing substantial data drift within the first six months of deploying ML models to production, yet most road operators lack any drift monitoring at all.
 
 ### How We Address It
 
@@ -130,7 +128,7 @@ Industry data: automated error classification frameworks can reduce manual revie
 
 Scaling from a single camera to thousands of vehicles requires vehicle identity, road-wide aggregation, driver scoring, and multi-tenant isolation. Industry deployments operate over a million video systems concurrently — the data model must support road-scale operations from day one.
 
-Industry data: traditional monolithic systems designed for 100 cameras cannot handle modern deployments. Async processing, message queues, and horizontal scaling become requirements.
+The video telematics market reached ~6 million active units in North America alone in 2024, projected to hit 17 million by 2029. Traditional monolithic systems designed for small fleets cannot handle modern deployments.
 
 ### How We Address It
 
@@ -150,7 +148,7 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 
 ### The Challenge
 
-60% of enterprise AI agent pilots fail to scale beyond proof-of-concept. Root causes: process mirroring without redesign (38%), lack of observability (27%), context collapse in multi-step pipelines (22%), and tool overload — single agents burdened with 30+ tools (13%). Function calling suffers 68% incorrect parameter hallucination when tool catalogs are large.
+Enterprise AI agent projects have high failure rates — recent industry analyses report 40-85% of agentic AI pilots stall before reaching production. Key failure drivers include orchestration complexity (IBM reports it as the #1 failure driver), context management failures, and tool overload where agents burdened with large tool catalogs hallucinate parameters. Agent reliability drops significantly beyond 1,000 interactions, and pilot costs (~$10K/month) can scale to $2M+/year at production.
 
 ### How We Address It
 
