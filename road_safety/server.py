@@ -786,6 +786,16 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     state.loop = asyncio.get_running_loop()
+    if _MISSING_IDENTITY:
+        log.warning(
+            "fleet identity unset for %s — using hostname fallbacks "
+            "(vehicle_id=%s, road_id=%s, driver_id=%s); events will not "
+            "attribute to a real fleet until these env vars are set",
+            ", ".join(_MISSING_IDENTITY),
+            RESOLVED_VEHICLE_ID,
+            RESOLVED_ROAD_ID,
+            RESOLVED_DRIVER_ID,
+        )
     log.info("loading YOLO model")
     state.model = load_model()
 
