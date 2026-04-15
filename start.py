@@ -46,6 +46,29 @@ def banner():
 """)
 
 
+def build_frontend() -> bool:
+    """Install deps (if needed) and build the React frontend."""
+    if not FRONTEND_DIR.exists():
+        print(f"  {D}No frontend/ directory — skipping React build{Z}")
+        return True
+
+    node_modules = FRONTEND_DIR / "node_modules"
+    if not node_modules.exists():
+        print(f"  {Y}Installing frontend dependencies…{Z}")
+        result = subprocess.run(["npm", "install"], cwd=str(FRONTEND_DIR))
+        if result.returncode != 0:
+            print(f"  {R}npm install failed{Z}")
+            return False
+
+    print(f"  {Y}Building React frontend…{Z}")
+    result = subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND_DIR))
+    if result.returncode == 0:
+        print(f"  {G}Frontend built successfully{Z}\n")
+        return True
+    print(f"  {R}Frontend build failed{Z}\n")
+    return False
+
+
 def run_tests() -> bool:
     """Run the pytest suite. Returns True if all tests pass."""
     print(f"  {Y}Running tests…{Z}")
@@ -125,7 +148,7 @@ def main():
 
     port = args.port
     health_url = f"http://{SERVER_HOST}:{port}/api/live/status"
-    admin_url = f"http://{SERVER_HOST}:{port}/admin"
+    admin_url = f"http://{SERVER_HOST}:{port}/"
 
     banner()
 
@@ -143,6 +166,10 @@ def main():
 
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
+
+    if not build_frontend():
+        print(f"  {R}Aborting — frontend build failed.{Z}")
+        sys.exit(1)
 
     if not args.skip_tests:
         run_tests()

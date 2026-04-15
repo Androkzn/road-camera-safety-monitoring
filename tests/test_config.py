@@ -35,7 +35,6 @@ class TestProjectPaths:
     def test_static_dir_exists(self):
         assert STATIC_DIR.exists()
         assert (STATIC_DIR / "index.html").exists()
-        assert (STATIC_DIR / "admin.html").exists()
 
     def test_model_path_is_string(self):
         assert isinstance(MODEL_PATH, str)
