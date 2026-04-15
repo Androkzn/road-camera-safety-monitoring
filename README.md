@@ -6,6 +6,8 @@ Built for the hard parts of production: suppressing false positives without miss
 
 This is a **building block** for fleet safety platforms, not a complete commercial product. DMS, clip export, telematics fusion, and ELD are deliberately out of scope — see [`docs/challenges.md §8`](docs/challenges.md#8-out-of-scope-deliberately) for what's missing and how to extend.
 
+![Demo](demo.gif)
+
 ---
 
 ## Screenshots
@@ -15,12 +17,6 @@ This is a **building block** for fleet safety platforms, not a complete commerci
 ![Dashboard](docs/screenshots/dashboard.png)
 
 ![Test Suite](docs/screenshots/tests.png)
-
-## Demo
-
-<video src="demo.mp4" width="720" controls></video>
-
-Short walkthrough (~30s) showing the Admin monitor with live YOLO detections, the Events panel with TTC-based risk alerts, and the Dashboard with drift metrics and Copilot.
 
 ---
 

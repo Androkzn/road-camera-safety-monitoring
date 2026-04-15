@@ -177,3 +177,13 @@
 {"ts": "2026-04-15T19:55:51.966Z", "action": "access_public_thumbnail", "resource": "evt_1776282946011_0016_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-15T19:57:41.622Z", "action": "access_public_thumbnail", "resource": "evt_1776283054804_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-15T19:57:41.629Z", "action": "access_public_thumbnail", "resource": "evt_1776283054804_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T19:58:51.162Z", "action": "access_public_thumbnail", "resource": "evt_1776283054804_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:00:06.041Z", "action": "access_public_thumbnail", "resource": "evt_1776283054804_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:00:53.437Z", "action": "access_public_thumbnail", "resource": "evt_1776283054804_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:01:20.103Z", "action": "access_public_thumbnail", "resource": "evt_1776283054804_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:02:16.289Z", "action": "access_public_thumbnail", "resource": "evt_1776283054804_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:02:40.174Z", "action": "access_public_thumbnail", "resource": "evt_1776283354374_0002_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:02:40.180Z", "action": "access_public_thumbnail", "resource": "evt_1776283354374_0002_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:03:11.887Z", "action": "access_public_thumbnail", "resource": "evt_1776283386610_0003_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:03:22.836Z", "action": "access_public_thumbnail", "resource": "evt_1776283396206_0004_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-15T20:03:22.840Z", "action": "access_public_thumbnail", "resource": "evt_1776283396307_0005_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
