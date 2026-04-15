@@ -29,7 +29,7 @@ import cv2
 
 from detection import Detection, PEDESTRIAN_CLASSES, VEHICLE_CLASSES
 
-_PLATE_SALT = os.getenv("FLEET_PLATE_SALT", "fleet-safety-demo-default-salt")
+_PLATE_SALT = os.getenv("FLEET_PLATE_SALT", "safety-demo-default-salt")
 
 FACE_BAND_TOP = 0.00     # face = top ~35% of person bbox
 FACE_BAND_BOTTOM = 0.35

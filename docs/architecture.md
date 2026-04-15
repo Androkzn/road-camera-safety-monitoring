@@ -1,4 +1,4 @@
-# Fleet Safety: Edge/Cloud Architecture
+# Edge/Cloud Architecture
 
 ## Why split?
 

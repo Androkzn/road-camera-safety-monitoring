@@ -1,5 +1,5 @@
 """
-Fleet safety event extraction — batch mode.
+Safety event extraction — batch mode.
 
 Reads a video file, samples frames, runs YOLO, emits structured safety events
 with thumbnails. Shares core detection logic with the live server (detection.py).

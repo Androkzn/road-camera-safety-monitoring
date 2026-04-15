@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fleet Safety — Admin Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #141a22; --border: #1f2937; --text: #e5e7eb;
+    --muted: #9ca3af; --accent: #38bdf8; --high: #ef4444; --medium: #f59e0b;
+    --low: #6b7280; --green: #22c55e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+  html, body { background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px; line-height: 1.45; height: 100% }
+  body { display: flex; flex-direction: column; min-height: 100vh }
+
+  header { padding: 12px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: .3px }
+  header .nav { display: flex; gap: 10px; align-items: center }
+  header a { color: var(--accent); text-decoration: none; font-size: 12px; opacity: .8 }
+  header a:hover { opacity: 1 }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+    border-radius: 999px; background: var(--bg); border: 1px solid var(--border);
+    font-size: 11px; color: var(--muted) }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block }
+  .dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(34, 197, 94, .5) }
+  .dot.off { background: var(--low) }
+
+  .layout { display: grid; grid-template-columns: 1fr 360px; gap: 0; flex: 1; min-height: 0 }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr } }
+
+  .video-section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border) }
+  .video-wrap { flex: 1; display: flex; align-items: center; justify-content: center;
+    background: #000; position: relative; min-height: 300px; overflow: hidden }
+  .video-wrap img { max-width: 100%; max-height: 100%; object-fit: contain }
+  .video-wrap .placeholder { color: #334155; font-size: 14px; text-align: center; padding: 20px }
+  .video-overlay { position: absolute; bottom: 12px; left: 12px; display: flex; gap: 8px }
+  .video-overlay .badge { padding: 4px 10px; border-radius: 6px; font-size: 11px;
+    font-weight: 600; backdrop-filter: blur(8px); letter-spacing: .3px }
+  .badge.det { background: rgba(56, 189, 248, .2); border: 1px solid rgba(56, 189, 248, .4); color: #7dd3fc }
+  .badge.int { background: rgba(239, 68, 68, .2); border: 1px solid rgba(239, 68, 68, .4); color: #fca5a5 }
+
+  .stats-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+    border-top: 1px solid var(--border) }
+  .stat { padding: 10px 14px; border-right: 1px solid var(--border); text-align: center }
+  .stat:last-child { border-right: none }
+  .stat .label { font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .6px; margin-bottom: 3px }
+  .stat .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums }
+  .stat .val.accent { color: var(--accent) }
+  .stat .val.green { color: var(--green) }
+  .stat .val.warn { color: var(--medium) }
+  .stat .val.danger { color: var(--high) }
+
+  .sidebar { display: flex; flex-direction: column; min-height: 0; overflow: hidden }
+  .sidebar-head { padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-weight: 600; font-size: 13px; display: flex; align-items: center;
+    justify-content: space-between }
+  .sidebar-head .count { color: var(--muted); font-weight: 400; font-size: 11px }
+
+  .det-list { flex: 1; overflow-y: auto; padding: 8px 12px }
+  .det-list::-webkit-scrollbar { width: 6px }
+  .det-list::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px }
+
+  .frame-group { margin-bottom: 12px; animation: fadeIn .3s ease }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px) } to { opacity: 1; transform: none } }
+  .frame-header { font-size: 10px; color: var(--muted); padding: 4px 0; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+  .det-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    border-radius: 6px; margin-bottom: 3px; font-size: 12px;
+    background: var(--bg); border: 1px solid transparent; transition: border-color .15s }
+  .det-row:hover { border-color: var(--border) }
+  .det-cls { font-weight: 600; min-width: 72px }
+  .det-cls.person { color: #86efac }
+  .det-cls.vehicle { color: #fbbf24 }
+  .det-conf { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    color: var(--muted); min-width: 38px }
+  .det-track { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
+    color: #c4b5fd; background: #1a1022; padding: 1px 5px; border-radius: 3px }
+  .det-bbox { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
+    color: var(--muted); margin-left: auto; opacity: .6 }
+
+  .events-section { border-top: 1px solid var(--border) }
+  .event-list { max-height: 220px; overflow-y: auto; padding: 8px 12px }
+  .event-list::-webkit-scrollbar { width: 6px }
+  .event-list::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px }
+
+  .evt-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    border-radius: 6px; margin-bottom: 6px; background: var(--bg); border: 1px solid var(--border);
+    animation: fadeIn .3s ease }
+  .evt-card .thumb { width: 64px; height: 40px; border-radius: 4px; overflow: hidden;
+    background: #000; flex-shrink: 0 }
+  .evt-card .thumb img { width: 100%; height: 100%; object-fit: cover }
+  .evt-card .info { flex: 1; min-width: 0 }
+  .evt-card .top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px }
+  .risk { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .4px }
+  .risk-high { background: var(--high); color: #fff }
+  .risk-medium { background: var(--medium); color: #111 }
+  .risk-low { background: var(--low); color: #fff }
+  .evt-type { font-weight: 600; font-size: 12px }
+  .evt-time { color: var(--muted); font-size: 10px; margin-left: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+  .evt-narr { color: var(--muted); font-size: 11px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Admin Monitor</h1>
+  <div class="nav">
+    <a href="/">Dashboard</a>
+    <span class="pill">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">connecting</span>
+    </span>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="video-section">
+    <div class="video-wrap">
+      <img id="videoFeed" alt="Live detection feed" />
+      <div class="placeholder" id="videoPlaceholder">Waiting for video stream&hellip;</div>
+      <div class="video-overlay">
+        <span class="badge det" id="badgeDet">0 objects</span>
+        <span class="badge int" id="badgeInt">0 interactions</span>
+      </div>
+    </div>
+    <div class="stats-bar">
+      <div class="stat"><div class="label">Detections</div><div class="val accent" id="sTotal">0</div></div>
+      <div class="stat"><div class="label">Persons</div><div class="val green" id="sPersons">0</div></div>
+      <div class="stat"><div class="label">Vehicles</div><div class="val warn" id="sVehicles">0</div></div>
+      <div class="stat"><div class="label">Interactions</div><div class="val danger" id="sInter">0</div></div>
+      <div class="stat"><div class="label">FPS</div><div class="val" id="sFps">—</div></div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="sidebar-head">
+      Live Detections
+      <span class="count" id="detCount">0 objects</span>
+    </div>
+    <div class="det-list" id="detList">
+      <div style="color:var(--muted);text-align:center;padding:30px 10px;font-size:12px">
+        Waiting for detections&hellip;
+      </div>
+    </div>
+
+    <div class="events-section">
+      <div class="sidebar-head">
+        Recent Events
+        <span class="count" id="evtCount">0</span>
+      </div>
+      <div class="event-list" id="evtList">
+        <div style="color:var(--muted);text-align:center;padding:20px 10px;font-size:12px">
+          No events yet
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const videoFeed = document.getElementById('videoFeed');
+  const videoPlaceholder = document.getElementById('videoPlaceholder');
+  const badgeDet = document.getElementById('badgeDet');
+  const badgeInt = document.getElementById('badgeInt');
+  const sTotal = document.getElementById('sTotal');
+  const sPersons = document.getElementById('sPersons');
+  const sVehicles = document.getElementById('sVehicles');
+  const sInter = document.getElementById('sInter');
+  const sFps = document.getElementById('sFps');
+  const detList = document.getElementById('detList');
+  const detCount = document.getElementById('detCount');
+  const evtList = document.getElementById('evtList');
+  const evtCount = document.getElementById('evtCount');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+
+  const MAX_EVENTS = 30;
+  const MAX_FRAME_GROUPS = 6;
+  let eventCards = 0;
+  let firstEvent = true;
+  let firstDetection = true;
+  let lastFrameTime = 0;
+  let frameCount = 0;
+  let fpsStartTime = Date.now();
+
+  videoFeed.src = '/admin/video_feed';
+  videoFeed.onload = () => { videoPlaceholder.style.display = 'none'; };
+  videoFeed.onerror = () => { videoPlaceholder.textContent = 'Video feed unavailable'; };
+
+  const escHtml = s => (s == null ? '' : String(s))
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const pad2 = n => String(n).padStart(2, '0');
+  const fmtTime = ts => {
+    const d = ts ? new Date(ts) : new Date();
+    return isNaN(d) ? '—' : `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  };
+  const humanType = t => (t || 'event').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+  // --- Detection SSE ---
+  let detEs = null, detBackoff = 1500;
+  function connectDetSSE() {
+    try { detEs = new EventSource('/admin/detections'); } catch (e) { scheduleDetReconnect(); return; }
+    detEs.onopen = () => {
+      detBackoff = 1500;
+      statusDot.className = 'dot ok';
+      statusText.textContent = 'live';
+    };
+    detEs.onmessage = ev => {
+      try { renderDetections(JSON.parse(ev.data)); } catch (e) { /* ignore */ }
+    };
+    detEs.onerror = () => {
+      statusDot.className = 'dot off';
+      statusText.textContent = 'reconnecting';
+      try { detEs.close(); } catch (_) {}
+      scheduleDetReconnect();
+    };
+  }
+  function scheduleDetReconnect() {
+    setTimeout(connectDetSSE, detBackoff);
+    detBackoff = Math.min(detBackoff * 1.5, 20000);
+  }
+
+  function renderDetections(msg) {
+    if (firstDetection) { detList.innerHTML = ''; firstDetection = false; }
+
+    frameCount++;
+    const now = Date.now();
+    if (now - fpsStartTime >= 3000) {
+      const fps = (frameCount / ((now - fpsStartTime) / 1000)).toFixed(1);
+      sFps.textContent = fps;
+      frameCount = 0;
+      fpsStartTime = now;
+    }
+
+    const n = msg.detections || 0;
+    const p = msg.persons || 0;
+    const v = msg.vehicles || 0;
+    const inter = msg.interactions || 0;
+
+    sTotal.textContent = n;
+    sPersons.textContent = p;
+    sVehicles.textContent = v;
+    sInter.textContent = inter;
+    badgeDet.textContent = `${n} object${n !== 1 ? 's' : ''}`;
+    badgeInt.textContent = `${inter} interaction${inter !== 1 ? 's' : ''}`;
+    detCount.textContent = `${n} objects`;
+
+    if (!msg.objects || !msg.objects.length) {
+      if (!detList.children.length) {
+        detList.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-size:12px">No objects detected</div>';
+      }
+      return;
+    }
+
+    const group = document.createElement('div');
+    group.className = 'frame-group';
+
+    const ts = msg.ts ? new Date(msg.ts * 1000) : new Date();
+    const timeStr = isNaN(ts) ? '—' : `${pad2(ts.getHours())}:${pad2(ts.getMinutes())}:${pad2(ts.getSeconds())}`;
+
+    const header = document.createElement('div');
+    header.className = 'frame-header';
+    header.innerHTML = `<span>${timeStr}</span><span>${n} det / ${inter} int</span>`;
+    group.appendChild(header);
+
+    for (const obj of msg.objects) {
+      const row = document.createElement('div');
+      row.className = 'det-row';
+      const isPerson = obj.cls === 'person';
+      const bb = obj.bbox;
+      row.innerHTML = `
+        <span class="det-cls ${isPerson ? 'person' : 'vehicle'}">${escHtml(obj.cls)}</span>
+        <span class="det-conf">${(obj.conf * 100).toFixed(0)}%</span>
+        ${obj.track_id != null ? `<span class="det-track">#${obj.track_id}</span>` : ''}
+        <span class="det-bbox">${bb[0]},${bb[1]} ${bb[2]-bb[0]}×${bb[3]-bb[1]}</span>`;
+      group.appendChild(row);
+    }
+
+    detList.insertBefore(group, detList.firstChild);
+    while (detList.children.length > MAX_FRAME_GROUPS) {
+      detList.removeChild(detList.lastChild);
+    }
+  }
+
+  // --- Event SSE (reuse existing /stream/events) ---
+  let evtEs = null, evtBackoff = 2000;
+  function connectEvtSSE() {
+    try { evtEs = new EventSource('/stream/events'); } catch (e) { scheduleEvtReconnect(); return; }
+    evtEs.onmessage = ev => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg && msg._meta) return;
+        addEvent(msg);
+      } catch (e) { /* ignore */ }
+    };
+    evtEs.onerror = () => {
+      try { evtEs.close(); } catch (_) {}
+      scheduleEvtReconnect();
+    };
+  }
+  function scheduleEvtReconnect() {
+    setTimeout(connectEvtSSE, evtBackoff);
+    evtBackoff = Math.min(evtBackoff * 1.5, 30000);
+  }
+
+  function addEvent(e) {
+    if (firstEvent) { evtList.innerHTML = ''; firstEvent = false; }
+    eventCards++;
+    evtCount.textContent = eventCards;
+
+    const card = document.createElement('div');
+    card.className = 'evt-card';
+    const risk = (e.risk_level || 'low').toLowerCase();
+    const riskCls = risk === 'high' ? 'risk-high' : risk === 'medium' ? 'risk-medium' : 'risk-low';
+    let thumb = e.thumbnail || '';
+    if (thumb && !/^https?:/.test(thumb) && !thumb.startsWith('/')) thumb = '/' + thumb;
+    const narr = e.narration || e.summary || '';
+
+    card.innerHTML = `
+      <div class="thumb">${thumb ? `<img src="${escHtml(thumb)}" alt="">` : ''}</div>
+      <div class="info">
+        <div class="top">
+          <span class="risk ${riskCls}">${escHtml(risk)}</span>
+          <span class="evt-type">${escHtml(humanType(e.event_type))}</span>
+          <span class="evt-time">${fmtTime(e.wall_time)}</span>
+        </div>
+        <div class="evt-narr">${escHtml(narr)}</div>
+      </div>`;
+
+    evtList.insertBefore(card, evtList.firstChild);
+    while (evtList.children.length > MAX_EVENTS) {
+      evtList.removeChild(evtList.lastChild);
+    }
+  }
+
+  connectDetSSE();
+  connectEvtSSE();
+})();
+</script>
+</body>
+</html>

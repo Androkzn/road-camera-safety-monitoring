@@ -1,4 +1,4 @@
-"""Fleet safety cloud receiver.
+"""Cloud receiver.
 
 This is **deliberately a separate FastAPI app** from ``server.py``. In a real
 deployment the edge node and the cloud receiver run on different hosts with
@@ -85,7 +85,7 @@ async def _lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Fleet Safety Cloud Receiver", lifespan=_lifespan)
+app = FastAPI(title="Cloud Receiver", lifespan=_lifespan)
 
 
 # -------------------------------------------------------------------------------------

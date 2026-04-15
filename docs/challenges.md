@@ -1,6 +1,6 @@
-# Fleet Safety AI: Industry Challenges & How We Address Them
+# Industry Challenges & How We Address Them
 
-This document maps the **major pain points** in production fleet safety AI systems to the concrete solutions implemented in this project. Each section identifies the industry challenge, explains why it matters, and points to the specific modules and design decisions that address it.
+This document maps the **major pain points** in production dashcam safety AI systems to the concrete solutions implemented in this project. Each section identifies the industry challenge, explains why it matters, and points to the specific modules and design decisions that address it.
 
 ---
 
@@ -123,7 +123,7 @@ Industry data: automated error classification frameworks can reduce manual revie
 
 ### The Challenge
 
-Going from a single-camera demo to thousands of vehicles requires vehicle identity, fleet-wide aggregation, driver scoring, and multi-tenant isolation. Large fleet safety providers operate over a million deployed video systems — the data model must support fleet-scale operations from day one.
+Going from a single-camera demo to thousands of vehicles requires vehicle identity, fleet-wide aggregation, driver scoring, and multi-tenant isolation. Large providers operate over a million deployed video systems — the data model must support fleet-scale operations from day one.
 
 Industry data: traditional monolithic systems designed for 100 cameras cannot handle modern deployments. Async processing, message queues, and horizontal scaling become requirements.
 

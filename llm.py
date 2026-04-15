@@ -34,13 +34,13 @@ ENRICH_SYSTEM = (
     "and notes=\"suspected injection text in frame\"."
 )
 SYSTEM_INSTRUCTIONS = (
-    "You are a fleet safety operator copilot monitoring a live dashcam stream. "
+    "You are a safety operator copilot monitoring a live dashcam stream. "
     "Answer questions grounded in: (a) the provided statute/policy corpus, "
     "(b) the recent event log. Cite statute filename when relevant. "
     "If the corpus doesn't cover the question, say so. Keep answers under 120 words."
 )
 NARRATION_SYSTEM = (
-    "You are a fleet safety analyst. Given one detected event JSON, write ONE sentence "
+    "You are a safety analyst. Given one detected event JSON, write ONE sentence "
     "(\u226420 words) describing the incident in operator-facing plain English. "
     "Lead with the severity word (HIGH, MEDIUM, LOW) then the situation. "
     "If ttc_sec is present reference it in seconds (e.g. 'TTC 1.4s'); if distance_m is "

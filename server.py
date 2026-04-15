@@ -1,4 +1,4 @@
-"""Fleet safety live review API.
+"""Live safety review API.
 
 Pulls a live stream, runs YOLO at 2 fps in a background thread, emits typed safety
 events over Server-Sent Events with an LLM-generated one-line narration, and exposes
@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+import cv2
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,6 +26,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from detection import (
+    VEHICLE_CLASSES,
     TrackHistory,
     bbox_edge_distance,
     build_event_summary,
@@ -154,6 +157,12 @@ class LiveState:
         self.edge_publisher = EdgePublisher()
         # v2: agent executor (wired after lifespan sets event_lookup)
         self.agent_executor: AgentExecutor | None = None
+        # Admin video feed: latest annotated JPEG bytes + per-frame detection snapshot.
+        self._frame_lock = threading.Lock()
+        self._annotated_jpeg: bytes | None = None
+        self._frame_detections: list[dict] = []
+        self._frame_ts: float = 0.0
+        self.admin_detection_subscribers: set[asyncio.Queue] = set()
 
 
 state = LiveState()
@@ -199,6 +208,40 @@ def _classify_with_scene(ttc_sec, distance_m, fallback_px, thr) -> str:
     if "medium" in levels:
         return "medium"
     return "low"
+
+
+def _render_annotated_frame(frame, detections, interactions):
+    """Draw bounding boxes and labels on a copy of the frame for the admin feed."""
+    vis = frame.copy()
+    color_map = {
+        "person": (0, 220, 100),
+        "car": (255, 160, 0),
+        "truck": (255, 100, 0),
+        "bus": (200, 80, 200),
+        "motorcycle": (0, 180, 255),
+    }
+    for det in detections:
+        color = color_map.get(det.cls, (200, 200, 200))
+        cv2.rectangle(vis, (det.x1, det.y1), (det.x2, det.y2), color, 2)
+        label = f"{det.cls} {det.conf:.0%}"
+        if det.track_id is not None:
+            label = f"#{det.track_id} {label}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        cv2.rectangle(vis, (det.x1, det.y1 - th - 6), (det.x1 + tw + 4, det.y1), color, -1)
+        cv2.putText(vis, label, (det.x1 + 2, det.y1 - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+
+    for event_type, a, b, dist_px in interactions:
+        cx_a, cy_a = int(a.center[0]), int(a.center[1])
+        cx_b, cy_b = int(b.center[0]), int(b.center[1])
+        line_color = (0, 0, 255) if event_type == "pedestrian_proximity" else (0, 165, 255)
+        cv2.line(vis, (cx_a, cy_a), (cx_b, cy_b), line_color, 2, cv2.LINE_AA)
+        mid_x, mid_y = (cx_a + cx_b) // 2, (cy_a + cy_b) // 2
+        cv2.putText(vis, f"{int(dist_px)}px", (mid_x + 4, mid_y - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, line_color, 1, cv2.LINE_AA)
+
+    _, jpeg = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    return jpeg.tobytes()
 
 
 def _on_frame(wall_ts: float, frame) -> None:
@@ -304,6 +347,37 @@ def _on_frame(wall_ts: float, frame) -> None:
             state.episodes.pop(key, None)
             state.pair_cooldown[key] = wall_ts + PAIR_COOLDOWN_SEC
 
+    # Admin video feed: render annotated frame + broadcast detection snapshot.
+    try:
+        jpeg_bytes = _render_annotated_frame(frame, detections, interactions)
+        det_snapshot = [
+            {
+                "cls": d.cls, "conf": round(d.conf, 3),
+                "track_id": d.track_id,
+                "bbox": [d.x1, d.y1, d.x2, d.y2],
+            }
+            for d in detections
+        ]
+        with state._frame_lock:
+            state._annotated_jpeg = jpeg_bytes
+            state._frame_detections = det_snapshot
+            state._frame_ts = wall_ts
+
+        if state.loop is not None:
+            msg = {
+                "ts": round(wall_ts, 3),
+                "detections": len(detections),
+                "persons": sum(1 for d in detections if d.cls == "person"),
+                "vehicles": sum(1 for d in detections if d.cls in VEHICLE_CLASSES),
+                "interactions": len(interactions),
+                "objects": det_snapshot,
+            }
+            asyncio.run_coroutine_threadsafe(
+                _broadcast_admin_detections(msg), state.loop
+            )
+    except Exception as exc:
+        print(f"[admin] annotated frame failed: {exc}")
+
 
 def _flush_episode(ep: Episode, wall_ts: float) -> None:
     """Materialise an episode's peak frame into an Event and hand off to the
@@ -390,6 +464,14 @@ async def _broadcast_perception(qstate: dict) -> None:
     """
     msg = {"_meta": "perception_state", **qstate}
     for q in list(state.subscribers):
+        try:
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            pass
+
+
+async def _broadcast_admin_detections(msg: dict) -> None:
+    for q in list(state.admin_detection_subscribers):
         try:
             q.put_nowait(msg)
         except asyncio.QueueFull:
@@ -531,7 +613,7 @@ async def lifespan(app: FastAPI):
     retention_task.cancel()
 
 
-app = FastAPI(title="Fleet Safety Live Review", lifespan=lifespan)
+app = FastAPI(title="Live Safety Review", lifespan=lifespan)
 
 THUMBS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -894,6 +976,61 @@ async def api_agent_report():
     audit.log("agent_report", "session_report")
     result = await run_report_agent(state.agent_executor)
     return result.as_dict()
+
+
+# ---------------------------------------------------------------------------
+# Admin: live video + detection dashboard
+# ---------------------------------------------------------------------------
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse(STATIC_DIR / "admin.html")
+
+
+@app.get("/admin/video_feed")
+def admin_video_feed():
+    """MJPEG stream of annotated frames (bounding boxes + interaction lines)."""
+    def generate():
+        while True:
+            with state._frame_lock:
+                jpeg = state._annotated_jpeg
+            if jpeg is not None:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+                )
+            time.sleep(0.4)
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@app.get("/admin/detections")
+async def admin_detections_sse(request: Request):
+    """SSE stream of per-frame detection snapshots for the admin dashboard."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+    state.admin_detection_subscribers.add(queue)
+
+    async def gen():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=10.0)
+                    yield f"data: {json.dumps(msg)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            state.admin_detection_subscribers.discard(queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/summary")

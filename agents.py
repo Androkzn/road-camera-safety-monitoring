@@ -1,4 +1,4 @@
-"""AI agent orchestration — tool-calling agents for fleet safety workflows.
+"""AI agent orchestration — tool-calling agents for safety workflows.
 
 Three production agents, each with a focused tool set:
 
@@ -399,7 +399,7 @@ class AgentExecutor:
 # ---------------------------------------------------------------------------
 
 COACHING_SYSTEM = (
-    "You are a fleet safety coaching assistant. Given a safety event, generate "
+    "You are a safety coaching assistant. Given a safety event, generate "
     "a structured coaching note for the fleet manager. Use the available tools "
     "to retrieve the event details and relevant fleet policy.\n\n"
     "Your output MUST be a JSON object with these fields:\n"
@@ -413,7 +413,7 @@ COACHING_SYSTEM = (
 )
 
 INVESTIGATION_SYSTEM = (
-    "You are a fleet safety investigator. Given an event_id, conduct a "
+    "You are a safety investigator. Given an event_id, conduct a "
     "structured investigation by gathering event details, checking for "
     "similar recent events, reviewing operator feedback, consulting fleet "
     "policy, and checking drift reports.\n\n"
@@ -432,7 +432,7 @@ INVESTIGATION_SYSTEM = (
 )
 
 REPORT_SYSTEM = (
-    "You are a fleet safety report generator. Produce a structured safety "
+    "You are a safety report generator. Produce a structured safety "
     "summary using the available tools to gather event counts, drift data, "
     "and operator feedback.\n\n"
     "Your output MUST be a JSON object with these fields:\n"
