@@ -162,8 +162,8 @@
     Road Safety
   </a>
   <nav>
-    <a href="/">Dashboard</a>
     <a href="/admin" class="active">Admin</a>
+    <a href="/">Dashboard</a>
   </nav>
   <span class="hdr-spacer"></span>
   <span class="pill" id="statusPill">
@@ -175,6 +175,7 @@
 
 <!-- Health strip -->
 <div class="health-strip" id="healthStrip">
+  <div class="hg"><div class="hg-label">Location</div><div class="hg-val accent" id="hLocation">—</div><div class="hg-sub" id="hLocationSub">&nbsp;</div></div>
   <div class="hg"><div class="hg-label">Stream</div><div class="hg-val" id="hStream">—</div><div class="hg-sub" id="hStreamSub">&nbsp;</div></div>
   <div class="hg"><div class="hg-label">Frames</div><div class="hg-val accent" id="hFrames">—</div><div class="hg-sub" id="hFramesSub">&nbsp;</div></div>
   <div class="hg"><div class="hg-label">Events</div><div class="hg-val" id="hEvents">0</div><div class="hg-sub" id="hEventsSub">&nbsp;</div></div>
@@ -311,6 +312,9 @@
       if (srv.started_at) startedAt = srv.started_at;
 
       // Health cells
+      $('hLocation').textContent = srv.location || '—';
+      $('hLocationSub').textContent = srv.location ? 'camera location' : 'set ROAD_LOCATION in .env';
+
       $('hStream').textContent = srv.running ? 'Active' : 'Down';
       $('hStream').className = 'hg-val ' + (srv.running ? 'ok' : 'err');
       $('hStreamSub').textContent = (srv.source || '').substring(0, 50);

@@ -53,6 +53,9 @@ VEHICLE_ID = os.getenv("ROAD_VEHICLE_ID", "")
 ROAD_ID = os.getenv("ROAD_ID", "")
 DRIVER_ID = os.getenv("ROAD_DRIVER_ID", "")
 
+# ── Location ──
+LOCATION = os.getenv("ROAD_LOCATION", "")
+
 # ── Server ──
 SERVER_HOST = os.getenv("ROAD_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("ROAD_PORT", "8000"))

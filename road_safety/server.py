@@ -31,6 +31,7 @@ from road_safety.config import (
     DSAR_TOKEN,
     DRIVER_ID,
     EPISODE_IDLE_FLUSH_SEC,
+    LOCATION,
     ROAD_ID,
     MAX_RECENT_EVENTS,
     MODEL_PATH,
@@ -758,6 +759,7 @@ def live_status():
     q = state.quality.state()
     return {
         "source": state.source_label,
+        "location": LOCATION,
         "running": state.reader is not None and state.reader._thread is not None and state.reader._thread.is_alive(),
         "event_count": len(state.recent_events),
         "frames_read": state.reader.frames_read if state.reader else 0,
@@ -1004,6 +1006,7 @@ def admin_health():
             "uptime_sec": round(reader.uptime_sec(), 1) if reader else 0.0,
             "started_at": reader.started_at if reader else None,
             "source": state.source_label,
+            "location": LOCATION,
             "target_fps": TARGET_FPS,
         },
         "pipeline": {

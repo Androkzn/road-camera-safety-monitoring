@@ -267,6 +267,10 @@
     <a href="/admin">Admin</a>
   </nav>
   <span class="spacer"></span>
+  <span class="pill" id="locationPill" style="display:none">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+    <span id="locationText"></span>
+  </span>
   <span class="pill" id="statusPill">
     <span class="dot" id="statusDot"></span>
     <span id="statusText">connecting…</span>
@@ -590,6 +594,10 @@
         if (j.started_at){ const t = typeof j.started_at==='number' ? j.started_at : Date.parse(j.started_at)/1000; if (!isNaN(t)) startedAt = t; }
         if (j.perception) renderPerception(j.perception);
         if (!statusDot.classList.contains('bad')) setStatus('connected');
+        if (j.location) {
+          document.getElementById('locationPill').style.display = '';
+          document.getElementById('locationText').textContent = j.location;
+        }
       }
     } catch(_){}
   }
