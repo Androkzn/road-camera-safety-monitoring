@@ -79,70 +79,76 @@ Belongs in this document:
 | FastAPI Server | Orchestrator | `server.py` | Event lifecycle, API routing, SSE, episode management |
 | LLM Client | Enrichment | `llm.py` | Narration, vision enrichment, chat with failover |
 | PII Redactor | Privacy | `redact.py` | Face/plate blur, dual thumbnails, plate hashing |
-| Edge Publisher | Transport | `edge_publisher.py` | HMAC-signed batch delivery to cloud |
-| Cloud Receiver | Transport | `cloud_receiver.py` | HMAC verification, event_id dedup, persistence |
-| Feedback Routes | API | `feedback_routes.py` | Operator verdict ingestion |
-| Drift Monitor | ML Ops | `drift.py` | Rolling precision, trend detection, active learning |
-| Slack Notifier | Alerting | `slack_notify.py` | Tiered Slack alerts |
-| Digest Scheduler | Alerting | `digest.py` | Hourly/daily summary schedulers |
-| LLM Observer | Observability | `llm_obs.py` | Per-call token/latency/cost tracking |
-| Audit Logger | Compliance | `audit.py` | Sensitive access audit trail |
-| Retention Sweeper | Compliance | `retention.py` | Automatic data expiry |
-| Road Registry | Road | `road.py` | Vehicle/driver state, safety scoring |
-| Agent Executor | AI Agents | `agents.py` | Tool-calling agent orchestration |
-| Eval Harness | Testing | `eval.py` | Precision/recall evaluation |
-| Batch Analyzer | Utility | `analyze.py` | Offline batch analysis |
-| Dashboard | UI | `static/index.html` | Operator dashboard (SSE-powered) |
+| Edge Publisher | Transport | `road_safety/integrations/edge_publisher.py` | HMAC-signed batch delivery to cloud |
+| Cloud Receiver | Transport | `cloud/receiver.py` | HMAC verification, event_id dedup, persistence |
+| Feedback API | API | `road_safety/api/feedback.py` | Operator verdict ingestion |
+| Drift Monitor | ML Ops | `road_safety/services/drift.py` | Rolling precision, trend detection, active learning |
+| Slack Notifier | Alerting | `road_safety/integrations/slack.py` | Tiered Slack alerts |
+| Digest Scheduler | Alerting | `road_safety/services/digest.py` | Hourly/daily summary schedulers |
+| LLM Observer | Observability | `road_safety/services/llm_obs.py` | Per-call token/latency/cost tracking |
+| Audit Logger | Compliance | `road_safety/compliance/audit.py` | Sensitive access audit trail |
+| Retention Sweeper | Compliance | `road_safety/compliance/retention.py` | Automatic data expiry |
+| Road Registry | Road | `road_safety/services/registry.py` | Vehicle/driver state, safety scoring |
+| Agent Executor | AI Agents | `road_safety/services/agents.py` | Tool-calling agent orchestration |
+| Eval Harness | Testing | `tools/eval_detect.py` | Precision/recall evaluation |
+| Batch Analyzer | Utility | `tools/analyze.py` | Offline batch analysis |
+| Dashboard | UI | `static/index.html`, `static/admin.html` | Operator dashboard (SSE-powered) |
 
 ### File Structure
 
 ```
-road-safety-demo/
-├── server.py                 ← Main FastAPI orchestrator
-├── stream.py                 ← Video stream reader
-├── detection.py              ← YOLOv8 + ByteTrack
-├── egomotion.py              ← Optical flow ego-motion
-├── context.py                ← Scene-adaptive thresholds
-├── quality.py                ← Perception quality monitor
-├── llm.py                    ← LLM narration/enrichment/chat
-├── redact.py                 ← PII redaction (blur + hash)
-├── edge_publisher.py         ← HMAC-signed edge→cloud delivery
-├── cloud_receiver.py         ← Cloud ingest with dedup
-├── feedback_routes.py        ← Operator feedback API
-├── drift.py                  ← Drift monitor + active learning
-├── slack_notify.py           ← Tiered Slack alerting
-├── digest.py                 ← Hourly/daily digest schedulers
-├── llm_obs.py                ← LLM cost/latency observability
-├── audit.py                  ← Compliance audit trail
-├── retention.py              ← GDPR data retention sweeps
-├── road.py                  ← Multi-vehicle registry + scoring
-├── agents.py                 ← AI coaching/investigation/report
-├── eval.py                   ← Evaluation harness
-├── eval_enrich.py            ← Evaluation enrichment utilities
-├── analyze.py                ← Offline batch analysis
-├── requirements.txt          ← Python dependencies
+road-safety/
+├── pyproject.toml            ← Project metadata + dependencies
+├── Dockerfile                ← Production container
+├── docker-compose.yml        ← Compose stack
+├── Makefile                  ← Dev workflow shortcuts
+├── start.py                  ← One-command launcher
 ├── .env.example              ← Environment variable template
+├── road_safety/              ← Installable Python package
+│   ├── __init__.py
+│   ├── config.py             ← Centralized configuration
+│   ├── server.py             ← Main FastAPI orchestrator
+│   ├── logging.py            ← Structured logging config
+│   ├── core/
+│   │   ├── stream.py         ← Video stream reader
+│   │   ├── detection.py      ← YOLOv8 + ByteTrack
+│   │   ├── egomotion.py      ← Optical flow ego-motion
+│   │   ├── context.py        ← Scene-adaptive thresholds
+│   │   └── quality.py        ← Perception quality monitor
+│   ├── services/
+│   │   ├── llm.py            ← LLM narration/enrichment/chat
+│   │   ├── llm_obs.py        ← LLM cost/latency observability
+│   │   ├── agents.py         ← AI coaching/investigation/report
+│   │   ├── registry.py       ← Multi-vehicle registry + scoring
+│   │   ├── drift.py          ← Drift monitor + active learning
+│   │   ├── redact.py         ← PII redaction (blur + hash)
+│   │   ├── digest.py         ← Hourly/daily digest schedulers
+│   │   └── test_runner.py    ← Background test runner
+│   ├── api/
+│   │   └── feedback.py       ← Operator feedback API
+│   ├── integrations/
+│   │   ├── slack.py          ← Tiered Slack alerting
+│   │   └── edge_publisher.py ← HMAC-signed edge→cloud delivery
+│   └── compliance/
+│       ├── audit.py          ← Compliance audit trail
+│       └── retention.py      ← GDPR data retention sweeps
+├── cloud/
+│   └── receiver.py           ← Cloud ingest with dedup
+├── tools/
+│   ├── analyze.py            ← Offline batch analysis
+│   ├── eval_detect.py        ← Detection evaluation harness
+│   └── eval_enrich.py        ← LLM enrichment evaluation
+├── tests/                    ← pytest suite (119 tests)
 ├── static/
-│   └── index.html            ← Operator dashboard UI
+│   ├── index.html            ← Operator dashboard UI
+│   └── admin.html            ← Admin video + detection UI
 ├── data/
-│   ├── thumbnails/           ← Event thumbnails (internal + public)
-│   ├── active_learning/
-│   │   └── pending/          ← Active learning samples (JSON)
 │   ├── corpus/               ← RAG knowledge base (markdown)
-│   │   ├── road_policy.md
-│   │   ├── following_distance.md
-│   │   └── pedestrian_right_of_way.md
-│   ├── test_suite/           ← Evaluation test clips + manifests
-│   ├── feedback.jsonl        ← Operator feedback log
-│   ├── outbound_queue.jsonl  ← Edge→cloud pending queue
-│   └── audit.jsonl           ← Compliance audit trail
+│   └── test_suite/           ← Evaluation test clips + manifests
 └── docs/
-    ├── architecture.md       ← System architecture overview
-    ├── challenges.md         ← Industry challenges + solutions
+    ├── architecture.md
+    ├── challenges.md
     └── requirements/
-        ├── Road_Safety_BRD.md     ← This BRD
-        ├── Road_Safety_TRD.md     ← Technical requirements
-        └── Road_Safety_Implementation.md  ← This document
 ```
 
 ---
@@ -183,7 +189,7 @@ road-safety-demo/
 
 ### Prerequisites
 - Python 3.10+ installed
-- Dependencies from `requirements.txt` installed
+- Dependencies from `pyproject.toml` installed (`pip install -e ".[dev]"`)
 - YOLOv8n weights auto-downloaded by Ultralytics on first run
 
 ### Deliverables
@@ -197,7 +203,7 @@ road-safety-demo/
 | 5 | `quality.py` | CREATE | Perception quality monitor (luminance, sharpness, confidence) | §6.3 step 5 |
 | 6 | `server.py` | CREATE | FastAPI orchestrator: episode management, event emission, SSE, REST APIs | §6.3 steps 6-10 |
 | 7 | `static/index.html` | CREATE | Operator dashboard with SSE event stream | §11.1 |
-| 8 | `requirements.txt` | CREATE | Python dependencies with versions | §3.3 |
+| 8 | `pyproject.toml` | CREATE | Python project metadata + dependencies | §3.3 |
 
 ### Implementation Details
 
@@ -325,7 +331,7 @@ road-safety-demo/
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
 | 1 | `edge_publisher.py` | CREATE | HMAC-signed batched event delivery | §10.3, §8.5 |
-| 2 | `cloud_receiver.py` | CREATE | Cloud ingest with HMAC verification and dedup | §6.1 cloud |
+| 2 | `cloud/receiver.py` | CREATE | Cloud ingest with HMAC verification and dedup | §6.1 cloud |
 
 ### Implementation Details
 
@@ -337,7 +343,7 @@ road-safety-demo/
 - Exponential backoff on failure (1s → 2s → 4s → 8s → 16s → 32s max)
 - Survives network outages — queue drains on reconnect
 
-**cloud_receiver.py:**
+**cloud/receiver.py:**
 - Separate FastAPI app on port 8001
 - Verifies HMAC signature on each batch
 - Deduplicates on `event_id` (set-based)
@@ -363,12 +369,12 @@ road-safety-demo/
 
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
-| 1 | `feedback_routes.py` | CREATE | Operator feedback API (tp/fp verdicts) | §9.1 feedback |
+| 1 | `road_safety/api/feedback.py` | CREATE | Operator feedback API (tp/fp verdicts) | §9.1 feedback |
 | 2 | `drift.py` | CREATE | Rolling precision, trend detection, active learning sampler | §13.2, §14 |
 
 ### Implementation Details
 
-**feedback_routes.py:**
+**road_safety/api/feedback.py:**
 - POST `/feedback` — accepts `{event_id, verdict, note}`
 - Appends to `data/feedback.jsonl`
 - Updates drift monitor with new verdict
@@ -405,12 +411,12 @@ road-safety-demo/
 
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
-| 1 | `slack_notify.py` | CREATE | Tiered Slack alerting | §13.3 |
+| 1 | `road_safety/integrations/slack.py` | CREATE | Tiered Slack alerting | §13.3 |
 | 2 | `digest.py` | CREATE | Hourly/daily summary schedulers | §13.3 |
 
 ### Implementation Details
 
-**slack_notify.py:**
+**road_safety/integrations/slack.py:**
 - Tiered delivery:
   - High risk: instant Slack notification
   - Medium risk: batched in hourly digest
@@ -535,12 +541,12 @@ road-safety-demo/
 
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
-| 1 | `road.py` | CREATE | Multi-vehicle registry, driver scoring, road aggregation | §7.5 |
+| 1 | `road_safety/services/registry.py` | CREATE | Multi-vehicle registry, driver scoring, road aggregation | §7.5 |
 | 2 | `server.py` | EXTEND | Road identity on events; road API endpoints | §9.1 road |
 
 ### Implementation Details
 
-**road.py — RoadRegistry:**
+**road_safety/services/registry.py — RoadRegistry:**
 - In-memory dict of `VehicleState` keyed by `vehicle_id`
 - `record_event(event)` → increments counters, applies score penalty
 - `record_feedback(event_id, verdict)` → updates tp/fp counts
@@ -664,21 +670,21 @@ Report:
 
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
-| 1 | `eval.py` | CREATE | Precision/recall evaluation, suite runner, comparison | §14 |
+| 1 | `tools/eval_detect.py` | CREATE | Precision/recall evaluation, suite runner, comparison | §14 |
 | 2 | `eval_enrich.py` | CREATE | Evaluation enrichment utilities | §14 |
 | 3 | `data/test_suite/` | CREATE | Test clip manifests and ground truth | §14.5 |
 
 ### Implementation Details
 
-**eval.py — Modes:**
+**tools/eval_detect.py — Modes:**
 
 | Mode | Command | Output |
 |---|---|---|
-| Single clip | `python eval.py --video clip.mp4 --truth truth.json` | P/R/F1 per risk + per type |
-| Suite | `python eval.py --suite data/test_suite/manifest.json` | Markdown report, regression flag (>3% drop) |
-| Compare | `python eval.py --compare run_a.json run_b.json` | Delta table with highlighted regressions |
+| Single clip | `python tools/eval_detect.py` | P/R/F1 per risk + per type |
+| Suite | `python tools/eval_detect.py --suite` | Markdown report, regression flag (>3% drop) |
+| Compare | `python tools/eval_detect.py --compare run_a.json run_b.json` | Delta table with highlighted regressions |
 
-**eval.py — Metrics:**
+**tools/eval_detect.py — Metrics:**
 - Precision = TP / (TP + FP)
 - Recall = TP / (TP + FN)
 - F1 = 2 * P * R / (P + R)
@@ -733,7 +739,7 @@ print(f"[module_name] descriptive message")
 - [x] Python syntax valid for all modules (verified via `ast.parse`)
 - [x] No missing imports or circular dependencies
 - [x] `.env.example` documents all environment variables
-- [x] `requirements.txt` includes all dependencies with version ranges
+- [x] `pyproject.toml` includes all dependencies with version ranges
 - [x] PII isolation verified (redact.py blur, plate hash, DSAR gating)
 - [x] Audit trail covers all sensitive operations
 - [x] Retention sweep deletes expired data
@@ -749,7 +755,7 @@ print(f"[module_name] descriptive message")
 # 1. Clone and install
 git clone <repo>
 cd road-safety-demo
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
 # 2. Configure environment
 cp .env.example .env
@@ -759,7 +765,7 @@ cp .env.example .env
 uvicorn server:app --host 0.0.0.0 --port 8000
 
 # 4. (Optional) Start cloud receiver
-uvicorn cloud_receiver:app --host 0.0.0.0 --port 8001
+uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 
 # 5. Open dashboard
 # Navigate to http://localhost:8000

@@ -1,15 +1,15 @@
 """Cloud receiver.
 
-This is **deliberately a separate FastAPI app** from ``server.py``. In a real
+This is **deliberately a separate FastAPI app** from the main server. In a real
 deployment the edge node and the cloud receiver run on different hosts with
 different trust boundaries, scaling profiles, and secrets. Keeping them in one
 process would obscure the edge/cloud split the design is meant to demonstrate.
 
 Run it standalone:
 
-    uvicorn cloud_receiver:app --port 8001
+    uvicorn cloud.receiver:app --port 8001
 
-It verifies HMAC-signed webhooks from ``edge_publisher.EdgePublisher``, dedupes
+It verifies HMAC-signed webhooks from ``EdgePublisher``, dedupes
 by ``event_id``, and persists to a local SQLite file at ``data/cloud.db``.
 
 The receiver fails loudly at startup if ``ROAD_CLOUD_HMAC_SECRET`` is missing:

@@ -6,11 +6,11 @@ copies carry metadata risk). This module enforces configurable retention
 windows and runs as a periodic background task.
 
 Retention windows (env-configurable):
-  RETENTION_THUMBNAILS_DAYS   — delete thumbnails older than N days (default 30)
-  RETENTION_FEEDBACK_DAYS     — trim feedback.jsonl entries older than N days (default 90)
-  RETENTION_AL_PENDING_DAYS   — delete stale active-learning samples (default 60)
-  RETENTION_OUTBOUND_DAYS     — trim outbound_queue.jsonl (default 7)
-  RETENTION_INTERVAL_SEC      — how often the sweep runs (default 3600 = hourly)
+  ROAD_RETENTION_THUMBNAILS_DAYS  — delete thumbnails older than N days (default 30)
+  ROAD_RETENTION_FEEDBACK_DAYS    — trim feedback.jsonl entries older than N days (default 90)
+  ROAD_RETENTION_AL_PENDING_DAYS  — delete stale active-learning samples (default 60)
+  ROAD_RETENTION_OUTBOUND_DAYS    — trim outbound_queue.jsonl (default 7)
+  ROAD_RETENTION_INTERVAL_SEC     — how often the sweep runs (default 3600 = hourly)
 
 Design: never raises, never blocks the main loop, logs what it removes.
 """
@@ -27,11 +27,11 @@ from pathlib import Path
 
 logger = logging.getLogger("retention")
 
-THUMBNAILS_DAYS = int(os.getenv("RETENTION_THUMBNAILS_DAYS", "30"))
-FEEDBACK_DAYS = int(os.getenv("RETENTION_FEEDBACK_DAYS", "90"))
-AL_PENDING_DAYS = int(os.getenv("RETENTION_AL_PENDING_DAYS", "60"))
-OUTBOUND_DAYS = int(os.getenv("RETENTION_OUTBOUND_DAYS", "7"))
-INTERVAL_SEC = int(os.getenv("RETENTION_INTERVAL_SEC", "3600"))
+THUMBNAILS_DAYS = int(os.getenv("ROAD_RETENTION_THUMBNAILS_DAYS", "30"))
+FEEDBACK_DAYS = int(os.getenv("ROAD_RETENTION_FEEDBACK_DAYS", "90"))
+AL_PENDING_DAYS = int(os.getenv("ROAD_RETENTION_AL_PENDING_DAYS", "60"))
+OUTBOUND_DAYS = int(os.getenv("ROAD_RETENTION_OUTBOUND_DAYS", "7"))
+INTERVAL_SEC = int(os.getenv("ROAD_RETENTION_INTERVAL_SEC", "3600"))
 
 from road_safety.config import DATA_DIR
 

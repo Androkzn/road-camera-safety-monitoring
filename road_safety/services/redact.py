@@ -104,7 +104,7 @@ def write_thumbnails(
     internal copy. This ordering matters — never annotate a frame and then
     try to redact, because the annotation labels can contain PII too.
     """
-    from detection import draw_thumbnail  # avoid circular at import time
+    from road_safety.core.detection import draw_thumbnail
 
     draw_thumbnail(frame, primary, secondary, internal_path)
 

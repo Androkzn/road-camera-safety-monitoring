@@ -1,8 +1,8 @@
 # Road-safety test suite
 
 Regression corpus for the dashcam event detector. Each clip is a short video
-plus a hand-labelled JSON of the events it should produce. `eval.py --suite`
-runs `analyze.py` against every clip and scores precision / recall / F1 split
+plus a hand-labelled JSON of the events it should produce. `tools/eval_detect.py --suite`
+runs `tools/analyze.py` against every clip and scores precision / recall / F1 split
 by risk band and event type.
 
 ## Layout
@@ -17,7 +17,7 @@ data/test_suite/
 │   ├── pedestrian_crossing_day.labels.json
 │   ├── tailgate_highway_dusk.mp4
 │   └── tailgate_highway_dusk.labels.json
-└── results.json              (written by eval.py --suite)
+└── results.json              (written by eval_detect.py --suite)
 ```
 
 ## Adding a clip
@@ -41,7 +41,7 @@ Each label file is a JSON array of objects:
 | field           | type                                    | required | notes                                                               |
 |-----------------|-----------------------------------------|----------|---------------------------------------------------------------------|
 | `timestamp_sec` | float                                   | yes      | Seconds from start of clip.                                          |
-| `event_type`    | string                                  | yes      | Must match an `event_type` emitted by `analyze.py` (e.g. `pedestrian_proximity`). |
+| `event_type`    | string                                  | yes      | Must match an `event_type` emitted by `tools/analyze.py` (e.g. `pedestrian_proximity`). |
 | `risk_level`    | `"high"` / `"medium"` / `"low"`         | no       | If omitted, matcher treats risk as a wildcard (backwards compat).    |
 | `tolerance_sec` | float                                   | no       | Per-label match window. Defaults to 1.5s.                            |
 
@@ -57,9 +57,9 @@ Example:
 ## Running the suite
 
 ```bash
-python eval.py --suite
+python tools/eval_detect.py --suite
 # or with an alternate manifest
-python eval.py --suite --manifest path/to/manifest.json
+python tools/eval_detect.py --suite --manifest path/to/manifest.json
 ```
 
 This prints a markdown matrix (one row per clip) and writes a full JSON
@@ -72,8 +72,8 @@ Freeze a `baseline.json` (a known-good `results.json`) alongside the suite.
 In CI, run:
 
 ```bash
-python eval.py --suite
-python eval.py --compare baseline.json data/test_suite/results.json
+python tools/eval_detect.py --suite
+python tools/eval_detect.py --compare baseline.json data/test_suite/results.json
 ```
 
 `--compare` exits non-zero if any metric (`macro.{P,R,F1}`, per-clip overall,

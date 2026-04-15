@@ -1,6 +1,6 @@
 """Operator feedback API — thumbs-up / thumbs-down verdicts per event.
 
-Mounted from server.py via ``feedback_routes.mount(app)``. Writes are
+Mounted from server.py via ``feedback.mount(app)``. Writes are
 append-only JSON-lines to ``data/feedback.jsonl`` — downstream drift-monitoring
 jobs can tail that file.
 
@@ -42,7 +42,8 @@ async def _safe_hook(hook: FeedbackHook, record: dict, matched: dict | None) -> 
     try:
         await hook(record, matched)
     except Exception as exc:
-        print(f"[feedback] hook failed: {exc}")
+        import logging
+        logging.getLogger(__name__).warning("feedback hook failed: %s", exc)
 
 
 def _append_feedback(record: dict) -> None:

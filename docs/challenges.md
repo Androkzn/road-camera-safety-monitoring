@@ -16,11 +16,11 @@ Industry data: even state-of-the-art systems generate enough false alerts that i
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Scene-adaptive thresholds** | `context.py` | Classifies the scene as urban / highway / parking / unknown from rolling detection density + ego-speed proxy. Highway raises TTC thresholds (2.8s high vs 1.5s default) because 65 mph needs more reaction time. Parking tightens them (0.8s high) because close proximity at 3 mph is normal. |
-| **Episode model with peak-severity** | `server.py` | Per-pair dedup: a (track_id_A, track_id_B) interaction opens an episode, accumulates across frames, and emits only once at the peak severity. Eliminates N-per-second spam from the same pair at 2 fps. |
-| **Per-pair cooldown** | `server.py` | After an episode emits, the pair enters an 8-second cooldown. Same pair reappearing immediately (e.g. traffic light cycle) does not re-fire. |
-| **Perception-quality gating** | `quality.py` | When the camera is degraded (low light, blur, overexposure), thresholds tighten conservatively and low-confidence events are suppressed rather than generating noisy alerts. |
-| **Operator feedback loop** | `feedback_routes.py`, `drift.py` | Operators can mark events as true positive or false positive. Drift monitor tracks rolling precision and alerts on degradation. |
+| **Scene-adaptive thresholds** | `road_safety/core/context.py` | Classifies the scene as urban / highway / parking / unknown from rolling detection density + ego-speed proxy. Highway raises TTC thresholds (2.8s high vs 1.5s default) because 65 mph needs more reaction time. Parking tightens them (0.8s high) because close proximity at 3 mph is normal. |
+| **Episode model with peak-severity** | `road_safety/server.py` | Per-pair dedup: a (track_id_A, track_id_B) interaction opens an episode, accumulates across frames, and emits only once at the peak severity. Eliminates N-per-second spam from the same pair at 2 fps. |
+| **Per-pair cooldown** | `road_safety/server.py` | After an episode emits, the pair enters an 8-second cooldown. Same pair reappearing immediately (e.g. traffic light cycle) does not re-fire. |
+| **Perception-quality gating** | `road_safety/core/quality.py` | When the camera is degraded (low light, blur, overexposure), thresholds tighten conservatively and low-confidence events are suppressed rather than generating noisy alerts. |
+| **Operator feedback loop** | `road_safety/api/feedback.py`, `road_safety/services/drift.py` | Operators can mark events as true positive or false positive. Drift monitor tracks rolling precision and alerts on degradation. |
 
 **Key design principle:** same risk *semantic* ("the driver needs to react now"), different numerical thresholds per scene. A parking-lot 1.5s TTC is not the same urgency as a highway 1.5s TTC.
 
@@ -38,11 +38,11 @@ Research shows YOLOv8 large variants fail to hit 25 FPS on edge devices like Jet
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Edge-first architecture** | `edge_publisher.py`, `cloud_receiver.py` | All perception, tracking, risk classification, and PII redaction run on-device. Only typed JSON events (~2 KB) + redacted thumbnails (~8 KB) cross the wire. Bandwidth reduction: **2,000-10,000x** vs raw video. |
-| **Lightweight model** | `detection.py` | YOLOv8n (nano variant) — the smallest YOLO model, designed for edge inference. Runs comfortably at 2 fps on laptop CPU. |
-| **HMAC-signed batched delivery** | `edge_publisher.py` | Events queue locally in append-only JSONL. Batches of up to 20 events are HMAC-signed and POSTed together. Survives network outages — queue drains on reconnect with exponential backoff. |
-| **Selective LLM enrichment** | `server.py`, `llm.py` | Vision enrichment (ALPR) is skipped when perception is degraded (blurry image = wasted API call) and for low-risk events (review SLA is weekly batch, ALPR adds no value). |
-| **At-least-once delivery** | `edge_publisher.py`, `cloud_receiver.py` | Write-ahead JSONL queue on edge; `event_id` dedup on cloud. No data loss during connectivity gaps. |
+| **Edge-first architecture** | `road_safety/integrations/edge_publisher.py`, `cloud/receiver.py` | All perception, tracking, risk classification, and PII redaction run on-device. Only typed JSON events (~2 KB) + redacted thumbnails (~8 KB) cross the wire. Bandwidth reduction: **2,000-10,000x** vs raw video. |
+| **Lightweight model** | `road_safety/core/detection.py` | YOLOv8n (nano variant) — the smallest YOLO model, designed for edge inference. Runs comfortably at 2 fps on laptop CPU. |
+| **HMAC-signed batched delivery** | `road_safety/integrations/edge_publisher.py` | Events queue locally in append-only JSONL. Batches of up to 20 events are HMAC-signed and POSTed together. Survives network outages — queue drains on reconnect with exponential backoff. |
+| **Selective LLM enrichment** | `road_safety/server.py`, `road_safety/services/llm.py` | Vision enrichment (ALPR) is skipped when perception is degraded (blurry image = wasted API call) and for low-risk events (review SLA is weekly batch, ALPR adds no value). |
+| **At-least-once delivery** | `road_safety/integrations/edge_publisher.py`, `cloud/receiver.py` | Write-ahead JSONL queue on edge; `event_id` dedup on cloud. No data loss during connectivity gaps. |
 
 **Key design principle:** the edge boundary is the privacy and bandwidth boundary. Everything identifiable stays on-device; only event metadata and blurred thumbnails leave.
 
@@ -60,13 +60,13 @@ Industry data: 80% of RAG failures trace to ingestion/chunking, not the LLM itse
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Multi-provider failover** | `llm.py` | If the primary LLM provider (Anthropic or Azure OpenAI) returns an error, the completion path automatically retries through the secondary provider. Zero operator intervention needed. |
-| **Client-side rate budget** | `llm.py` (`_TokenBucket`) | A token-bucket rate limiter (3 req/min sustained) refuses LLM calls *before* they trigger 429 errors. Cheaper than handling failures and faster to recover. |
-| **Circuit breaker** | `llm.py` | Vision enrichment tracks consecutive failures. After 3 failures, the breaker opens for 60 seconds, halving API load during rate-limit storms. |
-| **Self-consistency for ALPR** | `llm.py` (`_merge_self_consistency`) | Two independent vision calls at different temperatures (0.0 and 0.3). If plate readings disagree, output is set to null + "partial" readability rather than guessing. Eliminates hallucinated plates. |
-| **Prompt injection defense** | `llm.py` | OWASP LLM01:2025 compliant: image content is marked as UNTRUSTED USER DATA. Injection patterns in vision output are detected and scrubbed. |
-| **Graceful degradation** | `llm.py`, `server.py` | No API key = templated summaries. Rate budget exhausted = skip silently. Circuit open = skip silently. The system never stops detecting events because the LLM is down. |
-| **Cost observability** | `llm_obs.py` | Every LLM call is instrumented: input/output tokens, latency, estimated USD cost, success/failure, skip reason. Exposed via `/api/llm/stats` with P50/P95 latency and error rate. |
+| **Multi-provider failover** | `road_safety/services/llm.py` | If the primary LLM provider (Anthropic or Azure OpenAI) returns an error, the completion path automatically retries through the secondary provider. Zero operator intervention needed. |
+| **Client-side rate budget** | `road_safety/services/llm.py` (`_TokenBucket`) | A token-bucket rate limiter (3 req/min sustained) refuses LLM calls *before* they trigger 429 errors. Cheaper than handling failures and faster to recover. |
+| **Circuit breaker** | `road_safety/services/llm.py` | Vision enrichment tracks consecutive failures. After 3 failures, the breaker opens for 60 seconds, halving API load during rate-limit storms. |
+| **Self-consistency for ALPR** | `road_safety/services/llm.py` (`_merge_self_consistency`) | Two independent vision calls at different temperatures (0.0 and 0.3). If plate readings disagree, output is set to null + "partial" readability rather than guessing. Eliminates hallucinated plates. |
+| **Prompt injection defense** | `road_safety/services/llm.py` | OWASP LLM01:2025 compliant: image content is marked as UNTRUSTED USER DATA. Injection patterns in vision output are detected and scrubbed. |
+| **Graceful degradation** | `road_safety/services/llm.py`, `road_safety/server.py` | No API key = templated summaries. Rate budget exhausted = skip silently. Circuit open = skip silently. The system never stops detecting events because the LLM is down. |
+| **Cost observability** | `road_safety/services/llm_obs.py` | Every LLM call is instrumented: input/output tokens, latency, estimated USD cost, success/failure, skip reason. Exposed via `/api/llm/stats` with P50/P95 latency and error rate. |
 
 **Key design principle:** the LLM is an enrichment layer, not a critical path. Detection and risk classification work with zero LLM calls. Narration and enrichment add value when available and degrade silently when not.
 
@@ -82,14 +82,14 @@ Road cameras capture faces, license plates, and location data — all classified
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Dual-thumbnail architecture** | `redact.py` | Every event produces two thumbnails: `{event_id}.jpg` (internal, unredacted, local disk only) and `{event_id}_public.jpg` (faces blurred, plates blurred, safe for egress). All external channels (Slack, SSE, cloud) receive only the public version. |
-| **Face blurring** | `redact.py` | Upper 35% of every person bounding box is Gaussian-blurred. Deliberately over-blurs — false-redact is the correct failure mode vs false-leak. |
-| **Plate blurring** | `redact.py` | Lower-middle strip (55-95% height, 15% horizontal inset) of every vehicle bounding box is blurred. |
-| **Plate text hashing** | `redact.py` (`hash_plate`) | Raw plate text from ALPR is immediately converted to a salted SHA-256 hash (`plate_{hash[:16]}`). Enables cross-event correlation ("same vehicle seen 3 times in 20 min") without storing the actual plate string anywhere. Salt is per-deployment. |
-| **DSAR-gated access** | `server.py` | Unredacted thumbnails require an `X-DSAR-Token` header. Without the token, access is denied with a 403. Denied attempts are audit-logged. |
-| **Audit trail** | `audit.py` | Every access to sensitive resources is logged: unredacted thumbnail access, feedback submissions, active-learning exports, chat queries, agent invocations. Each record includes timestamp, actor, action, resource, outcome, and IP. GDPR Art. 30 / SOC 2 ready. |
-| **Configurable data retention** | `retention.py` | Automatic hourly sweeps delete data past retention windows: thumbnails (30d), feedback (90d), active-learning samples (60d), outbound queue (7d). All configurable via environment variables. GDPR Art. 5(1)(e) compliance — data kept only as long as necessary. |
-| **PII scrub before egress** | `server.py` | `plate_text` and `plate_state` are stripped from the event payload before it enters any shared buffer (SSE, Slack, recent events). Only the `plate_hash` survives into the egress payload. |
+| **Dual-thumbnail architecture** | `road_safety/services/redact.py` | Every event produces two thumbnails: `{event_id}.jpg` (internal, unredacted, local disk only) and `{event_id}_public.jpg` (faces blurred, plates blurred, safe for egress). All external channels (Slack, SSE, cloud) receive only the public version. |
+| **Face blurring** | `road_safety/services/redact.py` | Upper 35% of every person bounding box is Gaussian-blurred. Deliberately over-blurs — false-redact is the correct failure mode vs false-leak. |
+| **Plate blurring** | `road_safety/services/redact.py` | Lower-middle strip (55-95% height, 15% horizontal inset) of every vehicle bounding box is blurred. |
+| **Plate text hashing** | `road_safety/services/redact.py` (`hash_plate`) | Raw plate text from ALPR is immediately converted to a salted SHA-256 hash (`plate_{hash[:16]}`). Enables cross-event correlation ("same vehicle seen 3 times in 20 min") without storing the actual plate string anywhere. Salt is per-deployment. |
+| **DSAR-gated access** | `road_safety/server.py` | Unredacted thumbnails require an `X-DSAR-Token` header. Without the token, access is denied with a 403. Denied attempts are audit-logged. |
+| **Audit trail** | `road_safety/compliance/audit.py` | Every access to sensitive resources is logged: unredacted thumbnail access, feedback submissions, active-learning exports, chat queries, agent invocations. Each record includes timestamp, actor, action, resource, outcome, and IP. GDPR Art. 30 / SOC 2 ready. |
+| **Configurable data retention** | `road_safety/compliance/retention.py` | Automatic hourly sweeps delete data past retention windows: thumbnails (30d), feedback (90d), active-learning samples (60d), outbound queue (7d). All configurable via environment variables. GDPR Art. 5(1)(e) compliance — data kept only as long as necessary. |
+| **PII scrub before egress** | `road_safety/server.py` | `plate_text` and `plate_state` are stripped from the event payload before it enters any shared buffer (SSE, Slack, recent events). Only the `plate_hash` survives into the egress payload. |
 
 **Key design principle:** privacy by design, not privacy by policy. Raw PII never reaches an external channel by construction — the code path makes it structurally impossible, not just procedurally discouraged.
 
@@ -107,13 +107,13 @@ Industry data: automated error classification frameworks can reduce manual revie
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Rolling precision monitoring** | `drift.py` (`DriftMonitor`) | Joins operator feedback (tp/fp verdicts) with emitted events. Computes rolling-window precision, sliced by risk level and event type. Identifies which specific event type or risk band is driving degradation. |
-| **Trend detection** | `drift.py` | Compares current window against the prior non-overlapping window. Reports "improving", "stable", or "degrading" with a +/- 5% noise band. |
-| **Slack alerts on precision drop** | `server.py`, `drift.py` | When precision drops below 70% threshold with sufficient labels, a Slack warning fires identifying the worst-performing event type. |
-| **Decision-boundary active learning** | `drift.py` (`ActiveLearningSampler`) | Events with confidence in [0.35, 0.50] are sampled at 50% probability — these are the examples the model is most uncertain about, providing the highest information-per-label for retraining. |
-| **Disputed-sample capture** | `drift.py` | When an operator marks verdict=fp, the event is always captured for relabeling. Confidently-wrong events are the second-highest-value training data after decision-boundary samples. |
-| **Label Studio / CVAT export** | `drift.py` | Pending active-learning samples are bundled into a zip with a manifest JSON, ready for direct import into standard labeling tools. Internal (unredacted) thumbnails are used for labeling fidelity. |
-| **Minimum-bucket guards** | `drift.py` | Buckets with fewer than 3 labels report "insufficient" instead of a noisy precision number. 1/1 is not 100% precision — it's one data point. |
+| **Rolling precision monitoring** | `road_safety/services/drift.py` (`DriftMonitor`) | Joins operator feedback (tp/fp verdicts) with emitted events. Computes rolling-window precision, sliced by risk level and event type. Identifies which specific event type or risk band is driving degradation. |
+| **Trend detection** | `road_safety/services/drift.py` | Compares current window against the prior non-overlapping window. Reports "improving", "stable", or "degrading" with a +/- 5% noise band. |
+| **Slack alerts on precision drop** | `road_safety/server.py`, `road_safety/services/drift.py` | When precision drops below 70% threshold with sufficient labels, a Slack warning fires identifying the worst-performing event type. |
+| **Decision-boundary active learning** | `road_safety/services/drift.py` (`ActiveLearningSampler`) | Events with confidence in [0.35, 0.50] are sampled at 50% probability — these are the examples the model is most uncertain about, providing the highest information-per-label for retraining. |
+| **Disputed-sample capture** | `road_safety/services/drift.py` | When an operator marks verdict=fp, the event is always captured for relabeling. Confidently-wrong events are the second-highest-value training data after decision-boundary samples. |
+| **Label Studio / CVAT export** | `road_safety/services/drift.py` | Pending active-learning samples are bundled into a zip with a manifest JSON, ready for direct import into standard labeling tools. Internal (unredacted) thumbnails are used for labeling fidelity. |
+| **Minimum-bucket guards** | `road_safety/services/drift.py` | Buckets with fewer than 3 labels report "insufficient" instead of a noisy precision number. 1/1 is not 100% precision — it's one data point. |
 
 **Key design principle:** the feedback loop is a first-class feature, not an afterthought. Operator verdicts flow directly into precision monitoring and training data selection.
 
@@ -131,11 +131,11 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Vehicle/road identity** | `road.py`, `server.py` | Every event carries `vehicle_id`, `road_id`, and `driver_id` from environment configuration. Events are attributable to a specific vehicle and driver from the moment they are created. |
-| **Per-vehicle state tracking** | `road.py` (`RoadRegistry`) | In-memory registry maintains per-vehicle event counts (by risk and type), safety scores, and feedback precision. |
-| **Driver safety scoring** | `road.py` | Decaying penalty model: high-risk events deduct 10 points, medium 3, low 1, from a max score of 100. Scores recover over time (0.5 points/hour decay). |
-| **Road-wide aggregation API** | `server.py` | `/api/road/summary` provides aggregate event counts, risk breakdowns, and identifies the lowest-scoring vehicle. `/api/road/drivers` ranks drivers worst-first for manager attention. |
-| **Edge/cloud split** | `edge_publisher.py`, `cloud_receiver.py` | Each vehicle runs its own edge node. Events flow to a central cloud receiver via HMAC-signed HTTPS. Cloud deduplicates on `event_id`. |
+| **Vehicle/road identity** | `road_safety/services/registry.py`, `road_safety/server.py` | Every event carries `vehicle_id`, `road_id`, and `driver_id` from environment configuration. Events are attributable to a specific vehicle and driver from the moment they are created. |
+| **Per-vehicle state tracking** | `road_safety/services/registry.py` (`RoadRegistry`) | In-memory registry maintains per-vehicle event counts (by risk and type), safety scores, and feedback precision. |
+| **Driver safety scoring** | `road_safety/services/registry.py` | Decaying penalty model: high-risk events deduct 10 points, medium 3, low 1, from a max score of 100. Scores recover over time (0.5 points/hour decay). |
+| **Road-wide aggregation API** | `road_safety/server.py` | `/api/road/summary` provides aggregate event counts, risk breakdowns, and identifies the lowest-scoring vehicle. `/api/road/drivers` ranks drivers worst-first for manager attention. |
+| **Edge/cloud split** | `road_safety/integrations/edge_publisher.py`, `cloud/receiver.py` | Each vehicle runs its own edge node. Events flow to a central cloud receiver via HMAC-signed HTTPS. Cloud deduplicates on `event_id`. |
 
 **Key design principle:** the single-vehicle demo and the multi-vehicle road use the same data model. Adding vehicles is a configuration change, not a code change.
 
@@ -151,14 +151,14 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Single-responsibility agents** | `agents.py` | Three focused agents, each with a bounded tool set: Coaching (3 tools), Investigation (5 tools), Report (5 tools). No agent has more than 5 tools — well below the overload threshold. |
-| **Structured JSON output** | `agents.py` | Each agent's system prompt specifies an exact JSON schema for the output. No prose, no markdown — structured data that downstream systems can consume programmatically. |
-| **Idempotent tool calls** | `agents.py` | Every tool is a pure function: `get_event`, `get_policy`, `get_feedback`, `get_drift_report`, `count_by_type`. Same input always produces the same output. |
-| **Hard stop condition** | `agents.py` | Maximum 5 iteration steps. If the agent hasn't produced a final answer by step 5, it returns with what it has rather than looping indefinitely. |
-| **Observability** | `llm_obs.py`, `audit.py` | Agent LLM calls are instrumented with the same cost/latency tracking as all other LLM calls. Agent invocations are audit-logged with the event_id being investigated. |
-| **Coaching agent** | `agents.py` | Given a safety event, retrieves the event details and road policy, then generates a structured coaching note: what happened, why it matters, what the driver should do differently, and the relevant policy reference. |
-| **Investigation agent** | `agents.py` | Correlates an event with recent similar events, operator feedback, and drift data to produce a root-cause hypothesis with confidence level. |
-| **Report agent** | `agents.py` | Queries event counts, feedback, and drift data across the session to produce a structured safety summary with top issues and recommendations. |
+| **Single-responsibility agents** | `road_safety/services/agents.py` | Three focused agents, each with a bounded tool set: Coaching (3 tools), Investigation (5 tools), Report (5 tools). No agent has more than 5 tools — well below the overload threshold. |
+| **Structured JSON output** | `road_safety/services/agents.py` | Each agent's system prompt specifies an exact JSON schema for the output. No prose, no markdown — structured data that downstream systems can consume programmatically. |
+| **Idempotent tool calls** | `road_safety/services/agents.py` | Every tool is a pure function: `get_event`, `get_policy`, `get_feedback`, `get_drift_report`, `count_by_type`. Same input always produces the same output. |
+| **Hard stop condition** | `road_safety/services/agents.py` | Maximum 5 iteration steps. If the agent hasn't produced a final answer by step 5, it returns with what it has rather than looping indefinitely. |
+| **Observability** | `road_safety/services/llm_obs.py`, `road_safety/compliance/audit.py` | Agent LLM calls are instrumented with the same cost/latency tracking as all other LLM calls. Agent invocations are audit-logged with the event_id being investigated. |
+| **Coaching agent** | `road_safety/services/agents.py` | Given a safety event, retrieves the event details and road policy, then generates a structured coaching note: what happened, why it matters, what the driver should do differently, and the relevant policy reference. |
+| **Investigation agent** | `road_safety/services/agents.py` | Correlates an event with recent similar events, operator feedback, and drift data to produce a root-cause hypothesis with confidence level. |
+| **Report agent** | `road_safety/services/agents.py` | Queries event counts, feedback, and drift data across the session to produce a structured safety summary with top issues and recommendations. |
 
 **Key design principle:** agents are tools for operators, not autonomous decision-makers. They gather evidence, synthesize, and recommend — the operator makes the call.
 
@@ -169,9 +169,9 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 | Challenge | Industry Pain | Our Coverage | Key Modules |
 |---|---|---|---|
 | False positives | Alert fatigue, driver distrust | Scene-adaptive thresholds, episode dedup, quality gating, feedback loop | `context.py`, `quality.py`, `drift.py` |
-| Edge/cloud bandwidth | 1 GB/day/camera, cellular costs | 2,000-10,000x reduction, edge-first processing, batched delivery | `edge_publisher.py`, `cloud_receiver.py` |
+| Edge/cloud bandwidth | 1 GB/day/camera, cellular costs | 2,000-10,000x reduction, edge-first processing, batched delivery | `edge_publisher.py`, `cloud/receiver.py` |
 | LLM reliability | Rate limits, hallucination, cost | Multi-provider failover, circuit breaker, self-consistency, rate budget | `llm.py`, `llm_obs.py` |
 | Privacy compliance | GDPR fines >70M EUR, PII exposure | Dual thumbnails, plate hashing, DSAR gating, audit trail, auto-retention | `redact.py`, `audit.py`, `retention.py` |
-| Model drift | Silent precision degradation | Rolling precision, trend detection, active learning, disputed sampling | `drift.py`, `feedback_routes.py` |
-| Road scaling | Single-camera to 1.5M vehicles | Vehicle/road identity, driver scoring, road-wide aggregation | `road.py` |
+| Model drift | Silent precision degradation | Rolling precision, trend detection, active learning, disputed sampling | `drift.py`, `feedback.py` |
+| Road scaling | Single-camera to 1.5M vehicles | Vehicle/road identity, driver scoring, road-wide aggregation | `registry.py` |
 | Agent orchestration | 60% pilot failure rate | Bounded tools, structured output, hard stops, observability | `agents.py` |

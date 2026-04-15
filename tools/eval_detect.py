@@ -3,19 +3,19 @@ Road-safety evaluation harness.
 
 Three modes:
   1. Single-clip (backwards compatible):
-        python eval.py
+        python tools/eval_detect.py
      Reads data/events.json + data/labels.json, prints/writes the legacy
      {tp,fp,fn,precision,recall,f1} JSON report (shape preserved for
      downstream consumers).
 
   2. Suite:
-        python eval.py --suite [--manifest data/test_suite/manifest.json]
-     Runs analyze.py as a subprocess against each clip in the manifest,
+        python tools/eval_detect.py --suite [--manifest data/test_suite/manifest.json]
+     Runs tools/analyze.py as a subprocess against each clip in the manifest,
      evaluates against its labels, prints a markdown matrix, and writes a
      full JSON report to data/test_suite/results.json.
 
   3. Compare two suite reports:
-        python eval.py --compare <baseline.json> <current.json>
+        python tools/eval_detect.py --compare <baseline.json> <current.json>
      Diffs per-clip and macro metrics; flags regressions > 3%.
 
 Label schema (per entry):
@@ -301,7 +301,7 @@ def _run_analyze(video_path: Path) -> tuple[float, int | None, float | None, str
     """
     started = time.time()
     proc = subprocess.run(
-        [sys.executable, str(ROOT / "analyze.py"), str(video_path)],
+        [sys.executable, str(ROOT / "tools" / "analyze.py"), str(video_path)],
         capture_output=True,
         text=True,
         cwd=str(ROOT),

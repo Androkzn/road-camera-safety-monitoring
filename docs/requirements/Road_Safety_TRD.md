@@ -227,14 +227,14 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 ### 5.3 Relevant Existing Files/Modules
 
-- **Detection:** `detection.py` (YOLOv8 + ByteTrack)
-- **Stream:** `stream.py` (multi-protocol video reader)
-- **Server:** `server.py` (FastAPI orchestrator)
-- **LLM:** `llm.py` (Anthropic + Azure with failover)
-- **Privacy:** `redact.py` (face/plate blur, plate hash)
-- **Drift:** `drift.py` (precision monitor + active learning)
-- **Agents:** `agents.py` (coaching, investigation, report)
-- **Road:** `road.py` (vehicle registry + driver scoring)
+- **Detection:** `road_safety/core/detection.py` (YOLOv8 + ByteTrack)
+- **Stream:** `road_safety/core/stream.py` (multi-protocol video reader)
+- **Server:** `road_safety/server.py` (FastAPI orchestrator)
+- **LLM:** `road_safety/services/llm.py` (Anthropic + Azure with failover)
+- **Privacy:** `road_safety/services/redact.py` (face/plate blur, plate hash)
+- **Drift:** `road_safety/services/drift.py` (precision monitor + active learning)
+- **Agents:** `road_safety/services/agents.py` (coaching, investigation, report)
+- **Road:** `road_safety/services/registry.py` (vehicle registry + driver scoring)
 
 ---
 
@@ -251,7 +251,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 │     │                       redact.py                                           │
 │     │                       llm.py ──→ Anthropic / Azure (failover)             │
 │     │                       agents.py                                           │
-│     │                       road.py                                            │
+│     │                       registry.py                                        │
 │     │                       llm_obs.py                                          │
 │     │                       audit.py                                            │
 │     │                       retention.py                                        │
@@ -261,7 +261,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
                                     │
                                     ▼ HMAC-signed HTTPS
 ┌──────────────── Cloud Receiver ────────────────────┐
-│  cloud_receiver.py (port 8001)                     │
+│  cloud/receiver.py (port 8001)                      │
 │  - HMAC verification                               │
 │  - event_id dedup                                   │
 │  - SQLite persistence                               │
@@ -277,9 +277,9 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | **Server** (`server.py`) | Event lifecycle (episodes, emission, dedup), API routing | LLM logic, detection logic |
 | **LLM layer** (`llm.py`, `agents.py`) | Narration, enrichment, chat, agent orchestration | Detection, risk classification, event emission |
 | **Privacy layer** (`redact.py`, `audit.py`, `retention.py`) | PII redaction, audit logging, data expiry | Event semantics, risk classification |
-| **Road layer** (`road.py`) | Vehicle/driver state, scoring, aggregation | Event detection, LLM calls |
+| **Road layer** (`registry.py`) | Vehicle/driver state, scoring, aggregation | Event detection, LLM calls |
 | **Observability** (`llm_obs.py`, `drift.py`) | Metrics collection, drift detection | Any mutation of events or state |
-| **Edge/Cloud** (`edge_publisher.py`, `cloud_receiver.py`) | Event transport, integrity verification | Event semantics, modification |
+| **Edge/Cloud** (`edge_publisher.py`, `cloud/receiver.py`) | Event transport, integrity verification | Event semantics, modification |
 
 ### 6.3 Data Flow
 
@@ -293,7 +293,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 8. **PII redaction:** `redact.py` creates dual thumbnails (internal + public)
 9. **LLM enrichment:** `llm.py` narrates event and optionally runs ALPR
 10. **Event emission:** SSE to dashboard, Slack alert, edge publish, road registry update
-11. **Feedback ingestion:** `feedback_routes.py` receives operator verdicts
+11. **Feedback ingestion:** `road_safety/api/feedback.py` receives operator verdicts
 12. **Drift update:** `drift.py` recomputes rolling precision
 13. **Active learning:** `drift.py` selects informative samples for relabeling
 14. **Agent invocation:** `agents.py` runs tool-calling loop on operator request
@@ -312,7 +312,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | Feedback | Operator verdict on an event | `data/feedback.jsonl` |
 | ActiveLearningSample | High-value sample selected for relabeling | `data/active_learning/pending/*.json` |
 | AuditRecord | Log entry for sensitive data access | `data/audit.jsonl` |
-| VehicleState | Per-vehicle event counters, safety score | `road.py` (in-memory registry) |
+| VehicleState | Per-vehicle event counters, safety score | `registry.py` (in-memory registry) |
 | LLMRecord | Single LLM API call metrics | `llm_obs.py` (in-memory ring buffer) |
 | DriftReport | Rolling precision and trend data | `drift.py` (in-memory state) |
 
@@ -423,7 +423,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | Events in COOLDOWN never re-trigger for same pair | `server.py` cooldown timer (8s) | Same pair reappearing < 8s → suppressed |
 | Public thumbnail never contains unblurred faces/plates | `redact.py` blur pipeline | `_public.jpg` file always has blur applied to person/vehicle regions |
 | Plate text never appears in egress payload | `server.py` PII scrub | `plate_text` and `plate_state` stripped before SSE/Slack/cloud |
-| Safety score never exceeds 100 or drops below 0 | `road.py` clamping | Score clamped to [0, 100] after penalty/decay |
+| Safety score never exceeds 100 or drops below 0 | `registry.py` clamping | Score clamped to [0, 100] after penalty/decay |
 | Agent tool loop never exceeds 5 iterations | `agents.py` hard stop | Counter check per iteration |
 | LLM rate bucket never allows > 3 req/min sustained | `llm.py` TokenBucket | Refusal before API call when bucket empty |
 
@@ -678,7 +678,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | Stream connected/disconnected | `stream.py` | URL, resolution, timestamp |
 | Event emitted | `server.py` | event_id, event_type, risk_level |
 | LLM call (success/failure/skip) | `llm.py`, `llm_obs.py` | model, tokens, latency, error |
-| Feedback received | `feedback_routes.py` | event_id, verdict |
+| Feedback received | `feedback.py` | event_id, verdict |
 | Drift alert | `drift.py` | precision, worst_type, window_size |
 | Agent invocation | `agents.py` | agent_type, event_id, steps, duration |
 | Audit event | `audit.py` | action, resource, actor, outcome, ip |
@@ -726,10 +726,10 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 | Component | Coverage | Tool |
 |---|---|---|
-| TTC computation | Correct TTC from bbox growth rates | `eval.py` |
-| Distance estimation | Correct distance from focal-length model | `eval.py` |
-| Scene classification | Correct scene from detection density + ego speed | `eval.py` |
-| Risk classification | Correct risk level from TTC + scene thresholds | `eval.py` |
+| TTC computation | Correct TTC from bbox growth rates | `tools/eval_detect.py` |
+| Distance estimation | Correct distance from focal-length model | `tools/eval_detect.py` |
+| Scene classification | Correct scene from detection density + ego speed | `tools/eval_detect.py` |
+| Risk classification | Correct risk level from TTC + scene thresholds | `tools/eval_detect.py` |
 | Plate hashing | Deterministic hash; salt changes hash | manual test |
 | Episode dedup | Same pair emits once; different pairs emit independently | manual test |
 
@@ -742,7 +742,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | Event → Edge Publish → Cloud Receive | HMAC signing, transmission, dedup |
 | Feedback → Drift → Active Learning | Feedback verdict flows to precision and sampling |
 
-### 14.3 Evaluation Harness (`eval.py`)
+### 14.3 Evaluation Harness (`tools/eval_detect.py`)
 
 | Mode | What It Does |
 |---|---|
@@ -766,7 +766,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 - **Test clips:** Stored in `data/test_suite/` with manifest JSON
 - **Ground truth:** JSON files with labeled events per clip
-- **Environment:** Local Python 3.10+ with `requirements.txt` dependencies
+- **Environment:** Local Python 3.10+ with `pyproject.toml` dependencies (`pip install -e ".[dev]"`)
 
 ---
 

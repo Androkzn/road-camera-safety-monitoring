@@ -34,7 +34,7 @@ redacted thumbnails cross the wire, signed with HMAC.
                                              |
 +-------------------------------- CLOUD ---------------------------------+
 |                                            v                          |
-|                    cloud_receiver (FastAPI, uvicorn :8001)            |
+|                    cloud/receiver.py (FastAPI, uvicorn :8001)         |
 |                      POST /ingest/events  (verify HMAC, dedup)        |
 |                              |                                        |
 |                              v                                        |
@@ -83,7 +83,7 @@ The edge publisher writes every event to an append-only JSONL queue
 unreachable, items simply stay in the file; the flush loop retries with
 exponential backoff. On reconnect it drains in FIFO order. This gives
 **at-least-once** delivery; `event_id` is the idempotency key and the cloud
-side dedupes on it (see `INSERT OR IGNORE` in `cloud_receiver.py`).
+side dedupes on it (see `INSERT OR IGNORE` in `cloud/receiver.py`).
 
 ## Failure modes
 
@@ -105,7 +105,7 @@ side dedupes on it (see `INSERT OR IGNORE` in `cloud_receiver.py`).
   it opens the breaker for 60s to let rate limits recover.
 - **Client-side rate budget:** a token-bucket limiter (3 req/min) refuses LLM
   calls *before* they 429, cheaper than absorbing failures.
-- **Cost observability:** `llm_obs.py` tracks per-call token counts, latency
+- **Cost observability:** `road_safety/services/llm_obs.py` tracks per-call token counts, latency
   percentiles, and estimated USD cost. Exposed via `/api/llm/stats`.
 
 ## AI Agent Orchestration
@@ -123,9 +123,9 @@ Max iteration cap (5 steps) prevents runaway loops.
 
 ## Data Retention & Compliance
 
-- **retention.py** runs hourly sweeps: thumbnails (30d), feedback (90d),
+- **`road_safety/compliance/retention.py`** runs hourly sweeps: thumbnails (30d), feedback (90d),
   active-learning samples (60d), outbound queue (7d). All configurable via env.
-- **audit.py** logs every access to sensitive resources (unredacted thumbnails,
+- **`road_safety/compliance/audit.py`** logs every access to sensitive resources (unredacted thumbnails,
   feedback submissions, AL exports, agent invocations, chat queries) with
   timestamp, actor, action, resource, and outcome.
 - **DSAR workflow:** unredacted thumbnails require `X-DSAR-Token` header; denied
@@ -134,7 +134,7 @@ Max iteration cap (5 steps) prevents runaway loops.
 ## Multi-Vehicle Road Model
 
 - Each event carries `vehicle_id`, `road_id`, `driver_id` from env config.
-- `road.py` maintains an in-memory registry with per-vehicle event counts,
+- `road_safety/services/registry.py` maintains an in-memory registry with per-vehicle event counts,
   safety scores (decaying penalty model), and driver leaderboard.
 - `/api/road/summary` provides road-wide aggregation; `/api/road/drivers`
   ranks drivers by safety score (worst-first for manager attention).

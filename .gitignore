@@ -25,6 +25,8 @@ data/cloud.db
 data/feedback.jsonl
 data/outbound_queue.jsonl
 data/active_learning/pending/
+data/test_suite/results.json
+.test-report.json
 
 # Input video (too large for git)
 data/*.mp4

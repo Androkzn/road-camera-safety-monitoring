@@ -9,7 +9,7 @@ Model-agnostic LLM layer (Anthropic + Azure OpenAI failover), event metadata as 
 ## Quick start
 
 ```bash
-git clone <repo-url> && cd road-safety
+git clone <repo-url> && cd <repo-name>
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env          # configure ROAD_STREAM_SOURCE + API keys
