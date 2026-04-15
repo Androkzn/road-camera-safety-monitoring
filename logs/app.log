@@ -49,3 +49,37 @@ dist/assets/index-BTBD_lwW.js   267.82 kB │ gzip: 85.17 kB
 {"ts":"2026-04-15T20:28:24.263348+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
 {"ts":"2026-04-15T20:28:24.763702+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
 {"ts":"2026-04-15T20:28:29.313551+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:30:50.822195+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:31:12.076399+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:32:40.904887+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:32:53.134452+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:33:29.600793+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:33:29.669715+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:33:35.067306+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+[slack] high-risk event evt_1776285208976_0030 downgraded to medium digest: confidence 0.52 < min 0.55
+{"ts":"2026-04-15T20:36:38.696401+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:36:44.113915+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:38:02.761009+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 429 Too Many Requests\""}
+{"ts":"2026-04-15T20:38:02.762091+00:00","level":"INFO","logger":"anthropic._base_client","msg":"Retrying request to /v1/messages in 12.000000 seconds"}
+{"ts":"2026-04-15T20:38:03.076534+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:38:03.102755+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:38:16.128109+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:38:39.743224+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:38:44.288270+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 429 Too Many Requests\""}
+{"ts":"2026-04-15T20:38:44.288874+00:00","level":"INFO","logger":"anthropic._base_client","msg":"Retrying request to /v1/messages in 7.000000 seconds"}
+{"ts":"2026-04-15T20:38:51.517007+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 429 Too Many Requests\""}
+{"ts":"2026-04-15T20:38:51.517447+00:00","level":"INFO","logger":"anthropic._base_client","msg":"Retrying request to /v1/messages in 11.000000 seconds"}
+{"ts":"2026-04-15T20:39:03.404482+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:39:37.440054+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:39:42.736472+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:39:47.095260+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 429 Too Many Requests\""}
+{"ts":"2026-04-15T20:39:47.095962+00:00","level":"INFO","logger":"anthropic._base_client","msg":"Retrying request to /v1/messages in 4.000000 seconds"}
+{"ts":"2026-04-15T20:39:51.287832+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 429 Too Many Requests\""}
+{"ts":"2026-04-15T20:39:51.289850+00:00","level":"INFO","logger":"anthropic._base_client","msg":"Retrying request to /v1/messages in 12.000000 seconds"}
+{"ts":"2026-04-15T20:40:03.496745+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 429 Too Many Requests\""}
+{"ts":"2026-04-15T20:40:19.282431+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:43:17.412310+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:43:17.495511+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:43:27.954052+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:44:00.856175+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"ts":"2026-04-15T20:45:49.565017+00:00","level":"INFO","logger":"httpx","msg":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}

@@ -85,7 +85,7 @@ from road_safety.api.feedback import mount as mount_feedback_routes
 from road_safety.compliance import audit
 from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
 from road_safety.services.test_runner import run_state as test_run_state, start_test_run
-from road_safety.services.watchdog import Watchdog, tail as watchdog_tail, stats as watchdog_stats
+from road_safety.services.watchdog import Watchdog, tail as watchdog_tail, stats as watchdog_stats, delete_findings as watchdog_delete, delete_findings_by_id as watchdog_delete_by_id
 from road_safety.security import require_bearer_token
 
 
@@ -1404,6 +1404,26 @@ def watchdog_summary():
 def watchdog_recent(n: int = 50):
     """Most recent watchdog findings for investigation."""
     return watchdog_tail(min(n, 200))
+
+
+@app.delete("/api/watchdog/findings")
+def watchdog_delete_findings(clear_all: bool = False):
+    """Delete specific findings by composite key or clear all."""
+    if clear_all:
+        removed = watchdog_delete(indices=None)
+        return {"deleted": removed}
+    return {"deleted": 0}
+
+
+@app.post("/api/watchdog/findings/delete")
+async def watchdog_delete_selected(request: Request):
+    """Delete selected findings by snapshot_id + ts composite keys."""
+    body = await request.json()
+    keys: list[str] = body.get("keys", [])
+    if not keys:
+        return {"deleted": 0}
+    removed = watchdog_delete_by_id(keys)
+    return {"deleted": removed}
 
 
 @app.get("/admin")

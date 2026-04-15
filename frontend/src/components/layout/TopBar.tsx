@@ -45,6 +45,9 @@ export function TopBar({ sourceName = "—", connected, children }: TopBarProps)
         <Link to="/dashboard" className={pathname === "/dashboard" ? styles.active : ""}>
           Dashboard
         </Link>
+        <Link to="/monitoring" className={pathname === "/monitoring" ? styles.active : ""}>
+          Monitoring
+        </Link>
       </nav>
       <span className={styles.spacer} />
       <Pill>

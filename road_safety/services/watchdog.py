@@ -75,6 +75,58 @@ def tail(n: int = _MAX_TAIL) -> list[dict]:
     return out
 
 
+def delete_findings(indices: list[int] | None = None) -> int:
+    """Delete findings by line index (0-based) or all if indices is None.
+
+    Returns the number of deleted findings.
+    """
+    if not _WATCHDOG_PATH.exists():
+        return 0
+    with _lock:
+        try:
+            lines = _WATCHDOG_PATH.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return 0
+        if indices is None:
+            count = len(lines)
+            _WATCHDOG_PATH.write_text("", encoding="utf-8")
+            return count
+        to_remove = set(indices)
+        kept = [line for i, line in enumerate(lines) if i not in to_remove]
+        removed = len(lines) - len(kept)
+        _WATCHDOG_PATH.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        return removed
+
+
+def delete_findings_by_id(snapshot_ids: list[str]) -> int:
+    """Delete findings matching any of the given snapshot_id+ts combos."""
+    if not _WATCHDOG_PATH.exists():
+        return 0
+    ids_set = set(snapshot_ids)
+    with _lock:
+        try:
+            lines = _WATCHDOG_PATH.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return 0
+        kept: list[str] = []
+        removed = 0
+        for line in lines:
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+                key = f"{obj.get('snapshot_id', '')}_{obj.get('ts', '')}"
+                if key in ids_set:
+                    removed += 1
+                    continue
+            except json.JSONDecodeError:
+                pass
+            kept.append(line)
+        _WATCHDOG_PATH.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        return removed
+
+
 def stats() -> dict:
     """Summary counts for the dashboard."""
     records = tail(500)

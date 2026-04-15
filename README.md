@@ -12,11 +12,13 @@ This is a **building block** for fleet safety platforms, not a complete commerci
 
 ## Screenshots
 
-![Admin Panel](docs/screenshots/admin.png)
+![Admin Panel – live detections](docs/screenshots/admin.png)
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Dashboard – fleet overview](docs/screenshots/dashboard.png)
 
-![Test Suite](docs/screenshots/tests.png)
+![Error Monitoring – AI watchdog findings](docs/screenshots/monitoring.png)
+
+![Test Suite – runtime health checks](docs/screenshots/tests.png)
 
 ---
 

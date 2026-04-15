@@ -47,4 +47,16 @@ export const api = {
 
   getWatchdogStatus: () => fetchJson<WatchdogStatus>("/api/watchdog"),
   getWatchdogRecent: (n = 50) => fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`),
+
+  deleteWatchdogFindings: (keys: string[]) =>
+    fetchJson<{ deleted: number }>("/api/watchdog/findings/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keys }),
+    }),
+
+  clearWatchdogFindings: () =>
+    fetchJson<{ deleted: number }>("/api/watchdog/findings?clear_all=true", {
+      method: "DELETE",
+    }),
 };

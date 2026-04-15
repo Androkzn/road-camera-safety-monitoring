@@ -18,5 +18,15 @@ export function useWatchdog() {
     refreshFindings();
   };
 
-  return { status, findings, refresh };
+  const deleteFindings = async (keys: string[]) => {
+    await api.deleteWatchdogFindings(keys);
+    refresh();
+  };
+
+  const clearAll = async () => {
+    await api.clearWatchdogFindings();
+    refresh();
+  };
+
+  return { status, findings, refresh, deleteFindings, clearAll };
 }
