@@ -8,6 +8,8 @@ a RAG-backed copilot endpoint over a tiny statute/policy corpus.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import threading
 import time
@@ -26,8 +28,10 @@ setup_logging()
 log = get_logger(__name__)
 
 from road_safety.config import (
+    ALPR_MODE,
     DATA_DIR,
     DEFAULT_STREAM_SOURCE as DEFAULT_SOURCE,
+    ADMIN_TOKEN,
     DSAR_TOKEN,
     DRIVER_ID,
     EPISODE_IDLE_FLUSH_SEC,
@@ -36,9 +40,12 @@ from road_safety.config import (
     MAX_RECENT_EVENTS,
     MODEL_PATH,
     PAIR_COOLDOWN_SEC,
+    PUBLIC_THUMBS_REQUIRE_TOKEN,
+    SCORE_DECAY_INTERVAL_SEC,
     SSE_REPLAY_COUNT,
     STATIC_DIR,
     TARGET_FPS,
+    THUMB_SIGNING_SECRET,
     THUMBS_DIR,
     VEHICLE_ID,
 )
@@ -76,6 +83,7 @@ from road_safety.api.feedback import mount as mount_feedback_routes
 from road_safety.compliance import audit
 from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
 from road_safety.services.test_runner import run_state as test_run_state, start_test_run
+from road_safety.security import require_bearer_token
 
 
 # Sustained-risk requirements for episode emission. A single high-risk frame
@@ -206,6 +214,15 @@ class LiveState:
 
 
 state = LiveState()
+
+
+def _require_admin(request: Request, realm: str = "admin") -> None:
+    require_bearer_token(
+        request,
+        ADMIN_TOKEN,
+        realm=realm,
+        env_var="ROAD_ADMIN_TOKEN",
+    )
 
 
 async def _none_coro():
@@ -349,7 +366,16 @@ def _on_frame(wall_ts: float, frame) -> None:
     # Scene context: classify urban / highway / parking from rolling detection
     # density + ego speed. Thresholds adapt per scene so 65mph highway doesn't
     # reuse city-street numbers.
-    speed_proxy = ego_flow.speed_proxy_mps if ego_flow is not None else None
+    # Only feed the speed proxy in when ego-flow confidence is high enough
+    # that the median flow is reliable. Below this band (rain, wipers, low
+    # texture, pure rotation) we let the classifier fall back to detection-
+    # density rules rather than driving adaptive thresholds off a noisy
+    # speed estimate — that's how "highway" mistakenly fires in parking lots
+    # with reflective floors.
+    if ego_flow is not None and ego_flow.confidence >= 0.4:
+        speed_proxy = ego_flow.speed_proxy_mps
+    else:
+        speed_proxy = None
     state.scene.observe(detections, wall_ts, speed_proxy_mps=speed_proxy)
     scene_ctx = state.scene.classify()
     state.last_scene_ctx = scene_ctx
@@ -772,8 +798,10 @@ async def _on_feedback(record: dict, matched: dict | None) -> None:
         "submit_feedback", record.get("event_id", "unknown"),
         detail={"verdict": record.get("verdict"), "note": record.get("note")},
     )
+    vehicle_id = matched.get("vehicle_id") if isinstance(matched, dict) else None
     road_registry.record_feedback(
         record.get("event_id", ""), record.get("verdict", ""),
+        vehicle_id,
     )
     if record.get("verdict") == "fp" and matched is not None:
         try:
@@ -967,10 +995,11 @@ def api_drift():
 
 
 @app.post("/api/active_learning/export")
-def api_active_learning_export():
+def api_active_learning_export(request: Request):
     """Bundle pending active-learning samples into a zip for Label Studio /
     CVAT import. Returns the zip path (on-disk; operator downloads it
     out-of-band) or 204 when the pool is empty."""
+    _require_admin(request, "active-learning export")
     audit.log("export_active_learning", "batch_export")
     try:
         path = state.active_learner.export_batch()
@@ -1021,14 +1050,16 @@ def event(event_id: str):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/llm/stats")
-def llm_stats(window_sec: float | None = None):
+def llm_stats(request: Request, window_sec: float | None = None):
     """Aggregated LLM usage: cost, latency percentiles, error/skip rates."""
+    _require_admin(request, "LLM observability")
     return llm_observer.stats(window_sec)
 
 
 @app.get("/api/llm/recent")
-def llm_recent(limit: int = 50):
+def llm_recent(request: Request, limit: int = 50):
     """Raw recent LLM call records for debugging."""
+    _require_admin(request, "LLM observability")
     return {"items": llm_observer.recent(min(limit, 200))}
 
 
@@ -1037,13 +1068,15 @@ def llm_recent(limit: int = 50):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/audit")
-def api_audit(limit: int = 100):
+def api_audit(request: Request, limit: int = 100):
     """Tail of the audit log for compliance review."""
+    _require_admin(request, "audit log")
     return {"items": audit.tail(min(limit, 500))}
 
 
 @app.get("/api/audit/stats")
-def api_audit_stats():
+def api_audit_stats(request: Request):
+    _require_admin(request, "audit log")
     return audit.stats()
 
 
@@ -1052,8 +1085,9 @@ def api_audit_stats():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/retention/sweep")
-def api_retention_sweep():
+def api_retention_sweep(request: Request):
     """Trigger an immediate retention sweep (normally runs hourly)."""
+    _require_admin(request, "retention control")
     audit.log("retention_sweep", "manual_trigger")
     return retention_sweep()
 
@@ -1063,13 +1097,15 @@ def api_retention_sweep():
 # ---------------------------------------------------------------------------
 
 @app.get("/api/road/summary")
-def api_road_summary():
+def api_road_summary(request: Request):
     """System-wide aggregation: all vehicles, scores, event counts."""
+    _require_admin(request, "road summary")
     return road_registry.road_summary()
 
 
 @app.get("/api/road/vehicle/{vehicle_id}")
-def api_road_vehicle(vehicle_id: str):
+def api_road_vehicle(request: Request, vehicle_id: str):
+    _require_admin(request, "road vehicle detail")
     v = road_registry.get_vehicle(vehicle_id)
     if v is None:
         raise HTTPException(404, "vehicle not found")
@@ -1077,8 +1113,9 @@ def api_road_vehicle(vehicle_id: str):
 
 
 @app.get("/api/road/drivers")
-def api_road_drivers(limit: int = 20):
+def api_road_drivers(request: Request, limit: int = 20):
     """Driver safety leaderboard (worst-first)."""
+    _require_admin(request, "driver leaderboard")
     return {"drivers": road_registry.driver_leaderboard(min(limit, 100))}
 
 
@@ -1087,8 +1124,9 @@ def api_road_drivers(limit: int = 20):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/agents/coaching")
-async def api_agent_coaching(body: dict):
+async def api_agent_coaching(request: Request, body: dict):
     """Generate an AI coaching note for a specific event."""
+    _require_admin(request, "agent coaching")
     event_id = (body.get("event_id") or "").strip()
     if not event_id:
         raise HTTPException(400, "missing 'event_id'")
@@ -1100,8 +1138,9 @@ async def api_agent_coaching(body: dict):
 
 
 @app.post("/api/agents/investigation")
-async def api_agent_investigation(body: dict):
+async def api_agent_investigation(request: Request, body: dict):
     """Run an AI investigation on a specific event."""
+    _require_admin(request, "agent investigation")
     event_id = (body.get("event_id") or "").strip()
     if not event_id:
         raise HTTPException(400, "missing 'event_id'")
@@ -1113,8 +1152,9 @@ async def api_agent_investigation(body: dict):
 
 
 @app.post("/api/agents/report")
-async def api_agent_report():
+async def api_agent_report(request: Request):
     """Generate an AI safety summary report."""
+    _require_admin(request, "agent report")
     if state.agent_executor is None:
         raise HTTPException(503, "agent executor not ready")
     audit.log("agent_report", "session_report")

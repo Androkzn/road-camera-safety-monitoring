@@ -73,6 +73,15 @@ class DriftReport:
     window_end_ts: str
     alert_triggered: bool
     trend: str  # "improving" | "stable" | "degrading"
+    # Feedback coverage: what fraction of recent events received any operator
+    # verdict at all. Low coverage means the precision number above is from a
+    # biased sample — operators label the alerts that bothered them and ignore
+    # the rest. A precision of 0.9 from 10% coverage is not the same signal as
+    # 0.9 from 60% coverage. Consumers should surface both numbers, not just
+    # precision.
+    feedback_coverage: float = 0.0
+    labeled_events: int = 0
+    total_events_in_window: int = 0
 
     def as_dict(self) -> dict:
         """FastAPI-friendly JSON-serialisable representation."""
@@ -87,6 +96,9 @@ class DriftReport:
             "window_end_ts": self.window_end_ts,
             "alert_triggered": self.alert_triggered,
             "trend": self.trend,
+            "feedback_coverage": self.feedback_coverage,
+            "labeled_events": self.labeled_events,
+            "total_events_in_window": self.total_events_in_window,
         }
 
 
@@ -292,6 +304,23 @@ class DriftMonitor:
             alert = (tp + fp) >= MIN_BUCKET_LABELS and precision < self.alert_threshold
             trend = self._trend(precision, feedback)
 
+            # Feedback coverage: compare labeled events against total events
+            # in the same window. Guards against the "high precision from
+            # biased sample" trap — if operators only label 5% of events,
+            # the 95% they ignore could be silently drifting and precision
+            # wouldn't move.
+            labeled_ids = {fb.get("event_id") for fb in window if fb.get("event_id")}
+            all_events = list(events_index.values())
+            total_in_window = len(all_events)
+            if total_in_window > 0:
+                labeled_in_window = sum(
+                    1 for e in all_events if e.get("event_id") in labeled_ids
+                )
+                coverage = round(labeled_in_window / total_in_window, 4)
+            else:
+                labeled_in_window = 0
+                coverage = 0.0
+
             return DriftReport(
                 window_size=tp + fp,
                 true_positives=tp,
@@ -303,6 +332,9 @@ class DriftMonitor:
                 window_end_ts=window_end,
                 alert_triggered=alert,
                 trend=trend,
+                feedback_coverage=coverage,
+                labeled_events=labeled_in_window,
+                total_events_in_window=total_in_window,
             )
         except Exception:
             # Hard belt-and-braces: this runs behind a dashboard endpoint.

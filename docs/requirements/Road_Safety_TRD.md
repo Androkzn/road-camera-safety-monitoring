@@ -81,7 +81,7 @@ Road safety cameras generate massive video volumes that operators cannot review 
 
 After ship:
 - Operators see contextually-enriched, deduplicated safety events — not raw detection spam
-- PII never leaves the edge node unredacted (structural guarantee)
+- Shared event channels never carry raw plate text or unredacted thumbnails; any optional third-party enrichment path must be explicitly governed
 - LLM failures are invisible to operators (graceful degradation)
 - Model precision is continuously tracked with automated data curation for retraining
 - Road managers have vehicle-level and driver-level safety dashboards
@@ -585,7 +585,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 | Requirement | Implementation | Module |
 |---|---|---|
-| No PII in egress channels | `plate_text` / `plate_state` stripped before SSE/Slack/cloud | `server.py` |
+| Shared event channels exclude raw plate text | `plate_text` / `plate_state` stripped before SSE/Slack/cloud; unredacted thumbnails remain local except for optional enrichment integrations | `server.py` |
 | Face blurring | Upper 35% of person bbox Gaussian-blurred | `redact.py` |
 | Plate blurring | Lower-middle strip of vehicle bbox blurred | `redact.py` |
 | Plate text hashing | Raw text → salted SHA-256; salt per deployment | `redact.py` |

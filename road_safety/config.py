@@ -45,8 +45,16 @@ EPISODE_IDLE_FLUSH_SEC = 1.5
 
 # ── Privacy / compliance ──
 DSAR_TOKEN = os.getenv("ROAD_DSAR_TOKEN")
+ADMIN_TOKEN = os.getenv("ROAD_ADMIN_TOKEN")
 PLATE_SALT = os.getenv("ROAD_PLATE_SALT", secrets.token_hex(16))
 AUDIT_ENABLED = os.getenv("ROAD_AUDIT_LOG", "1") != "0"
+PUBLIC_THUMBS_REQUIRE_TOKEN = os.getenv("ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN", "0") == "1"
+THUMB_SIGNING_SECRET = os.getenv(
+    "ROAD_THUMB_SIGNING_SECRET",
+    os.getenv("ROAD_CLOUD_HMAC_SECRET", ""),
+)
+ALPR_MODE = os.getenv("ROAD_ALPR_MODE", "off").strip().lower()
+API_KEY = os.getenv("ROAD_API_KEY", "")
 
 # ── Vehicle identity (all required via env in production) ──
 VEHICLE_ID = os.getenv("ROAD_VEHICLE_ID", "")
@@ -69,3 +77,4 @@ CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.5"))
 # ── Server ──
 SERVER_HOST = os.getenv("ROAD_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("ROAD_PORT", "8000"))
+SCORE_DECAY_INTERVAL_SEC = int(os.getenv("ROAD_SCORE_DECAY_INTERVAL_SEC", "3600"))

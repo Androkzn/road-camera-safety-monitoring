@@ -1,14 +1,13 @@
-"""Slack notifier — Incoming Webhook + public anonymous image relay so
-screenshots render in Slack without exposing localhost.
+"""Slack notifier — Incoming Webhook with optional image relay.
 
 Configuration:
     SLACK_WEBHOOK_URL   full https://hooks.slack.com/... URL
     SLACK_MIN_RISK      "high" | "medium" | "low"  (default "high")
 
-The image relay (catbox.moe) is a third-party public host appropriate for
-non-PII content (thumbnails are face- and plate-redacted before egress).
-For deployments requiring private hosting, replace ``_upload_public_image``
-with an S3 / Azure Blob + signed URL upload.
+Image relay is now opt-in. By default high-risk alerts are text-only so the
+system does not publish screenshots to a third-party host. Deployments that
+want Slack-rendered images can explicitly enable a relay or replace
+``_upload_public_image`` with an S3 / Azure Blob + signed URL upload.
 
 Tiered alerting:
   high    -> notify_high()        fires immediately, rich Block Kit card,
@@ -38,6 +37,7 @@ _RISK_EMOJI = {"high": ":rotating_light:", "medium": ":warning:", "low": ":infor
 _SLA = {"high": "15 minutes", "medium": "24 hours", "low": "weekly batch"}
 
 _IMAGE_HOST = "https://catbox.moe/user/api.php"
+_IMAGE_RELAY_ENABLED = os.getenv("SLACK_ENABLE_IMAGE_RELAY", "0").lower() in ("1", "true", "yes", "on")
 
 # High-risk Slack quality gate. The immediate Slack alert fires only when
 # the underlying episode has sustained evidence: minimum duration, minimum
@@ -175,7 +175,14 @@ def _build_blocks(event: dict, image_url: str | None) -> list:
             {
                 "type": "context",
                 "elements": [
-                    {"type": "mrkdwn", "text": "_screenshot unavailable (image relay failed)_"}
+                    {
+                        "type": "mrkdwn",
+                        "text": (
+                            "_screenshot omitted (image relay disabled)_"
+                            if not _IMAGE_RELAY_ENABLED
+                            else "_screenshot unavailable (image relay failed)_"
+                        ),
+                    }
                 ],
             }
         )
@@ -195,7 +202,7 @@ async def notify_high(event: dict, thumb_path: Path) -> None:
     image_url: str | None = None
     try:
         async with httpx.AsyncClient() as client:
-            if thumb_path and thumb_path.exists():
+            if _IMAGE_RELAY_ENABLED and thumb_path and thumb_path.exists():
                 image_url = await _upload_public_image(client, thumb_path)
 
             payload = {
@@ -376,5 +383,5 @@ async def notify_event(event: dict, thumb_path: Path) -> None:
 print(
     f"[slack] configured: {slack_configured()}  "
     f"min_risk: {_MIN_RISK}  "
-    f"image_relay: {_IMAGE_HOST}"
+    f"image_relay: {'enabled' if _IMAGE_RELAY_ENABLED else 'disabled'}"
 )

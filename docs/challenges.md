@@ -1,6 +1,10 @@
 # Industry Challenges & How We Address Them
 
-This document maps the **major pain points** in production dashcam safety AI systems to the concrete solutions implemented in this project. Each section identifies the industry challenge, explains why it matters, and points to the specific modules and design decisions that address it.
+This document maps the parts of the fleet safety problem space this project **explicitly targets** to the concrete engineering decisions behind them. It also lists — at the end — the parts of the space this project does **not** address, because an honest scope is more useful to a reviewer than a generous one.
+
+**What this project is**: a forward-facing road-conflict detection component (vehicle↔vehicle and vehicle↔pedestrian near-miss detection) with production-grade false-positive suppression, privacy-by-construction redaction, LLM enrichment resilience, and a drift / active-learning feedback loop. It is designed to be a building block inside a larger fleet platform (DMS + telematics + coaching + insurance).
+
+**What this project is not**: a complete commercial fleet-safety product. See [§8 Out of scope](#8-out-of-scope-deliberately) for what would need to be built or integrated to make it one.
 
 ---
 
@@ -85,16 +89,19 @@ Road cameras capture faces, license plates, and location data — all classified
 
 | Solution | Module | Mechanism |
 |---|---|---|
-| **Dual-thumbnail architecture** | `road_safety/services/redact.py` | Every event produces two thumbnails: `{event_id}.jpg` (internal, unredacted, local disk only) and `{event_id}_public.jpg` (faces blurred, plates blurred, safe for egress). All external channels (Slack, SSE, cloud) receive only the public version. |
+| **Dual-thumbnail architecture** | `road_safety/services/redact.py` | Every event produces two thumbnails: `{event_id}.jpg` (internal, unredacted, local disk only) and `{event_id}_public.jpg` (faces blurred, plates blurred, safe for shared channels). SSE, Slack, and cloud payloads use only the public version. The internal copy stays local unless optional external vision enrichment is enabled. |
 | **Face blurring** | `road_safety/services/redact.py` | Upper 35% of every person bounding box is Gaussian-blurred. Deliberately over-blurs — false-redact is the correct failure mode vs false-leak. |
 | **Plate blurring** | `road_safety/services/redact.py` | Lower-middle strip (55-95% height, 15% horizontal inset) of every vehicle bounding box is blurred. |
 | **Plate text hashing** | `road_safety/services/redact.py` (`hash_plate`) | Raw plate text from ALPR is immediately converted to a salted SHA-256 hash (`plate_{hash[:16]}`). Enables cross-event correlation ("same vehicle seen 3 times in 20 min") without storing the actual plate string anywhere. Salt is per-deployment. |
 | **DSAR-gated access** | `road_safety/server.py` | Unredacted thumbnails require an `X-DSAR-Token` header. Without the token, access is denied with a 403. Denied attempts are audit-logged. |
 | **Audit trail** | `road_safety/compliance/audit.py` | Every access to sensitive resources is logged: unredacted thumbnail access, feedback submissions, active-learning exports, chat queries, agent invocations. Each record includes timestamp, actor, action, resource, outcome, and IP. GDPR Art. 30 / SOC 2 ready. |
 | **Configurable data retention** | `road_safety/compliance/retention.py` | Automatic hourly sweeps delete data past retention windows: thumbnails (30d), feedback (90d), active-learning samples (60d), outbound queue (7d). All configurable via environment variables. GDPR Art. 5(1)(e) compliance — data kept only as long as necessary. |
-| **PII scrub before egress** | `road_safety/server.py` | `plate_text` and `plate_state` are stripped from the event payload before it enters any shared buffer (SSE, Slack, recent events). Only the `plate_hash` survives into the egress payload. |
+| **PII scrub at LLM boundary (structural)** | `road_safety/services/llm.py` (`_hash_and_strip_plate`) | `enrich_event()` hashes the plate string and **removes** `plate_text` / `plate_state` from the returned dict before it ever reaches a shared buffer. A future caller that forgets to scrub at egress cannot leak, because the raw plate was never in the event object to begin with. `server.py` keeps a defence-in-depth `pop()` as a second line. |
+| **Optional external vision enrichment disclosure** | `road_safety/server.py` | If the Anthropic vision pass is enabled, the internal thumbnail is sent to Anthropic for ALPR. This is an explicit processor integration — not zero-external-PII — and can be disabled for stricter deployments by unsetting `ANTHROPIC_API_KEY`. |
 
-**Key design principle:** privacy by design, not privacy by policy. Raw PII never reaches an external channel by construction — the code path makes it structurally impossible, not just procedurally discouraged.
+**Key design principle:** shared channels stay redacted by default, and the raw plate never enters any in-memory event buffer. Privacy is enforced at ingest, not at egress — the code path makes a leak structurally impossible, not just procedurally discouraged.
+
+**Jurisdictional note:** this redaction + retention implementation is calibrated for GDPR and CCPA. A DMS extension (driver-facing camera) would fall under **BIPA** in Illinois and would require an additional consent-capture module before being production-safe. See the *Note on Privacy Jurisdiction* below.
 
 ---
 
@@ -117,8 +124,9 @@ Over 70% of organizations report experiencing substantial data drift within the 
 | **Disputed-sample capture** | `road_safety/services/drift.py` | When an operator marks verdict=fp, the event is always captured for relabeling. Confidently-wrong events are the second-highest-value training data after decision-boundary samples. |
 | **Label Studio / CVAT export** | `road_safety/services/drift.py` | Pending active-learning samples are bundled into a zip with a manifest JSON, ready for direct import into standard labeling tools. Internal (unredacted) thumbnails are used for labeling fidelity. |
 | **Minimum-bucket guards** | `road_safety/services/drift.py` | Buckets with fewer than 3 labels report "insufficient" instead of a noisy precision number. 1/1 is not 100% precision — it's one data point. |
+| **Feedback-coverage metric (selection-bias guard)** | `road_safety/services/drift.py` (`DriftReport.feedback_coverage`) | Operator feedback is inherently biased — operators label alerts that bothered them, not a uniform sample. A precision of 0.9 from 5% coverage is a weaker signal than 0.9 from 60% coverage. The drift report surfaces `feedback_coverage`, `labeled_events`, and `total_events_in_window` so dashboards and alert logic can weight precision by how representative the sample is. |
 
-**Key design principle:** the feedback loop is a first-class feature, not an afterthought. Operator verdicts flow directly into precision monitoring and training data selection.
+**Key design principle:** the feedback loop is a first-class feature, not an afterthought. Operator verdicts flow directly into precision monitoring and training data selection, but the system reports coverage honestly so a high-precision-from-thin-sample result doesn't masquerade as health.
 
 ---
 
@@ -144,11 +152,13 @@ The video telematics market reached ~6 million active units in North America alo
 
 ---
 
-## 7. AI Agent Orchestration
+## 7. Operator-Assist Agents (capability, not a top industry pain)
 
-### The Challenge
+### Framing
 
-Enterprise AI agent projects have high failure rates — recent industry analyses report 40-85% of agentic AI pilots stall before reaching production. Key failure drivers include orchestration complexity (IBM reports it as the #1 failure driver), context management failures, and tool overload where agents burdened with large tool catalogs hallucinate parameters. Agent reliability drops significantly beyond 1,000 interactions, and pilot costs (~$10K/month) can scale to $2M+/year at production.
+Agent orchestration is **not** currently among the top operational complaints fleet safety managers raise. That list is dominated by alert fatigue, driver coaching workflow, and insurance/claim evidence — see §8 for the items this project doesn't yet address. Agents are included here as a **forward-looking capability**, not because fleets lose sleep over pilot failure rates today.
+
+The engineering challenge this section *does* address is narrower and real: when agents are included, they fail when given too many tools, unbounded step budgets, or unstructured output contracts. The patterns below avoid those failure modes so the agents already in this codebase degrade safely and stay cheap.
 
 ### How We Address It
 
@@ -167,14 +177,44 @@ Enterprise AI agent projects have high failure rates — recent industry analyse
 
 ---
 
+## 8. Out of Scope (deliberately)
+
+A commercial fleet safety product sold by Netradyne, Lytx, Motive, Samsara, Geotab or Verizon Connect does substantially more than this project. Calling these out explicitly is more useful than implying coverage.
+
+| Area | Why fleets care | What's missing here | How we'd extend |
+|---|---|---|---|
+| **In-cab Driver Monitoring (DMS)** — drowsiness, distraction, phone use, seatbelt | Consistently marketed as the single biggest crash-prevention lever; 80% reductions in distracted-driving incidents are attributed to DMS, not to forward-facing cameras | No inward camera path; no face/gaze/eye-closure model; no phone-in-hand detector | A second pipeline on a driver-facing camera using a face-landmark model (MediaPipe FaceMesh or similar) for EAR-based drowsiness + gaze off-road + phone-object overlap. Paired with a **Driver Privacy Mode** toggle for off-duty periods (BIPA / Samsara-precedent concern). |
+| **Insurance / FNOL workflow** — clip evidence, exoneration, carrier integration | Claim-handling cost is the commercial driver for most fleet camera purchases; insurers increasingly demand structured FNOL records | `road_safety/integrations/fnol.py` shapes the payload but nothing ships it; MP4 clip export is not wired up — only JPG thumbnails | Add a rolling pre/post-roll MP4 buffer on the edge, H.264-encode on event flush, include in the FNOL payload's `clip_url`. Add a "submit to insurer" operator action that POSTs to a configurable carrier endpoint. |
+| **Telematics fusion** — GPS, IMU, CAN-bus, harsh-brake, tailgating-in-seconds | Most commercial signals (harsh-brake rate, driver score composition, insurance discounts) come from IMU + GPS, not vision | Ego-speed is an optical-flow **proxy**; `gps`/`imu` fields on events are placeholders | Ingest NMEA + accelerometer from a USB GPS / OBD-II dongle; wire the real speed into the scene classifier, harsh-brake event type, and FNOL payload. Mark speed_source="gps" vs "optical_flow_proxy" so downstream knows. |
+| **ELD / DVIR / HOS compliance** | FMCSA-mandated for trucking; ELD integration is table stakes for commercial fleets | No integration | Add adapters for common ELD providers (Motive, Samsara, Geotab ELD APIs) so events can be joined with hours-of-service context. |
+| **Driver coaching UX + consent** | Real coaching happens in the cab and on the driver's phone, not in a web dashboard | Coaching agent emits structured JSON; no driver-facing UI, no in-cab audio/haptic feedback, no off-duty consent toggle | In-cab feedback app (phone / tablet) + consent lifecycle (enrollment, off-duty mute, data-access requests). |
+| **Multi-tenant auth / RBAC** | Real fleets have operators, safety managers, DPOs, and drivers with different data rights | Single-token DSAR; admin token recently added | JWT-based RBAC; per-tenant rate limits on the cloud receiver; per-vehicle ACLs. |
+| **Training / retraining pipeline** | Continuous improvement requires a real MLOps loop | Active-learning sampler exports labeling-ready zips but training is out of scope | Wire the exports into a labeling queue → dataset versioning → retraining → shadow-deploy → evaluation harness loop. |
+
+---
+
+## A Note on Privacy Jurisdiction
+
+§4 Privacy is framed around GDPR because it is the most restrictive widely-enforced regime and "if you pass GDPR you tend to pass the rest." In real US deployments the operative regimes are different:
+
+- **BIPA (Illinois)** — biometric data requires explicit written consent before capture; driver-facing cameras that infer facial features are directly exposed. Recent precedent (*Samsara BIPA litigation*) means any DMS extension to this project would need a consent-flow module.
+- **State-by-state recording laws** — two-party consent states (California, Florida, Washington, Illinois, …) affect in-cab audio capture; this project currently captures no audio, which is the right default.
+- **CCPA/CPRA (California)** — aligns loosely with GDPR on access / deletion but with different definitions of "sensitive personal information." The dual-thumbnail + salted-hash architecture here satisfies both regimes.
+- **CCPA/PIPEDA/UK-GDPR** — similar concepts to GDPR, same mechanisms apply.
+
+Implication: the current redaction and retention implementation is conservative enough for EU and US civilian deployments; a DMS extension would require additional consent plumbing before being production-safe in Illinois.
+
+---
+
 ## Summary Matrix
 
-| Challenge | Industry Pain | Our Coverage | Key Modules |
+| Challenge | Industry reality | Our coverage | Key modules |
 |---|---|---|---|
-| False positives | Alert fatigue, driver distrust | Scene-adaptive thresholds, episode dedup, quality gating, feedback loop | `context.py`, `quality.py`, `drift.py` |
-| Edge/cloud bandwidth | 1 GB/day/camera, cellular costs | 2,000-10,000x reduction, edge-first processing, batched delivery | `edge_publisher.py`, `cloud/receiver.py` |
-| LLM reliability | Rate limits, hallucination, cost | Multi-provider failover, circuit breaker, self-consistency, rate budget | `llm.py`, `llm_obs.py` |
-| Privacy compliance | GDPR fines >70M EUR, PII exposure | Dual thumbnails, plate hashing, DSAR gating, audit trail, auto-retention | `redact.py`, `audit.py`, `retention.py` |
-| Model drift | Silent precision degradation | Rolling precision, trend detection, active learning, disputed sampling | `drift.py`, `feedback.py` |
-| Road scaling | Single-camera to 1.5M vehicles | Vehicle/road identity, driver scoring, road-wide aggregation | `registry.py` |
-| Agent orchestration | 60% pilot failure rate | Bounded tools, structured output, hard stops, observability | `agents.py` |
+| **False positives** | Consistently the #1 operational complaint from fleet safety managers | 7-layer gating: TTC gates, ego-motion, depth, scene-adaptive, episodes, perception quality, feedback loop | `detection.py`, `context.py`, `quality.py`, `drift.py` |
+| **Edge/cloud bandwidth** | Real cost constraint: 1 GB/day/camera on cellular is unaffordable at fleet scale | 2,000-10,000x reduction, edge-first processing, batched HMAC-signed delivery | `edge_publisher.py`, `cloud/receiver.py` |
+| **LLM reliability** | Emerging — few production dashcams run LLMs today, but this is the shape when they do | Multi-provider failover, circuit breaker, self-consistency, rate budget, structural plate hashing at LLM boundary | `llm.py`, `llm_obs.py` |
+| **Privacy compliance** | EU/GDPR: mature enforcement. US/BIPA: active litigation around biometric capture | Dual thumbnails, plate hashing at ingest, DSAR gating, audit trail, auto-retention | `redact.py`, `audit.py`, `retention.py` |
+| **Model drift** | Real but under-monitored — most fleets rely on vendor-owned models | Rolling precision, trend detection, active learning, **feedback-coverage metric to guard against selection bias** | `drift.py`, `feedback.py` |
+| **Fleet scaling** | 6M+ active units in NA alone; data model must support per-vehicle identity from day one | Vehicle/road/driver identity baked in, driver scoring, road-wide aggregation | `registry.py` |
+| **Operator-assist agents** | Forward-looking capability, not a top operational pain today | Bounded tools (≤5), structured JSON output, 5-step hard stops, observability | `agents.py` |
+| **DMS, FNOL, telematics, ELD, coaching UX** | Dominant commercial value in real fleet products | Out of scope — see §8 for the extension paths | — |

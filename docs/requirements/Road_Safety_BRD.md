@@ -34,7 +34,7 @@
   - High-risk event recall ≥ 80%
   - LLM enrichment skip rate < 30% under normal conditions
   - Bandwidth reduction ≥ 2,000x vs raw video
-  - Zero PII leakage to external channels (structural guarantee)
+  - No raw plate text or unredacted thumbnails in shared event channels; any external enrichment path must be explicitly enabled and governed
   - Operator feedback velocity ≥ 5 verdicts/hour during active review
 
 ### 1.2 Scope & Dependencies
@@ -120,7 +120,7 @@
 | **Reliability** | Edge node survives network outages (local queue, at-least-once delivery) |
 | **Security** | HMAC-SHA256 signed payloads for edge→cloud; TLS for confidentiality |
 | **Security** | OWASP LLM01:2025 — image content treated as untrusted user data |
-| **Privacy** | No PII in egress channels (SSE, Slack, cloud) — structural guarantee |
+| **Privacy** | Shared event channels (SSE, Slack, cloud) exclude raw plate text and unredacted thumbnails; optional third-party enrichment must be separately governed |
 | **Privacy** | Plate text retained only as salted SHA-256 hash |
 | **Privacy** | Unredacted thumbnails gated by DSAR token |
 | **Privacy** | Configurable data retention with automatic expiry |

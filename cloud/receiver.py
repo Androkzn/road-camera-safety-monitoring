@@ -31,11 +31,14 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
+from road_safety.security import require_bearer_token
+
 logger = logging.getLogger("cloud_receiver")
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.getenv("ROAD_CLOUD_DB", ROOT / "data" / "cloud.db"))
 TIMESTAMP_WINDOW_SEC = 300  # +/- 5 minutes
+CLOUD_READ_TOKEN = os.getenv("ROAD_CLOUD_READ_TOKEN")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -86,6 +89,15 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Cloud Receiver", lifespan=_lifespan)
+
+
+def _require_read_access(request: Request) -> None:
+    require_bearer_token(
+        request,
+        CLOUD_READ_TOKEN,
+        realm="cloud read",
+        env_var="ROAD_CLOUD_READ_TOKEN",
+    )
 
 
 # -------------------------------------------------------------------------------------
@@ -163,7 +175,8 @@ async def ingest_events(request: Request) -> dict[str, int]:
 
 
 @app.get("/events")
-async def list_events(limit: int = 100, risk_level: str | None = None) -> dict[str, Any]:
+async def list_events(request: Request, limit: int = 100, risk_level: str | None = None) -> dict[str, Any]:
+    _require_read_access(request)
     limit = max(1, min(limit, 500))
     q = "SELECT event_id, received_at, source, payload FROM events"
     params: list[Any] = []
@@ -192,7 +205,8 @@ async def list_events(limit: int = 100, risk_level: str | None = None) -> dict[s
 
 
 @app.get("/stats")
-async def stats() -> dict[str, Any]:
+async def stats(request: Request) -> dict[str, Any]:
+    _require_read_access(request)
     with _connect() as conn:
         total = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()["c"]
         last = conn.execute(

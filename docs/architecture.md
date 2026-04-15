@@ -63,11 +63,12 @@ thumbnails cross the wire, signed with HMAC.
 `ttc_sec`, `distance_m`, `track_ids`, `plate_hash` (SHA-256, never the plate
 string), `thumbnail_url` + `thumbnail_sha256` pointing at a redacted JPEG.
 
-**Never crosses:** raw frames, unredacted thumbnails, plate text, face crops,
-GPS tracks finer than the event summary, any audio.
+**Never crosses the edge-to-cloud event path:** raw frames, unredacted thumbnails,
+plate text, face crops, GPS tracks finer than the event summary, any audio.
 
-This means a cloud breach leaks event metadata and blurred thumbs, not
-identifiable PII.
+This means a cloud breach leaks event metadata and blurred thumbs, not the
+internal thumbnails or raw plate text. Optional third-party vision enrichment,
+if enabled, is a separate processor path and should be documented separately.
 
 ## Why HMAC and not mTLS
 

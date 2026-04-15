@@ -65,7 +65,7 @@ LLM integration in safety systems faces compounding risks: rate limiting degrade
 
 Road cameras capture faces, license plates, and location — all classified as personal data under GDPR and CCPA. GDPR enforcement has exceeded €5.8 billion in cumulative fines across 2,245+ actions since 2018, with individual penalties reaching €1.2 billion. License plates are explicitly treated as personal data by the UK ICO and EU data protection authorities because they link to identifiable vehicle owners and enable tracking profiles.
 
-**Our approach: privacy by design, not by policy. Raw PII never reaches an external channel by construction — the code path makes it structurally impossible.**
+**Our approach: minimize PII egress by default and keep shared channels redacted. Public thumbnails and shared event payloads strip raw plate text, while any deployment that enables external vision enrichment must treat that provider as a controlled processor rather than claim zero external PII exposure.**
 
 | Layer | What it does |
 |---|---|

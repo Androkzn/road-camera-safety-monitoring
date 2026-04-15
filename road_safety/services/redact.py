@@ -1,6 +1,6 @@
 """Pre-egress PII redaction.
 
-Every thumbnail that leaves the host (Slack, public image relay, outbound
+Every thumbnail that leaves the host (Slack, optional image relay, outbound
 webhook, LLM vision call to anyone other than the internal ALPR pass) must go
 through redact_for_egress() first. License plates are PII under GDPR Art. 4
 and enumerated PI under CCPA; faces are biometric PII under most regimes.

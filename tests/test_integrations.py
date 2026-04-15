@@ -17,13 +17,12 @@ from road_safety.integrations import slack
 
 class TestSlackConfigured:
     def test_not_configured_without_env(self):
-        with patch.dict("os.environ", {}, clear=True):
-            assert slack.slack_configured() is False or True
+        with patch.object(slack, "_WEBHOOK", None):
+            assert slack.slack_configured() is False
 
     def test_configured_with_env(self):
-        with patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test"}):
-            result = slack.slack_configured()
-            assert isinstance(result, bool)
+        with patch.object(slack, "_WEBHOOK", "https://hooks.slack.com/test"):
+            assert slack.slack_configured() is True
 
 
 class TestSlackNotify:
@@ -35,6 +34,40 @@ class TestSlackNotify:
                 thumb_path=None,
             )
             assert result is None or result is False or True
+
+    @pytest.mark.asyncio
+    async def test_notify_high_skips_public_image_relay_when_disabled(self, sample_event, tmp_path):
+        thumb_path = tmp_path / "thumb.jpg"
+        thumb_path.write_bytes(b"fake-jpeg")
+
+        upload_mock = AsyncMock(return_value="https://example.com/thumb.jpg")
+
+        class DummyResponse:
+            status_code = 200
+            text = "ok"
+
+        class DummyClient:
+            def __init__(self):
+                self.post = AsyncMock(return_value=DummyResponse())
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        client = DummyClient()
+
+        with patch.object(slack, "_WEBHOOK", "https://hooks.slack.com/test"), \
+             patch.object(slack, "_IMAGE_RELAY_ENABLED", False), \
+             patch.object(slack, "_upload_public_image", upload_mock), \
+             patch("road_safety.integrations.slack.httpx.AsyncClient", return_value=client):
+            await slack.notify_high(sample_event, thumb_path)
+
+        upload_mock.assert_not_awaited()
+        client.post.assert_awaited_once()
+        payload = client.post.await_args.kwargs["json"]
+        assert not any(block.get("type") == "image" for block in payload["blocks"])
 
 
 # ═══════════════════════════════════════════════════════════════════
