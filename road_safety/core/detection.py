@@ -43,13 +43,19 @@ VEHICLE_PAIR_CONF_FLOOR = 0.70
 MIN_BBOX_AREA = 1500          # default (vehicles) — a small distant car is ~40×40
 
 # Class-specific detection floors. Pedestrians are inherently smaller on-screen
-# (especially distant / elevated-camera views — Times Square test frames show
-# persons at ~0.30-0.45 confidence and ~1000-1500 px² bboxes) so applying the
-# vehicle-tuned thresholds wipes them out. Lower the bars for persons: they
-# survive their own downstream sanity checks (aspect ratio guard, episode
-# sustained-risk model, pair-TTC gates) without needing a vehicle-grade floor.
-PERSON_CONF_THRESHOLD = 0.35
-PERSON_MIN_BBOX_AREA = 600
+# (distant / elevated / dashcam views through foreground traffic — YOLOv8n
+# on a Times Square feed returns persons at 0.17-0.35 confidence and
+# 800-1500 px² bboxes). Applying vehicle-tuned thresholds wipes them out.
+# Persons have their own downstream sanity checks (aspect ratio guard, episode
+# sustained-risk model, pair-TTC gates) so a permissive detection floor does
+# not translate to a permissive alert floor.
+#
+# Trade-off: lowering PERSON_CONF_THRESHOLD below ~0.25 with YOLOv8n admits
+# occasional noise detections. Deployments that care about pedestrian recall
+# should upgrade to YOLOv8s or YOLOv8m via ROAD_MODEL_PATH — at similar
+# bbox area the larger models produce meaningfully higher person confidence.
+PERSON_CONF_THRESHOLD = 0.25
+PERSON_MIN_BBOX_AREA = 400
 from road_safety.config import (  # noqa: E402
     CAMERA_FOCAL_PX,
     CAMERA_HEIGHT_M as _CFG_CAMERA_HEIGHT_M,

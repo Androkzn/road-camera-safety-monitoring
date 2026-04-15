@@ -14,6 +14,12 @@ Production-focused **road-conflict detection** component for fleet safety pipeli
 
 ![Test Suite](docs/screenshots/tests.png)
 
+## Demo
+
+<video src="demo.mp4" width="720" controls></video>
+
+Short walkthrough (~30s) showing the Admin monitor with live YOLO detections, the Events panel with TTC-based risk alerts, and the Dashboard with drift metrics and Copilot.
+
 ---
 
 ## Challenges & How We Address Them
