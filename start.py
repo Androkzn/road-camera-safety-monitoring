@@ -22,6 +22,7 @@ import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+FRONTEND_DIR = ROOT / "frontend"
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 PYTHON = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 
