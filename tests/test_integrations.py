@@ -94,3 +94,25 @@ class TestEdgePublisher:
         assert out_path.exists()
         lines = out_path.read_text().strip().splitlines()
         assert len(lines) >= 1
+
+    def test_prepare_outbound_omits_thumb_url_without_edge_base(self, _isolate_data_dir):
+        from road_safety.integrations.edge_publisher import EdgePublisher
+
+        thumb = _isolate_data_dir / "thumb_public.jpg"
+        thumb.write_bytes(b"fake-jpeg")
+        pub = EdgePublisher(
+            endpoint_url="https://cloud.example.com/ingest",
+            shared_secret="secret",
+            edge_base_url="",
+            queue_path=_isolate_data_dir / "outbound.jsonl",
+        )
+        out = pub._prepare_outbound(
+            {
+                "event_id": "e1",
+                "event_type": "test",
+                "_thumbnail_path": str(thumb),
+            }
+        )
+        assert out["event_id"] == "e1"
+        assert "thumbnail_url" not in out
+        assert "thumbnail_sha256" not in out
