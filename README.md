@@ -10,18 +10,6 @@ This is a **building block** for fleet safety platforms, not a complete commerci
 
 ---
 
-## Screenshots
-
-![Admin Panel – live detections](docs/screenshots/admin.png)
-
-![Dashboard – fleet overview](docs/screenshots/dashboard.png)
-
-![Error Monitoring – AI watchdog findings](docs/screenshots/monitoring.png)
-
-![Test Suite – runtime health checks](docs/screenshots/tests.png)
-
----
-
 ## Challenges & How We Address Them
 
 This README focuses on the operational challenges behind fleet safety systems and the concrete engineering decisions used to address them.
