@@ -8,8 +8,8 @@
 **Status:** SHIPPED
 
 **Source Documents:**
-- **BRD:** `docs/requirements/Road_Safety_BRD.md` (v1.0)
-- **TRD:** `docs/requirements/Road_Safety_TRD.md` (v1.0)
+- **BRD:** `docs/requirements/Road_Safety_BRD.md` (v1.1)
+- **TRD:** `docs/requirements/Road_Safety_TRD.md` (v1.1)
 - **Challenges:** `docs/challenges.md`
 - **Architecture:** `docs/architecture.md`
 
@@ -138,7 +138,7 @@ road-safety/
 │   ├── analyze.py            ← Offline batch analysis
 │   ├── eval_detect.py        ← Detection evaluation harness
 │   └── eval_enrich.py        ← LLM enrichment evaluation
-├── tests/                    ← pytest suite (125 tests)
+├── tests/                    ← pytest suite (135 tests)
 ├── frontend/                 ← React/Vite dashboard source
 ├── static/
 │   ├── index.html            ← Fallback operator dashboard UI
@@ -177,12 +177,16 @@ road-safety/
 | Retention sweep interval | 3600 seconds | Retention | `ROAD_RETENTION_INTERVAL_SEC` | 3600 |
 | Vehicle ID | — | Road | `ROAD_VEHICLE_ID` | `""` |
 | Road ID | — | Road | `ROAD_ID` | `""` |
-| Driver ID | — | Road | `ROAD_DRIVER_ID` | None |
+| Driver ID | — | Road | `ROAD_DRIVER_ID` | `""` |
 | DSAR token | — | Privacy | `ROAD_DSAR_TOKEN` | None (access denied) |
+| Public thumbnail token gate | Off by default | Privacy | `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN` | 0 |
+| Public thumbnail signing secret | Inherits cloud HMAC secret when unset | Privacy | `ROAD_THUMB_SIGNING_SECRET` | `ROAD_CLOUD_HMAC_SECRET` |
 | Admin bearer token | — | Security | `ROAD_ADMIN_TOKEN` | None (protected endpoints disabled) |
 | Cloud read bearer token | — | Security | `ROAD_CLOUD_READ_TOKEN` | None (cloud reads disabled) |
 | Slack image relay | Off by default | Alerting | `SLACK_ENABLE_IMAGE_RELAY` | 0 |
 | Plate salt | — | Privacy | `ROAD_PLATE_SALT` | Random per process if unset |
+| ALPR policy mode | Off by default | LLM | `ROAD_ALPR_MODE` | `off` |
+| Score decay scheduler interval | 3600 seconds | Road | `ROAD_SCORE_DECAY_INTERVAL_SEC` | 3600 |
 | HMAC secret | — | Security | `ROAD_CLOUD_HMAC_SECRET` | None (publishing disabled) |
 | Cloud endpoint | — | Transport | `ROAD_CLOUD_ENDPOINT` | None (publishing disabled) |
 | Slack webhook | — | Alerting | `SLACK_WEBHOOK_URL` | None (alerts disabled) |
@@ -269,7 +273,7 @@ road-safety/
 - Graceful degradation: no API key → templated summary
 
 **llm.py — Vision Enrichment (ALPR):**
-- Internal thumbnail may be sent to vision model for license plate reading when enrichment is enabled
+- Internal thumbnail may be sent to vision model for license plate reading only when `ROAD_ALPR_MODE=third_party` (default is `off`)
 - Self-consistency: two calls at different temperatures (0.0 and 0.3)
 - Disagreeing reads → `plate_readable: "partial"` instead of guessing (TRD D-07)
 - Circuit breaker: 3 consecutive failures → 60s open (TRD §8.4)
@@ -318,6 +322,7 @@ road-safety/
 
 - [x] Every event produces both internal and public thumbnails
 - [x] Public thumbnails have faces and plates blurred
+- [x] Optional signed public-thumbnail mode (`ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`) enforces `exp/token` query params
 - [x] Plate text is hashed with deployment-specific salt
 - [x] Raw plate text never appears in any egress channel
 - [x] Unredacted thumbnails require DSAR token
@@ -343,7 +348,7 @@ road-safety/
 - Events queue in append-only JSONL (`data/outbound_queue.jsonl`)
 - Background task reads queue, batches up to 20 events
 - Each batch HMAC-SHA256 signed with shared secret
-- POST to cloud endpoint with `X-Signature` header
+- POST to cloud endpoint with `Signature` header
 - Exponential backoff on failure (1s → 2s → 4s → 8s → 16s → 32s max)
 - Survives network outages — queue drains on reconnect
 
@@ -564,7 +569,7 @@ road-safety/
 **server.py — Road Identity:**
 - Every emitted event carries `vehicle_id`, `road_id`, `driver_id` from env
 - `_emit_event()` calls `road_registry.record_event(event)`
-- `_on_feedback()` calls `road_registry.record_feedback(event_id, verdict)`
+- `_on_feedback()` calls `road_registry.record_feedback(event_id, verdict, vehicle_id)` using the matched event's vehicle context
 
 **Driver Safety Scoring (TRD D-10):**
 - Base score: 100 (max)

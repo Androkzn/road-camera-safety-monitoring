@@ -3,7 +3,7 @@
 **Feature:** Road Safety — Live Event Detection + LLM Copilot
 **Product:** Road Safety AI Platform (Python / FastAPI)
 **Document Type:** Business Requirements Document (BRD)
-**Version:** v1.0
+**Version:** v1.1
 **Status:** APPROVED
 **Created:** 2026-04-15
 **Last Updated:** 2026-04-15
@@ -18,6 +18,7 @@
 | v0.1 | 2026-04-01 | A. Tekhtelev | Initial draft — core detection + narration |
 | v0.5 | 2026-04-08 | A. Tekhtelev | Added edge/cloud, drift, privacy modules |
 | v1.0 | 2026-04-15 | A. Tekhtelev | Added agents, road readiness, LLM observability, retention |
+| v1.1 | 2026-04-15 | A. Tekhtelev | Documentation sync: ALPR policy gate, signed public-thumbnail option, score-decay scheduler controls |
 
 ---
 
@@ -121,7 +122,9 @@
 | **Security** | HMAC-SHA256 signed payloads for edge→cloud; TLS for confidentiality |
 | **Security** | Sensitive operational endpoints require bearer-token access control |
 | **Security** | OWASP LLM01:2025 — image content treated as untrusted user data |
+| **Security** | Optional signed public-thumbnail access (`exp/token`) when enabled by policy |
 | **Privacy** | Shared event channels (SSE, Slack, cloud) exclude raw plate text and unredacted thumbnails; optional third-party enrichment must be separately governed |
+| **Privacy** | Third-party ALPR is policy-gated (`ROAD_ALPR_MODE=third_party`) and off by default |
 | **Privacy** | Plate text retained only as salted SHA-256 hash |
 | **Privacy** | Unredacted thumbnails gated by DSAR token |
 | **Privacy** | Configurable data retention with automatic expiry |
@@ -135,8 +138,10 @@
 | Scenario | Handling |
 |---|---|
 | No LLM API key configured | Narration falls back to templated summary; chat disabled cleanly |
+| ALPR policy left at default (`ROAD_ALPR_MODE=off`) | External ALPR calls are skipped by design; narration and detection still run |
 | Stream resolution fails | Server starts without live stream; batch endpoints still functional |
 | Camera degraded (blur, low light, overexposed) | Perception quality monitor tightens thresholds, skips vision enrichment |
+| Public-thumbnail signing enabled but URL token invalid | Server denies public thumbnail request (403) and audit-logs denial |
 | LLM rate limit exhausted | Token bucket refuses calls proactively; circuit breaker opens after 3 failures |
 | Both LLM providers down | All narration/enrichment returns None; detection continues unaffected |
 | Network outage (edge→cloud) | Events queue locally; drain on reconnect with exponential backoff |

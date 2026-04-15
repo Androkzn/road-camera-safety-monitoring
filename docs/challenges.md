@@ -48,7 +48,7 @@ Real-time safety requires sub-second latency, but edge devices (in-vehicle hardw
 | **Edge-first architecture** | `road_safety/integrations/edge_publisher.py`, `cloud/receiver.py` | All perception, tracking, risk classification, and PII redaction run on-device. Only typed JSON events (~2 KB) + redacted thumbnails (~8 KB) cross the wire. Bandwidth reduction: **2,000-10,000x** vs raw video. |
 | **Lightweight model** | `road_safety/core/detection.py` | YOLOv8n (nano variant) — the smallest YOLO model, designed for edge inference. Runs comfortably at 2 fps on laptop CPU. |
 | **HMAC-signed batched delivery** | `road_safety/integrations/edge_publisher.py` | Events queue locally in append-only JSONL. Batches of up to 20 events are HMAC-signed and POSTed together. Survives network outages — queue drains on reconnect with exponential backoff. |
-| **Selective LLM enrichment** | `road_safety/server.py`, `road_safety/services/llm.py` | Vision enrichment (ALPR) is skipped when perception is degraded (blurry image = wasted API call) and for low-risk events (review SLA is weekly batch, ALPR adds no value). |
+| **Selective LLM enrichment** | `road_safety/server.py`, `road_safety/services/llm.py` | Vision enrichment (ALPR) is policy-gated (`ROAD_ALPR_MODE=third_party`) and further skipped when perception is degraded (blurry image = wasted API call) or for low-risk events (review SLA is weekly batch, ALPR adds no value). |
 | **At-least-once delivery** | `road_safety/integrations/edge_publisher.py`, `cloud/receiver.py` | Write-ahead JSONL queue on edge; `event_id` dedup on cloud. No data loss during connectivity gaps. |
 
 **Key design principle:** the edge boundary is the privacy and bandwidth boundary. Everything identifiable stays on-device; only event metadata and blurred thumbnails leave.
@@ -90,6 +90,7 @@ Road cameras capture faces, license plates, and location data — all classified
 | Solution | Module | Mechanism |
 |---|---|---|
 | **Dual-thumbnail architecture** | `road_safety/services/redact.py` | Every event produces two thumbnails: `{event_id}.jpg` (internal, unredacted, local disk only) and `{event_id}_public.jpg` (faces blurred, plates blurred, safe for shared channels). SSE, Slack, and cloud payloads use only the public version. The internal copy stays local unless optional external vision enrichment is enabled. |
+| **Optional signed public-thumbnail access** | `road_safety/server.py` | `_public` thumbnails can require short-lived HMAC query params (`exp` + `token`) when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`. Access allow/deny decisions are audit-logged. |
 | **Face blurring** | `road_safety/services/redact.py` | Upper 35% of every person bounding box is Gaussian-blurred. Deliberately over-blurs — false-redact is the correct failure mode vs false-leak. |
 | **Plate blurring** | `road_safety/services/redact.py` | Lower-middle strip (55-95% height, 15% horizontal inset) of every vehicle bounding box is blurred. |
 | **Plate text hashing** | `road_safety/services/redact.py` (`hash_plate`) | Raw plate text from ALPR is immediately converted to a salted SHA-256 hash (`plate_{hash[:16]}`). Enables cross-event correlation ("same vehicle seen 3 times in 20 min") without storing the actual plate string anywhere. Salt is per-deployment. |
@@ -144,7 +145,7 @@ The video telematics market reached ~6.1 million active units in North America i
 |---|---|---|
 | **Vehicle/road identity** | `road_safety/services/registry.py`, `road_safety/server.py` | Every event carries `vehicle_id`, `road_id`, and `driver_id` from environment configuration. Events are attributable to a specific vehicle and driver from the moment they are created. |
 | **Per-vehicle state tracking** | `road_safety/services/registry.py` (`RoadRegistry`) | In-memory registry maintains per-vehicle event counts (by risk and type), safety scores, and feedback precision. |
-| **Driver safety scoring** | `road_safety/services/registry.py` | Decaying penalty model: high-risk events deduct 10 points, medium 3, low 1, from a max score of 100. Scores recover over time (0.5 points/hour decay). |
+| **Driver safety scoring** | `road_safety/services/registry.py`, `road_safety/server.py` | Decaying penalty model: high-risk events deduct 10 points, medium 3, low 1, from a max score of 100. Recovery runs on a scheduled loop controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (0.5 points/interval by default). |
 | **Road-wide aggregation API** | `road_safety/server.py` | `/api/road/summary` provides aggregate event counts, risk breakdowns, and identifies the lowest-scoring vehicle. `/api/road/drivers` ranks drivers worst-first for manager attention. |
 | **Edge/cloud split** | `road_safety/integrations/edge_publisher.py`, `cloud/receiver.py` | Each vehicle runs its own edge node. Events flow to a central cloud receiver via HMAC-signed HTTPS. Cloud deduplicates on `event_id`. |
 

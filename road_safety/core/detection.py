@@ -38,9 +38,18 @@ from ultralytics import YOLO
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 PEDESTRIAN_CLASSES = {"person"}
 
-CONF_THRESHOLD = 0.60
+CONF_THRESHOLD = 0.60         # default (vehicles) — tuned against cars/trucks
 VEHICLE_PAIR_CONF_FLOOR = 0.70
-MIN_BBOX_AREA = 1500
+MIN_BBOX_AREA = 1500          # default (vehicles) — a small distant car is ~40×40
+
+# Class-specific detection floors. Pedestrians are inherently smaller on-screen
+# (especially distant / elevated-camera views — Times Square test frames show
+# persons at ~0.30-0.45 confidence and ~1000-1500 px² bboxes) so applying the
+# vehicle-tuned thresholds wipes them out. Lower the bars for persons: they
+# survive their own downstream sanity checks (aspect ratio guard, episode
+# sustained-risk model, pair-TTC gates) without needing a vehicle-grade floor.
+PERSON_CONF_THRESHOLD = 0.35
+PERSON_MIN_BBOX_AREA = 600
 from road_safety.config import (  # noqa: E402
     CAMERA_FOCAL_PX,
     CAMERA_HEIGHT_M as _CFG_CAMERA_HEIGHT_M,
@@ -450,11 +459,17 @@ def detect_frame(model: YOLO, frame, persistent: bool = True) -> list[Detection]
         if cls not in VEHICLE_CLASSES and cls not in PEDESTRIAN_CLASSES:
             continue
         conf = float(box.conf)
-        if conf < CONF_THRESHOLD:
+        # Class-specific confidence floor: persons are smaller + harder for
+        # YOLOv8n and legitimately score lower than vehicles.
+        conf_floor = PERSON_CONF_THRESHOLD if cls in PEDESTRIAN_CLASSES else CONF_THRESHOLD
+        if conf < conf_floor:
             continue
         x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
         w, h = x2 - x1, y2 - y1
-        if w * h < MIN_BBOX_AREA:
+        # Class-specific bbox-area floor: a distant pedestrian is legitimately
+        # smaller on-screen than the smallest car we care about.
+        area_floor = PERSON_MIN_BBOX_AREA if cls in PEDESTRIAN_CLASSES else MIN_BBOX_AREA
+        if w * h < area_floor:
             continue
         if cls == "person" and h > 0 and w / h > 0.7:
             continue

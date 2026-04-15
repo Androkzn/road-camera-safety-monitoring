@@ -61,7 +61,8 @@ thumbnails cross the wire, signed with HMAC.
 
 **Crosses:** `event_id`, `ts_start`, `ts_end`, `event_type`, `risk_level`,
 `ttc_sec`, `distance_m`, `track_ids`, `plate_hash` (SHA-256, never the plate
-string), `thumbnail_url` + `thumbnail_sha256` pointing at a redacted JPEG.
+string), and (when `ROAD_EDGE_PUBLIC_URL` is set) `thumbnail_url` +
+`thumbnail_sha256` pointing at a redacted JPEG.
 
 **Never crosses the edge-to-cloud event path:** raw frames, unredacted thumbnails,
 plate text, face crops, GPS tracks finer than the event summary, any audio.
@@ -160,6 +161,8 @@ image relay is opt-in via `SLACK_ENABLE_IMAGE_RELAY=1`.
   zero downtime as long as at least one provider is available.
 - **Circuit breaker:** vision enrichment tracks consecutive failures; after 3
   it opens the breaker for 60s to let rate limits recover.
+- **Policy gate:** external ALPR is disabled by default. `ROAD_ALPR_MODE=third_party`
+  is required before any internal thumbnail is sent to a third-party vision model.
 - **Client-side rate budget:** a token-bucket limiter (3 req/min) refuses LLM
   calls *before* they 429, cheaper than absorbing failures.
 - **Cost observability:** `road_safety/services/llm_obs.py` tracks per-call token counts, latency
@@ -188,6 +191,9 @@ Max iteration cap (5 steps) prevents runaway loops.
   timestamp, actor, action, resource, and outcome.
 - **DSAR workflow:** unredacted thumbnails require `X-DSAR-Token` header; denied
   attempts are audit-logged.
+- **Optional signed public access:** when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`,
+  `_public` thumbnails also require valid `exp`/`token` query params and are
+  audit-logged on allow/deny.
 - **Operational endpoint guard:** audit, LLM observability, retention, road summary,
   and agent endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>`.
 
@@ -196,6 +202,8 @@ Max iteration cap (5 steps) prevents runaway loops.
 - Each event carries `vehicle_id`, `road_id`, `driver_id` from env config.
 - `road_safety/services/registry.py` maintains an in-memory registry with per-vehicle event counts,
   safety scores (decaying penalty model), and driver leaderboard.
+- `server.py` runs scheduled score recovery (`road_registry.decay_scores()`)
+  controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (set `0` to disable).
 - `/api/road/summary` provides road-wide aggregation; `/api/road/drivers`
   ranks drivers by safety score (worst-first for manager attention). These
   endpoints are admin-protected.

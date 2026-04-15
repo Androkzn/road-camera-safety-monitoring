@@ -47,7 +47,7 @@ A single 1080p dashcam streaming continuously over 8 hours generates ~28 GB/day.
 | **Edge-first architecture** | Detection, tracking, risk classification, and PII redaction run on-device. Cloud receives only structured events. |
 | **Lightweight model** | YOLOv8n (nano) — smallest YOLO variant, runs at 2 fps on laptop CPU. On dedicated edge hardware (Jetson Orin NX) it exceeds 100 fps with TensorRT. |
 | **HMAC-signed batched delivery** | Events queue locally in append-only JSONL. Batches of up to 20 are signed and POSTed together. Survives network outages with exponential backoff. |
-| **Selective LLM enrichment** | Vision enrichment is skipped when perception is degraded or for low-risk events. No wasted API calls on low-value frames. |
+| **Selective LLM enrichment** | Vision enrichment is policy-gated (`ROAD_ALPR_MODE=third_party`) and additionally skipped when perception is degraded or for low-risk events. No wasted API calls on low-value frames. |
 
 ### 3. LLM Reliability in Production
 
@@ -72,6 +72,7 @@ Road cameras capture faces, license plates, and location — all classified as p
 | Layer | What it does |
 |---|---|
 | **Dual thumbnails** | Every event produces internal (unredacted, local-only) and public (faces + plates blurred) versions. Shared event channels use only the public version; optional external enrichment is a separately governed processor path. |
+| **Optional signed public-thumbnail access** | If `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`, `_public` thumbnails require valid `exp`/`token` query params (HMAC-signed, short-lived) and access attempts are audit-logged. |
 | **Structural plate hashing at LLM boundary** | `enrich_event()` in `road_safety/services/llm.py` hashes the plate and strips `plate_text`/`plate_state` from the returned dict before it reaches any in-memory event buffer. `server.py` retains an egress `pop()` as defence in depth — but the primary invariant (no raw plate in any buffer) is enforced at ingest, not at egress. A caller that forgets to scrub at egress cannot leak because the raw plate was never there. |
 | **DSAR-gated access** | Unredacted thumbnails require an `X-DSAR-Token` header. Denied attempts are audit-logged. |
 | **Audit trail** | Every sensitive access is logged: timestamp, actor, action, resource, outcome, IP. GDPR Art. 30 / SOC 2 ready. |
@@ -178,8 +179,9 @@ All runtime settings are environment-driven via `.env`. Key groups:
 |---|---|---|
 | **Camera calibration** | `ROAD_CAMERA_FOCAL_PX`, `ROAD_CAMERA_HEIGHT_M`, `ROAD_CAMERA_HORIZON_FRAC` | Monocular depth and ego-speed math depend on these. Defaults target a coarse observation camera — **calibrate per-install** for real deployments; wrong values bias every distance / speed signal downstream. |
 | **Vehicle identity** | `ROAD_VEHICLE_ID`, `ROAD_ID`, `ROAD_DRIVER_ID`, `ROAD_LOCATION` | Required for fleet-scale deployments; every event is attributed to a specific vehicle + driver. |
-| **Privacy** | `ROAD_DSAR_TOKEN`, `ROAD_ADMIN_TOKEN`, `ROAD_PLATE_SALT` | DSAR token gates unredacted-thumbnail access; salt is per-deployment so plate hashes don't correlate across operators. |
-| **LLM** | `ANTHROPIC_API_KEY`, optional `AZURE_OPENAI_*` | Fully optional. System runs end-to-end with zero LLM calls — narration, ALPR, and agents degrade silently. |
+| **Privacy + access** | `ROAD_DSAR_TOKEN`, `ROAD_ADMIN_TOKEN`, `ROAD_PLATE_SALT`, `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN`, `ROAD_THUMB_SIGNING_SECRET` | DSAR token gates unredacted-thumbnail access. Optional signed-token mode can also gate `_public` thumbnails. Salt/signing secrets should be per deployment. |
+| **LLM** | `ANTHROPIC_API_KEY`, optional `AZURE_OPENAI_*`, `ROAD_ALPR_MODE` | Fully optional. System runs end-to-end with zero LLM calls — narration, ALPR, and agents degrade silently. External ALPR is disabled by default (`ROAD_ALPR_MODE=off`). |
+| **Road scoring** | `ROAD_SCORE_DECAY_INTERVAL_SEC` | Controls periodic safety-score recovery loop (set `0` to disable scheduled decay). |
 | **Cloud delivery** | `ROAD_CLOUD_ENDPOINT`, `ROAD_CLOUD_HMAC_SECRET` | Edge→cloud HMAC-signed batched delivery. Without these, events stay local. |
 
 See `.env.example` for the full list.
@@ -192,7 +194,7 @@ See `.env.example` for the full list.
 make test    # or: pytest tests/ -v
 ```
 
-125 tests covering detection pipeline, services, API routes, compliance, auth guards, and integrations.
+135 tests covering detection pipeline, services, API routes, compliance, auth guards, and integrations.
 
 ## License
 
