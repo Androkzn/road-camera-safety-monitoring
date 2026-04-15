@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useEventStream } from "../hooks/useEventStream";
-import { useWatchdog } from "../hooks/useWatchdog";
+import { useWatchdogCtx } from "../hooks/WatchdogContext";
 import type { WatchdogFinding } from "../types";
 import styles from "./MonitoringPage.module.css";
 
@@ -18,7 +18,7 @@ function findingKey(f: WatchdogFinding): string {
 export function MonitoringPage() {
   const { connected } = useEventStream();
   const { data: liveStatus } = useLiveStatus();
-  const { status, findings, deleteFindings, clearAll } = useWatchdog();
+  const { status, findings, deleteFindings, clearAll } = useWatchdogCtx();
 
   const [filter, setFilter] = useState<SevFilter>("all");
   const [selectMode, setSelectMode] = useState(false);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import {
   SummaryTiles,
@@ -14,6 +14,7 @@ import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useScene } from "../hooks/useScene";
 import { useDrift } from "../hooks/useDrift";
 import { useTests } from "../hooks/useTests";
+import { humanEventType } from "../lib/format";
 import styles from "./DashboardPage.module.css";
 
 export function DashboardPage() {
@@ -25,6 +26,9 @@ export function DashboardPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const prevTestStatus = useRef<string>("idle");
+
+  const [filterRisk, setFilterRisk] = useState("");
+  const [filterType, setFilterType] = useState("");
 
   useEffect(() => {
     if (
@@ -52,6 +56,21 @@ export function DashboardPage() {
 
   const mergedPerception = perception ?? (liveStatus?.perception || null);
 
+  const eventTypes = useMemo(() => {
+    const seen = new Set<string>();
+    for (const ev of events) if (ev.event_type) seen.add(ev.event_type);
+    return Array.from(seen).sort();
+  }, [events]);
+
+  const filtered = useMemo(() => {
+    let list = events;
+    if (filterRisk) list = list.filter((e) => e.risk_level === filterRisk);
+    if (filterType) list = list.filter((e) => e.event_type === filterType);
+    return list;
+  }, [events, filterRisk, filterType]);
+
+  const hasFilters = filterRisk !== "" || filterType !== "";
+
   return (
     <>
       <TopBar sourceName={sourceName} connected={connected}>
@@ -76,11 +95,57 @@ export function DashboardPage() {
           <PerceptionBannerRow perception={mergedPerception} />
           <SceneBannerRow scene={scene} />
           <DriftBannerRow drift={drift} onRefresh={refreshDrift} />
+
+          <div className={styles.filterBar}>
+            <select
+              className={styles.filterSelect}
+              value={filterRisk}
+              onChange={(e) => setFilterRisk(e.target.value)}
+            >
+              <option value="">All risks</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select
+              className={styles.filterSelect}
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+            >
+              <option value="">All types</option>
+              {eventTypes.map((t) => (
+                <option key={t} value={t}>
+                  {humanEventType(t)}
+                </option>
+              ))}
+            </select>
+            {hasFilters && (
+              <button
+                className={styles.clearBtn}
+                onClick={() => {
+                  setFilterRisk("");
+                  setFilterType("");
+                }}
+              >
+                Clear
+              </button>
+            )}
+            <span className={styles.filterCount}>
+              {hasFilters
+                ? `${filtered.length} / ${events.length}`
+                : `${events.length}`}{" "}
+              events
+            </span>
+          </div>
+
           <div className={styles.stream}>
             {events.length === 0 && (
               <div className={styles.empty}>Waiting for events…</div>
             )}
-            {events.map((ev, i) => (
+            {events.length > 0 && filtered.length === 0 && (
+              <div className={styles.empty}>No events match filters</div>
+            )}
+            {filtered.map((ev, i) => (
               <EventCard key={ev.event_id} event={ev} isNew={i === 0} />
             ))}
           </div>

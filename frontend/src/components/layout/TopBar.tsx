@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { Pill, Dot } from "../ui";
 import type { ReactNode } from "react";
+import { useWatchdogCtx } from "../../hooks/WatchdogContext";
 import styles from "./TopBar.module.css";
 
 interface TopBarProps {
@@ -11,6 +12,9 @@ interface TopBarProps {
 
 export function TopBar({ sourceName = "—", connected, children }: TopBarProps) {
   const { pathname } = useLocation();
+  const { status: wdStatus } = useWatchdogCtx();
+
+  const errorCount = wdStatus?.by_severity?.error ?? 0;
 
   const statusVariant = connected === true ? "ok" : connected === false ? "bad" : "wait";
   const statusLabel =
@@ -45,8 +49,14 @@ export function TopBar({ sourceName = "—", connected, children }: TopBarProps)
         <Link to="/dashboard" className={pathname === "/dashboard" ? styles.active : ""}>
           Dashboard
         </Link>
-        <Link to="/monitoring" className={pathname === "/monitoring" ? styles.active : ""}>
+        <Link
+          to="/monitoring"
+          className={`${styles.monLink} ${pathname === "/monitoring" ? styles.active : ""}`}
+        >
           Monitoring
+          {errorCount > 0 && (
+            <span className={styles.errorBubble}>{errorCount}</span>
+          )}
         </Link>
       </nav>
       <span className={styles.spacer} />

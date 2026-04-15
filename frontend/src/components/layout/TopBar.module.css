@@ -50,6 +50,35 @@
   border-bottom-color: var(--accent) !important;
 }
 
+.monLink {
+  position: relative;
+}
+
+.errorBubble {
+  position: absolute;
+  top: 6px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--high);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--panel);
+  animation: pulse-bubble 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pulse-bubble {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
 .spacer {
   flex: 1;
 }
