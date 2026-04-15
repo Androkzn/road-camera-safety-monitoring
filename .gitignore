@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# YOLO weights (downloaded on first run)
+*.pt
+
+# Generated artifacts
+data/events.json
+data/summary.json
+data/eval.json
+data/thumbnails/*.jpg
+
+# Input video (usually too big for git)
+data/*.mp4
+data/*.mov
+data/*.MOV
+!data/.gitkeep

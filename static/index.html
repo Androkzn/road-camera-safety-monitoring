@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fleet Safety — Event Review</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #262a33;
+    --text: #e6e8ee;
+    --muted: #8a90a0;
+    --high: #ff5c5c;
+    --medium: #ffb648;
+    --low: #6fcf97;
+    --accent: #5ab0ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; gap: 16px; align-items: baseline; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .tag { font-size: 12px; color: var(--muted); }
+  main { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; padding: 16px; height: calc(100vh - 52px); }
+  .left, .right { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+  video { width: 100%; background: #000; display: block; }
+  .summary { padding: 14px 16px; border-top: 1px solid var(--border); }
+  .summary h2 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .summary p { margin: 6px 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { padding: 3px 8px; border-radius: 999px; font-size: 12px; background: #222632; color: var(--text); }
+  .chip.high { background: #3a1f24; color: var(--high); }
+  .chip.medium { background: #3a2e1f; color: var(--medium); }
+  .chip.low { background: #1f3a2c; color: var(--low); }
+  .trip-classification { font-weight: 600; }
+  .trip-classification.risky { color: var(--high); }
+  .trip-classification.moderate { color: var(--medium); }
+  .trip-classification.safe { color: var(--low); }
+  .right header { border-bottom: 1px solid var(--border); }
+  .filters { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .filters button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+  .filters button.active { color: var(--text); border-color: var(--accent); }
+  .events { flex: 1; overflow-y: auto; }
+  .event { display: grid; grid-template-columns: 88px 1fr auto; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }
+  .event:hover { background: #1d2129; }
+  .event.active { background: #1f2a3a; }
+  .event img { width: 88px; height: 56px; object-fit: cover; border-radius: 4px; background: #000; }
+  .event .meta { min-width: 0; }
+  .event .type { font-weight: 500; }
+  .event .sub { font-size: 12px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event .time { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); align-self: start; }
+  .risk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .risk-dot.high { background: var(--high); }
+  .risk-dot.medium { background: var(--medium); }
+  .risk-dot.low { background: var(--low); }
+  .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fleet Safety — Event Review</h1>
+  <span class="tag" id="video-tag">loading…</span>
+</header>
+<main>
+  <section class="left">
+    <video id="player" controls></video>
+    <div class="summary">
+      <h2>Trip summary</h2>
+      <p id="narrative">—</p>
+      <p>
+        Classification:
+        <span id="classification" class="trip-classification">—</span>
+        · Avg confidence: <span id="avg-conf">—</span>
+      </p>
+      <div class="chips" id="chips"></div>
+    </div>
+  </section>
+  <section class="right">
+    <div class="filters" id="filters">
+      <button data-risk="" class="active">All</button>
+      <button data-risk="high">High</button>
+      <button data-risk="medium">Medium</button>
+      <button data-risk="low">Low</button>
+    </div>
+    <div class="events" id="events"><div class="empty">Loading events…</div></div>
+  </section>
+</main>
+<script>
+  const player = document.getElementById("player");
+  const eventsEl = document.getElementById("events");
+  const filtersEl = document.getElementById("filters");
+  let allEvents = [];
+  let activeRisk = "";
+
+  async function loadSummary() {
+    const r = await fetch("/api/summary");
+    if (!r.ok) return;
+    const s = await r.json();
+    document.getElementById("video-tag").textContent =
+      `${s.video_id} · ${s.duration_sec.toFixed(1)}s · ${s.event_count} event(s)`;
+    document.getElementById("narrative").textContent = s.narrative;
+    const cls = document.getElementById("classification");
+    cls.textContent = s.trip_classification;
+    cls.className = "trip-classification " + s.trip_classification;
+    document.getElementById("avg-conf").textContent = s.avg_confidence.toFixed(2);
+
+    const chips = document.getElementById("chips");
+    chips.innerHTML = "";
+    for (const [risk, n] of Object.entries(s.events_by_risk || {})) {
+      const c = document.createElement("span");
+      c.className = `chip ${risk}`;
+      c.textContent = `${n} ${risk}`;
+      chips.appendChild(c);
+    }
+    for (const [t, n] of Object.entries(s.events_by_type || {})) {
+      const c = document.createElement("span");
+      c.className = "chip";
+      c.textContent = `${n} × ${t.replace(/_/g, " ")}`;
+      chips.appendChild(c);
+    }
+    player.src = `/media/${s.video_id}.mp4`;
+  }
+
+  async function loadEvents() {
+    const r = await fetch("/api/events");
+    allEvents = await r.json();
+    renderEvents();
+  }
+
+  function renderEvents() {
+    const items = activeRisk
+      ? allEvents.filter(e => e.risk_level === activeRisk)
+      : allEvents;
+    if (!items.length) {
+      eventsEl.innerHTML = `<div class="empty">No events match this filter.</div>`;
+      return;
+    }
+    eventsEl.innerHTML = items.map(e => `
+      <div class="event" data-id="${e.event_id}" data-ts="${e.timestamp_sec}">
+        <img src="/${e.thumbnail}" alt="" />
+        <div class="meta">
+          <div class="type">
+            <span class="risk-dot ${e.risk_level}"></span>${e.event_type.replace(/_/g, " ")}
+          </div>
+          <div class="sub">${e.summary}</div>
+        </div>
+        <div class="time">${e.timestamp_sec.toFixed(1)}s<br/><span style="opacity:0.6">${(e.confidence * 100).toFixed(0)}%</span></div>
+      </div>
+    `).join("");
+
+    for (const el of eventsEl.querySelectorAll(".event")) {
+      el.addEventListener("click", () => {
+        eventsEl.querySelectorAll(".event").forEach(n => n.classList.remove("active"));
+        el.classList.add("active");
+        const ts = parseFloat(el.dataset.ts);
+        player.currentTime = ts;
+        player.play().catch(() => {});
+      });
+    }
+  }
+
+  filtersEl.addEventListener("click", e => {
+    if (e.target.tagName !== "BUTTON") return;
+    activeRisk = e.target.dataset.risk || "";
+    filtersEl.querySelectorAll("button").forEach(b => b.classList.toggle("active", b === e.target));
+    renderEvents();
+  });
+
+  loadSummary();
+  loadEvents();
+</script>
+</body>
+</html>
