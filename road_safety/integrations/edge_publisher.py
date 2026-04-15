@@ -31,11 +31,11 @@ import httpx
 
 logger = logging.getLogger("edge_publisher")
 
-# ----- presigned thumb URL (mocked) -------------------------------------------------
+# ----- presigned thumb URL ──────────────────────────────────────────────────
 
 # In a real deployment the edge node would either (a) upload the redacted thumb
 # to object storage and return a presigned GET URL, or (b) serve it itself over
-# a short-lived signed URL. For the demo we do (b): the URL points at the edge
+# a short-lived signed URL. Option (b): the URL points at the edge
 # node's own /thumbnails/{name} endpoint with a ``token`` query param derived
 # from HMAC(secret, name|expiry). Cloud fetches lazily.
 
@@ -93,10 +93,8 @@ class EdgePublisher:
         self.queue_path = Path(queue_path)
         self.batch_size = batch_size
         self.flush_interval_sec = flush_interval_sec
-        self.edge_base_url = edge_base_url or os.getenv(
-            "ROAD_EDGE_PUBLIC_URL", "http://localhost:8000"
-        )
-        self.source_name = source_name or os.getenv("ROAD_EDGE_NODE_ID", "edge_node_01")
+        self.edge_base_url = edge_base_url or os.getenv("ROAD_EDGE_PUBLIC_URL", "")
+        self.source_name = source_name or os.getenv("ROAD_EDGE_NODE_ID", "")
         self._lock = asyncio.Lock()
         self._backoff = _BackoffState()
         self.queue_path.parent.mkdir(parents=True, exist_ok=True)

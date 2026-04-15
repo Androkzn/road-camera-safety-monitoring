@@ -16,18 +16,20 @@ __pycache__/
 dist/
 build/
 
-# Generated artifacts
+# Runtime data (generated at runtime, never committed)
 data/events.json
 data/summary.json
 data/eval.json
-data/thumbnails/*.jpg
+data/thumbnails/
 data/cloud.db
+data/feedback.jsonl
+data/outbound_queue.jsonl
+data/active_learning/pending/
 
-# Input video (usually too big for git)
+# Input video (too large for git)
 data/*.mp4
 data/*.mov
 data/*.MOV
-!data/.gitkeep
 
 # Test / coverage
 .pytest_cache/

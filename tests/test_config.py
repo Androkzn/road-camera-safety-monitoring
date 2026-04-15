@@ -12,6 +12,7 @@ from road_safety.config import (
     MAX_RECENT_EVENTS,
     MODEL_PATH,
     PAIR_COOLDOWN_SEC,
+    PLATE_SALT,
     PROJECT_ROOT,
     SERVER_HOST,
     SERVER_PORT,
@@ -38,7 +39,7 @@ class TestProjectPaths:
 
     def test_model_path_is_string(self):
         assert isinstance(MODEL_PATH, str)
-        assert MODEL_PATH.endswith("yolov8n.pt")
+        assert MODEL_PATH.endswith(".pt")
 
 
 class TestDefaults:
@@ -57,24 +58,28 @@ class TestDefaults:
     def test_episode_idle_flush(self):
         assert EPISODE_IDLE_FLUSH_SEC > 0
 
-    def test_server_host_default(self):
-        assert SERVER_HOST == "127.0.0.1"
+    def test_server_host_is_string(self):
+        assert isinstance(SERVER_HOST, str)
+        assert len(SERVER_HOST) > 0
 
     def test_server_port_default(self):
         assert SERVER_PORT == 8000
 
-    def test_vehicle_id_default(self):
+    def test_vehicle_id_is_string(self):
         assert isinstance(VEHICLE_ID, str)
-        assert len(VEHICLE_ID) > 0
 
-    def test_road_id_default(self):
+    def test_road_id_is_string(self):
         assert isinstance(ROAD_ID, str)
 
-    def test_driver_id_default(self):
+    def test_driver_id_is_string(self):
         assert isinstance(DRIVER_ID, str)
 
-    def test_stream_source_default(self):
-        assert "youtube.com" in DEFAULT_STREAM_SOURCE or len(DEFAULT_STREAM_SOURCE) > 0
+    def test_stream_source_is_string(self):
+        assert isinstance(DEFAULT_STREAM_SOURCE, str)
+
+    def test_plate_salt_is_nonempty(self):
+        assert isinstance(PLATE_SALT, str)
+        assert len(PLATE_SALT) > 0
 
 
 class TestPackageVersion:

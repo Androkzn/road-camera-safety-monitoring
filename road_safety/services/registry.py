@@ -6,17 +6,17 @@ pattern detection. This module sits between the single-stream processing
 multi-vehicle deployment needs.
 
 Design goals:
-  * Backwards-compatible -- a single-vehicle demo still works; vehicle_id
-    defaults to the env var or "vehicle_01".
+  * Backwards-compatible -- a single-vehicle deployment still works; vehicle_id
+    defaults to the ROAD_VEHICLE_ID env var.
   * System-wide queries -- aggregate events across vehicles, find hotspots.
   * Driver scoring -- rolling safety score per driver based on events +
     feedback.
   * Pattern detection -- flag when multiple vehicles report events at the
     same location/time window (intersection hotspot).
 
-In production, the registry would live in a database. For this demo
-it's an in-memory dict keyed by vehicle_id, populated from events as they
-arrive.
+In a scaled deployment, the registry would live in a database. The current
+implementation uses an in-memory dict keyed by vehicle_id, populated from
+events as they arrive.
 """
 
 from __future__ import annotations

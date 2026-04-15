@@ -45,7 +45,7 @@ def sample_event():
     return {
         "event_id": "evt_1700000000000_0001",
         "vehicle_id": "vehicle_01",
-        "road_id": "road_demo",
+        "road_id": "road_test",
         "driver_id": "driver_01",
         "video_id": "live_stream",
         "timestamp_sec": 12.5,

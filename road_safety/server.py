@@ -13,11 +13,17 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 import cv2
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+
+from road_safety.logging import setup as setup_logging, get_logger
+
+setup_logging()
+log = get_logger(__name__)
 
 from road_safety.config import (
     DATA_DIR,
@@ -63,6 +69,7 @@ from road_safety.integrations.edge_publisher import EdgePublisher
 from road_safety.api.feedback import mount as mount_feedback_routes
 from road_safety.compliance import audit
 from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
+from road_safety.services.test_runner import run_state as test_run_state, start_test_run
 
 
 class Episode:
@@ -261,7 +268,7 @@ def _on_frame(wall_ts: float, frame) -> None:
     try:
         ego_flow = state.ego.update(frame, detections, wall_ts)
     except Exception as exc:
-        print(f"[ego] update failed: {exc}")
+        log.warning("ego-motion update failed: %s", exc)
         ego_flow = None
     state.last_ego_flow = ego_flow
 
@@ -361,7 +368,7 @@ def _on_frame(wall_ts: float, frame) -> None:
                 _broadcast_admin_detections(msg), state.loop
             )
     except Exception as exc:
-        print(f"[admin] annotated frame failed: {exc}")
+        log.warning("annotated frame failed: %s", exc)
 
 
 def _flush_episode(ep: Episode, wall_ts: float) -> None:
@@ -527,7 +534,7 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
     try:
         state.active_learner.maybe_sample(event)
     except Exception as exc:
-        print(f"[active_learning] sample failed: {exc}")
+        log.warning("active-learning sample failed: %s", exc)
 
     # Edge -> Cloud publisher: enqueues to a local JSONL, drained by a
     # background task. No-op if ROAD_CLOUD_ENDPOINT / ROAD_CLOUD_HMAC_SECRET
@@ -536,50 +543,50 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
         try:
             await state.edge_publisher.enqueue(event, public_path)
         except Exception as exc:
-            print(f"[edge] enqueue failed: {exc}")
+            log.warning("edge enqueue failed: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     state.loop = asyncio.get_running_loop()
-    print(f"[server] loading YOLO model …")
+    log.info("loading YOLO model")
     state.model = load_model()
 
     # Point drift monitor at the live in-memory buffer so it reads fresh
     # events rather than the on-disk snapshot.
     state.drift.set_event_source(lambda: list(state.recent_events))
 
-    print(f"[server] resolving source: {DEFAULT_SOURCE}")
+    log.info("resolving source: %s", DEFAULT_SOURCE)
     try:
         hls = resolve_hls(DEFAULT_SOURCE)
         state.source_label = DEFAULT_SOURCE
-        print(f"[server] HLS resolved ({len(hls)} chars)")
+        log.info("HLS resolved (%d chars)", len(hls))
     except Exception as exc:
-        print(f"[server] stream resolution failed: {exc}")
+        log.error("stream resolution failed: %s", exc)
         hls = None
 
     if hls:
         state.reader = StreamReader(hls, target_fps=TARGET_FPS)
         state.reader.start(_on_frame)
-        print(f"[server] stream reader started")
+        log.info("stream reader started")
     else:
-        print(f"[server] running without live stream (resolution failed)")
+        log.warning("running without live stream (resolution failed)")
 
     # Digest schedulers (medium hourly, low daily). Idempotent.
     start_digest_schedulers(state.loop)
-    print("[server] digest schedulers started")
+    log.info("digest schedulers started")
 
     # Edge -> Cloud publisher loop (no-op if not configured).
     edge_task = None
     if state.edge_publisher.enabled():
         edge_task = asyncio.create_task(state.edge_publisher.run_forever())
-        print("[server] edge publisher started")
+        log.info("edge publisher started")
     else:
-        print("[server] edge publisher disabled (ROAD_CLOUD_ENDPOINT / _HMAC_SECRET unset)")
+        log.info("edge publisher disabled (ROAD_CLOUD_ENDPOINT / _HMAC_SECRET unset)")
 
     # Data retention background sweep.
     retention_task = asyncio.create_task(retention_loop())
-    print("[server] retention policy loop started")
+    log.info("retention policy loop started")
 
     # Agent executor — wired after event_lookup is available.
     state.agent_executor = AgentExecutor(
@@ -587,7 +594,11 @@ async def lifespan(app: FastAPI):
         events_source=lambda: list(state.recent_events),
         drift_monitor=state.drift,
     )
-    print("[server] agent executor ready (coaching, investigation, report)")
+    log.info("agent executor ready (coaching, investigation, report)")
+
+    # Auto-run test suite in background on startup.
+    start_test_run()
+    log.info("test suite started in background")
 
     yield
 
@@ -629,12 +640,12 @@ async def _on_feedback(record: dict, matched: dict | None) -> None:
         try:
             state.active_learner.sample_disputed(matched, note=record.get("note"))
         except Exception as exc:
-            print(f"[active_learning] sample_disputed failed: {exc}")
+            log.warning("active-learning sample_disputed failed: %s", exc)
 
     try:
         report = state.drift.compute()
     except Exception as exc:
-        print(f"[drift] compute failed: {exc}")
+        log.warning("drift compute failed: %s", exc)
         return
     if not report.alert_triggered:
         return
@@ -651,7 +662,7 @@ async def _on_feedback(record: dict, matched: dict | None) -> None:
             body=warning,
         )
     except Exception as exc:
-        print(f"[drift] slack warn failed: {exc}")
+        log.warning("drift slack warn failed: %s", exc)
 
 
 # Feedback (thumbs-up/down) + coaching queue routes, wired to drift + AL hooks.
@@ -1068,6 +1079,25 @@ async def admin_detections_sse(request: Request):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Test runner endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/tests/status")
+def api_test_status():
+    """Current test run status and results."""
+    return test_run_state.as_dict()
+
+
+@app.post("/api/tests/run")
+def api_test_run():
+    """Trigger a new test run (if not already running)."""
+    if test_run_state.status == "running":
+        return {"ok": False, "reason": "already running"}
+    start_test_run()
+    return {"ok": True}
 
 
 @app.get("/api/summary")

@@ -11,7 +11,7 @@ Design:
     {event_id}_public.jpg (redacted, safe for egress).
   - Plate boxes are derived from a coarse geometric heuristic over detected
     vehicles — the lower-middle strip of the bbox, since we don't have a
-    dedicated plate detector in this demo. This over-blurs slightly, which is
+    dedicated plate detector. This over-blurs slightly, which is
     the correct failure mode: false-redact > false-leak.
   - Faces similarly: blur the upper third of every `person` bbox.
   - Plate *text* (from the Anthropic ALPR pass) never leaves this process in

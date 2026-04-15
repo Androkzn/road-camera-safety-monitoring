@@ -18,7 +18,7 @@ dispatches to the correct tier, so existing callers (server.py) don't break
 while digest wiring is pending.
 
 Production note: the medium/low buffers are plain in-memory lists. That's fine
-for a demo. For production, persist to SQLite (or equivalent) and cap memory —
+For production, persist to SQLite (or equivalent) and cap memory —
 otherwise a long Slack outage would cause unbounded growth.
 """
 

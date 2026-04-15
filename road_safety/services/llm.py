@@ -47,7 +47,7 @@ NARRATION_SYSTEM = (
     "present reference it in metres. Prefer physical units over pixel counts. "
     "No preamble, no markdown, no quotes, no emoji, no special symbols \u2014 plain ASCII prose only."
 )
-CORPUS_DIR = Path("data/corpus")
+from road_safety.config import CORPUS_DIR  # noqa: E402
 ENRICH_SCHEMA = {
     "type": "object",
     "properties": {

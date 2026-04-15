@@ -2,25 +2,55 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Safety — Live Review</title>
+<title>Road Safety — Live Review</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root{
     --bg:#0b0f14; --panel:#141a22; --border:#1f2937; --text:#e5e7eb; --muted:#9ca3af;
     --accent:#38bdf8; --high:#ef4444; --medium:#f59e0b; --low:#6b7280;
+    --green:#22c55e; --green-dim:#14532d; --red-dim:#7f1d1d;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     font-size:13px;line-height:1.45;height:100%}
   body{display:flex;flex-direction:column;min-height:100vh}
+
+  /* ── Top bar ── */
+  .topbar{display:flex;align-items:center;gap:12px;padding:10px 16px;
+    border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+  .topbar h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.2px}
+  .topbar .spacer{flex:1}
+
+  /* ── Test badge in topbar ── */
+  .test-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
+    border-radius:8px;font-size:11.5px;font-weight:600;cursor:pointer;
+    border:1px solid var(--border);background:#0b0f14;transition:all .2s;
+    user-select:none}
+  .test-badge:hover{border-color:var(--accent)}
+  .test-badge .badge-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .test-badge .badge-dot.idle{background:var(--muted)}
+  .test-badge .badge-dot.running{background:var(--accent);
+    animation:pulse-dot 1.2s ease-in-out infinite}
+  .test-badge .badge-dot.passed{background:var(--green)}
+  .test-badge .badge-dot.failed{background:var(--high)}
+  @keyframes pulse-dot{
+    0%,100%{opacity:1;transform:scale(1)}
+    50%{opacity:.5;transform:scale(.8)}
+  }
+  .test-badge .badge-counts{display:flex;gap:6px;font-size:10.5px;color:var(--muted);
+    font-variant-numeric:tabular-nums}
+  .test-badge .cnt-pass{color:var(--green)}
+  .test-badge .cnt-fail{color:var(--high)}
+
+  /* ── Main layout ── */
   .app{display:grid;grid-template-columns:60fr 40fr;gap:14px;padding:14px;flex:1;min-height:0}
   @media (max-width:900px){ .app{grid-template-columns:1fr} }
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;
     display:flex;flex-direction:column;min-height:0;overflow:hidden}
   .panel-head{padding:12px 16px;border-bottom:1px solid var(--border);
     display:flex;align-items:center;justify-content:space-between;gap:10px}
-  .panel-head h1,.panel-head h2{margin:0;font-size:15px;font-weight:600;letter-spacing:.2px}
+  .panel-head h2{margin:0;font-size:15px;font-weight:600;letter-spacing:.2px}
   .panel-head .sub{font-size:11px;color:var(--muted);font-weight:400;margin-left:8px}
   .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;
     background:#0b0f14;border:1px solid var(--border);font-size:11px;color:var(--muted)}
@@ -40,7 +70,7 @@
   .tag.track{background:#1a1022;border-color:#3f1d5f;color:#c4b5fd;
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 
-  /* perception banner */
+  /* ── Perception / scene / drift banners ── */
   .perception{padding:8px 16px;display:flex;align-items:center;gap:10px;
     font-size:11.5px;border-bottom:1px solid var(--border);background:#0b0f14;
     transition:background-color .3s}
@@ -55,7 +85,7 @@
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   .skip-note{color:#fca5a5;font-size:10.5px;font-style:italic;margin-top:2px}
 
-  /* summary strip */
+  /* ── Summary tiles ── */
   .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 16px;
     border-bottom:1px solid var(--border)}
   .tile{background:#0b0f14;border:1px solid var(--border);border-radius:8px;padding:10px 12px}
@@ -63,7 +93,7 @@
   .tile .value{font-size:20px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
   .tile.high .value{color:var(--high)} .tile.medium .value{color:var(--medium)}
 
-  /* event list */
+  /* ── Event cards ── */
   .stream{flex:1;overflow-y:auto;padding:10px 14px 14px;min-height:0}
   .empty{color:var(--muted);text-align:center;padding:40px 20px;font-size:12px}
   .card{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:10px;margin-bottom:10px;
@@ -90,7 +120,7 @@
     overflow:hidden;font-size:12px}
   .row3{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:2px}
 
-  /* operator feedback thumbs */
+  /* ── Feedback thumbs ── */
   .fb{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
   .fb-btn{display:inline-flex;align-items:center;gap:5px;
     background:var(--panel);border:1px solid var(--border);color:var(--text);
@@ -109,7 +139,7 @@
   .fb-ack.ok{color:#86efac}
   .fb-ack.err{color:#fca5a5}
 
-  /* copilot */
+  /* ── Copilot chat ── */
   .chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;border-top:1px solid var(--border)}
   .chip{background:#0b0f14;border:1px solid var(--border);color:var(--muted);
     padding:5px 9px;border-radius:999px;font-size:11px;cursor:pointer;transition:border-color .15s}
@@ -129,24 +159,133 @@
     padding:0 16px;font-weight:600;cursor:pointer;font-size:12.5px;min-width:84px;align-self:stretch}
   .compose button:disabled{background:#334155;color:var(--muted);cursor:not-allowed}
 
-  /* scrollbars */
-  .stream::-webkit-scrollbar,.chat::-webkit-scrollbar{width:8px}
-  .stream::-webkit-scrollbar-thumb,.chat::-webkit-scrollbar-thumb{background:#1f2937;border-radius:4px}
+  /* ── Test panel (overlay drawer) ── */
+  .test-drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;
+    opacity:0;pointer-events:none;transition:opacity .25s}
+  .test-drawer-overlay.open{opacity:1;pointer-events:auto}
+  .test-drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,90vw);z-index:901;
+    background:var(--panel);border-left:1px solid var(--border);
+    transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);
+    display:flex;flex-direction:column}
+  .test-drawer.open{transform:translateX(0)}
+  .test-drawer-head{display:flex;align-items:center;gap:10px;padding:14px 16px;
+    border-bottom:1px solid var(--border)}
+  .test-drawer-head h2{margin:0;font-size:15px;font-weight:600;flex:1}
+  .test-drawer-head .close-btn{background:none;border:1px solid var(--border);color:var(--muted);
+    border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;
+    display:flex;align-items:center;justify-content:center;transition:border-color .15s}
+  .test-drawer-head .close-btn:hover{border-color:var(--accent);color:var(--text)}
+
+  /* ── Test summary strip ── */
+  .test-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px;
+    border-bottom:1px solid var(--border)}
+  .test-tile{background:#0b0f14;border:1px solid var(--border);border-radius:8px;
+    padding:8px 10px;text-align:center}
+  .test-tile .t-label{font-size:10px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.5px}
+  .test-tile .t-value{font-size:18px;font-weight:700;margin-top:2px;
+    font-variant-numeric:tabular-nums}
+  .test-tile.t-total .t-value{color:var(--text)}
+  .test-tile.t-pass .t-value{color:var(--green)}
+  .test-tile.t-fail .t-value{color:var(--high)}
+  .test-tile.t-skip .t-value{color:var(--muted)}
+
+  /* ── Test progress bar ── */
+  .test-progress{padding:12px 16px;border-bottom:1px solid var(--border)}
+  .test-progress .bar-wrap{height:6px;background:#0b0f14;border-radius:3px;overflow:hidden;
+    border:1px solid var(--border)}
+  .test-progress .bar-fill{height:100%;border-radius:3px;transition:width .4s ease;
+    background:var(--accent)}
+  .test-progress .bar-fill.done-pass{background:var(--green)}
+  .test-progress .bar-fill.done-fail{background:var(--high)}
+  .test-progress-label{display:flex;justify-content:space-between;margin-top:6px;
+    font-size:11px;color:var(--muted)}
+
+  /* ── Test result list ── */
+  .test-list{flex:1;overflow-y:auto;padding:8px 0}
+  .test-file-group{padding:0 16px;margin-bottom:4px}
+  .test-file-header{font-size:11px;color:var(--accent);font-weight:600;padding:6px 0 2px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.3px}
+  .test-item{display:flex;align-items:center;gap:8px;padding:5px 0;
+    border-bottom:1px solid rgba(31,41,55,.4);font-size:12px}
+  .test-item:last-child{border-bottom:none}
+  .test-icon{width:16px;height:16px;flex-shrink:0;display:flex;align-items:center;
+    justify-content:center;font-size:11px}
+  .test-icon.passed{color:var(--green)}
+  .test-icon.failed{color:var(--high)}
+  .test-icon.skipped{color:var(--muted)}
+  .test-icon.error{color:var(--medium)}
+  .test-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--text)}
+  .test-dur{color:var(--muted);font-size:10.5px;font-variant-numeric:tabular-nums;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;flex-shrink:0}
+  .test-error-msg{padding:4px 0 4px 24px;font-size:11px;color:#fca5a5;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    white-space:pre-wrap;word-break:break-all;max-height:100px;overflow-y:auto}
+
+  /* ── Test drawer actions ── */
+  .test-actions{padding:10px 16px;border-top:1px solid var(--border);
+    display:flex;align-items:center;gap:10px}
+  .test-actions button{background:var(--accent);color:#0b0f14;border:none;border-radius:6px;
+    padding:6px 16px;font-weight:600;cursor:pointer;font-size:12px;transition:opacity .15s}
+  .test-actions button:disabled{opacity:.4;cursor:not-allowed}
+  .test-actions .elapsed{color:var(--muted);font-size:11px;margin-left:auto;
+    font-variant-numeric:tabular-nums}
+
+  /* ── Scrollbars ── */
+  .stream::-webkit-scrollbar,.chat::-webkit-scrollbar,.test-list::-webkit-scrollbar{width:8px}
+  .stream::-webkit-scrollbar-thumb,.chat::-webkit-scrollbar-thumb,
+  .test-list::-webkit-scrollbar-thumb{background:#1f2937;border-radius:4px}
 </style>
 </head>
 <body>
+
+<!-- ── Top Bar ── -->
+<header class="topbar">
+  <h1>Road Safety — Live Review</h1>
+  <span class="spacer"></span>
+  <span class="pill" id="statusPill">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">connecting…</span>
+  </span>
+  <div class="test-badge" id="testBadge" title="Click to view test results">
+    <span class="badge-dot idle" id="testBadgeDot"></span>
+    <span id="testBadgeLabel">Tests</span>
+    <span class="badge-counts" id="testBadgeCounts"></span>
+  </div>
+</header>
+
+<!-- ── Test Drawer (slide-in panel) ── -->
+<div class="test-drawer-overlay" id="testOverlay"></div>
+<aside class="test-drawer" id="testDrawer">
+  <div class="test-drawer-head">
+    <h2>Test Suite</h2>
+    <button class="close-btn" id="testClose" title="Close">&times;</button>
+  </div>
+  <div class="test-summary" id="testSummary">
+    <div class="test-tile t-total"><div class="t-label">Total</div><div class="t-value" id="tsTotal">—</div></div>
+    <div class="test-tile t-pass"><div class="t-label">Passed</div><div class="t-value" id="tsPassed">—</div></div>
+    <div class="test-tile t-fail"><div class="t-label">Failed</div><div class="t-value" id="tsFailed">—</div></div>
+    <div class="test-tile t-skip"><div class="t-label">Skipped</div><div class="t-value" id="tsSkipped">—</div></div>
+  </div>
+  <div class="test-progress" id="testProgress">
+    <div class="bar-wrap"><div class="bar-fill" id="testBar" style="width:0"></div></div>
+    <div class="test-progress-label">
+      <span id="testProgressLabel">Waiting…</span>
+      <span id="testElapsed"></span>
+    </div>
+  </div>
+  <div class="test-list" id="testList"></div>
+  <div class="test-actions">
+    <button id="testRerunBtn" disabled>Re-run Tests</button>
+    <span class="elapsed" id="testTotalTime"></span>
+  </div>
+</aside>
+
+<!-- ── Main content ── -->
 <div class="app">
   <!-- LEFT: Live Event Stream -->
   <section class="panel">
-    <div class="panel-head">
-      <div>
-        <h1>Safety — Live Review</h1>
-      </div>
-      <span class="pill" id="statusPill">
-        <span class="dot" id="statusDot"></span>
-        <span id="statusText">connecting…</span>
-      </span>
-    </div>
     <div class="summary">
       <div class="tile"><div class="label">Events</div><div class="value" id="tTotal">0</div></div>
       <div class="tile high"><div class="label">High risk</div><div class="value" id="tHigh">0</div></div>
@@ -179,17 +318,15 @@
   <!-- RIGHT: Copilot -->
   <section class="panel">
     <div class="panel-head">
-      <div>
-        <h2>Copilot <span class="sub">RAG over statutes + live events</span></h2>
-      </div>
+      <div><h2>Copilot <span class="sub">RAG over statutes + live events</span></h2></div>
     </div>
     <div class="chat" id="chat">
       <div class="msg bot">Ask about recent events, risk patterns, or road safety policy.</div>
     </div>
     <div class="chips" id="chips">
-      <span class="chip" data-q="Any high-risk pedestrian events in the last 2 minutes?">Any high-risk pedestrian events in the last 2 minutes?</span>
-      <span class="chip" data-q="What's our SLA for medium-risk events?">What's our SLA for medium-risk events?</span>
-      <span class="chip" data-q="Summarize the last 10 events.">Summarize the last 10 events.</span>
+      <span class="chip" data-q="Any high-risk pedestrian events in the last 2 minutes?">Any high-risk pedestrian events?</span>
+      <span class="chip" data-q="What's our SLA for medium-risk events?">Medium-risk SLA?</span>
+      <span class="chip" data-q="Summarize the last 10 events.">Summarize last 10 events</span>
     </div>
     <form class="compose" id="composeForm" autocomplete="off">
       <textarea id="q" placeholder="Ask Copilot… (Enter to send, Shift+Enter = newline)"></textarea>
@@ -211,10 +348,9 @@
   const tUp = document.getElementById('tUp');
 
   const counts = { total:0, high:0, medium:0 };
-  let startedAt = null; // epoch seconds
+  let startedAt = null;
   let sourceName = '—';
 
-  // ---- helpers ----
   const pad2 = n => String(n).padStart(2,'0');
   const fmtWall = ts => {
     const d = ts ? new Date(ts) : new Date();
@@ -230,7 +366,7 @@
     return h>0 ? `${h}h ${pad2(m)}m` : `${pad2(m)}:${pad2(s)}`;
   };
 
-  // ---- status pill ----
+  // ── Status pill ──
   function setStatus(state){
     statusDot.classList.remove('ok','bad');
     if (state==='connected'){ statusDot.classList.add('ok'); statusText.textContent = `${sourceName} • live`; }
@@ -238,7 +374,7 @@
     else { statusText.textContent = `${sourceName} • connecting…`; }
   }
 
-  // ---- SSE ----
+  // ── SSE ──
   let es = null, backoff = 2000;
   function connectSSE(){
     try { es = new EventSource('/stream/events'); }
@@ -249,7 +385,7 @@
         const msg = JSON.parse(ev.data);
         if (msg && msg._meta === 'perception_state') { renderPerception(msg); return; }
         addEvent(msg);
-      } catch(e){ /* ignore */ }
+      } catch(e){}
     };
     es.onerror = () => {
       setStatus('disconnected');
@@ -262,7 +398,7 @@
     backoff = Math.min(backoff*1.5, 30000);
   }
 
-  // ---- event rendering ----
+  // ── Event rendering ──
   function addEvent(e){
     if (emptyMsg) { emptyMsg.remove(); }
     counts.total++;
@@ -288,46 +424,31 @@
       : (e.summary ? `<div class="summ">${escapeHtml(e.summary)}</div>` : '');
 
     const enr = e.enrichment || null;
-    let enrichLine = '';
     const enrichBits = [];
     if (enr) {
-      if (enr.plate_hash) {
-        enrichBits.push(`<span class="tag hash" title="salted plate hash — raw text not retained">${escapeHtml(enr.plate_hash)}</span>`);
-      } else if (enr.readability) {
-        enrichBits.push(`<span class="tag muted">plate ${escapeHtml(enr.readability)}</span>`);
-      }
+      if (enr.plate_hash) enrichBits.push(`<span class="tag hash" title="salted plate hash">${escapeHtml(enr.plate_hash)}</span>`);
+      else if (enr.readability) enrichBits.push(`<span class="tag muted">plate ${escapeHtml(enr.readability)}</span>`);
       const veh = [enr.vehicle_color, enr.vehicle_type].filter(Boolean).join(' ');
       if (veh) enrichBits.push(`<span class="tag">${escapeHtml(veh)}</span>`);
     }
 
-    // Kinematics badges: TTC (physical-unit risk signal) + distance in metres
     const kinBits = [];
     if (e.ttc_sec != null) {
       const warn = e.ttc_sec <= 1.5 ? ' warn' : '';
       kinBits.push(`<span class="tag kin${warn}" title="time-to-collision">TTC ${Number(e.ttc_sec).toFixed(1)}s</span>`);
     }
-    if (e.distance_m != null) {
-      kinBits.push(`<span class="tag kin" title="monocular distance estimate">${Number(e.distance_m).toFixed(1)}m</span>`);
-    }
-    if (e.distance_px != null) {
-      kinBits.push(`<span class="tag">${Math.round(e.distance_px)}px</span>`);
-    }
+    if (e.distance_m != null) kinBits.push(`<span class="tag kin" title="distance">${Number(e.distance_m).toFixed(1)}m</span>`);
+    if (e.distance_px != null) kinBits.push(`<span class="tag">${Math.round(e.distance_px)}px</span>`);
     const kinLine = kinBits.length ? `<div class="meta">${kinBits.join('')}</div>` : '';
 
-    // Track-pair + episode duration
     const tidBits = [];
-    if (Array.isArray(e.track_ids) && e.track_ids.length) {
-      tidBits.push(`<span class="tag track">#${e.track_ids.join(' / #')}</span>`);
-    }
-    if (e.episode_duration_sec != null) {
-      tidBits.push(`<span class="tag">ep ${Number(e.episode_duration_sec).toFixed(1)}s</span>`);
-    }
+    if (Array.isArray(e.track_ids) && e.track_ids.length) tidBits.push(`<span class="tag track">#${e.track_ids.join(' / #')}</span>`);
+    if (e.episode_duration_sec != null) tidBits.push(`<span class="tag">ep ${Number(e.episode_duration_sec).toFixed(1)}s</span>`);
     if (enrichBits.length) tidBits.push(...enrichBits);
     const tidLine = tidBits.length ? `<div class="row3">${tidBits.join('')}</div>` : '';
 
     const skipNote = e.enrichment_skipped
-      ? `<div class="skip-note">vision enrichment skipped (${escapeHtml(e.enrichment_skipped)})</div>`
-      : '';
+      ? `<div class="skip-note">vision enrichment skipped (${escapeHtml(e.enrichment_skipped)})</div>` : '';
 
     card.innerHTML = `
       <div class="thumb">${thumb
@@ -339,11 +460,7 @@
           <span class="etype">${escapeHtml(humanType(e.event_type))}</span>
           <span class="meta"><span>${wall}</span><span class="sep">•</span><span>${tRel}</span></span>
         </div>
-        <div class="meta">
-          <span>${escapeHtml(objs)}</span>
-          <span class="sep">•</span>
-          <span>conf ${conf}</span>
-        </div>
+        <div class="meta"><span>${escapeHtml(objs)}</span><span class="sep">•</span><span>conf ${conf}</span></div>
         ${kinLine}
         ${body}
         ${skipNote}
@@ -353,36 +470,25 @@
           <span class="tag">${escapeHtml(e.video_id||'')}</span>
         </div>
         <div class="fb" data-event-id="${escapeHtml(e.event_id||'')}">
-          <button type="button" class="fb-btn tp" data-verdict="tp" title="Mark as true positive">
-            <svg class="fb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 3 1v5h5a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7"/>
-            </svg>
+          <button type="button" class="fb-btn tp" data-verdict="tp" title="True positive">
+            <svg class="fb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 3 1v5h5a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7"/></svg>
             Correct
           </button>
-          <button type="button" class="fb-btn fp" data-verdict="fp" title="Mark as false alarm">
-            <svg class="fb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M17 13V4h3v9zM17 13l-4 8a2 2 0 0 1-3-1v-5H5a2 2 0 0 1-2-2l2-7a2 2 0 0 1 2-2h10"/>
-            </svg>
+          <button type="button" class="fb-btn fp" data-verdict="fp" title="False alarm">
+            <svg class="fb-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 13V4h3v9zM17 13l-4 8a2 2 0 0 1-3-1v-5H5a2 2 0 0 1-2-2l2-7a2 2 0 0 1 2-2h10"/></svg>
             False alarm
           </button>
           <span class="fb-ack" aria-live="polite"></span>
         </div>
       </div>`;
-
     streamEl.insertBefore(card, streamEl.firstChild);
     setTimeout(()=>card.classList.remove('flash'), 1500);
-
-    while (streamEl.children.length > MAX_CARDS) {
-      streamEl.removeChild(streamEl.lastChild);
-    }
+    while (streamEl.children.length > MAX_CARDS) streamEl.removeChild(streamEl.lastChild);
   }
 
-  // ---- operator feedback (thumbs) ----
+  // ── Operator feedback ──
   async function sendFeedback(eventId, verdict){
-    const r = await fetch('/api/feedback', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({event_id: eventId, verdict})
-    });
+    const r = await fetch('/api/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({event_id: eventId, verdict}) });
     if (!r.ok) throw new Error('HTTP '+r.status);
     return r.json();
   }
@@ -391,8 +497,7 @@
     if (!btn) return;
     const row = btn.closest('.fb');
     if (!row || row.dataset.done === '1') return;
-    const eventId = row.dataset.eventId;
-    const verdict = btn.dataset.verdict;
+    const eventId = row.dataset.eventId, verdict = btn.dataset.verdict;
     if (!eventId || !verdict) return;
     const ack = row.querySelector('.fb-ack');
     const buttons = row.querySelectorAll('.fb-btn');
@@ -400,10 +505,7 @@
     try {
       await sendFeedback(eventId, verdict);
       row.dataset.done = '1';
-      buttons.forEach(b => {
-        if (b === btn) b.classList.add('chosen');
-        else b.classList.add('faded');
-      });
+      buttons.forEach(b => { if (b === btn) b.classList.add('chosen'); else b.classList.add('faded'); });
       if (ack) { ack.textContent = '\u2713 thanks'; ack.className = 'fb-ack ok'; }
     } catch (err) {
       buttons.forEach(b => { b.disabled = false; });
@@ -411,7 +513,7 @@
     }
   });
 
-  // ---- perception banner ----
+  // ── Perception / scene / drift ──
   const perceptionEl = document.getElementById('perception');
   const pStateEl = document.getElementById('pState');
   const pReasonEl = document.getElementById('pReason');
@@ -429,14 +531,8 @@
     pMetricsEl.textContent = parts.join(' · ');
     perceptionEl.classList.toggle('degraded', st !== 'nominal');
   }
-
-  // ---- scene + drift renderers ----
-  const sLabel = document.getElementById('sLabel');
-  const sReason = document.getElementById('sReason');
-  const sMetrics = document.getElementById('sMetrics');
-  const dState = document.getElementById('dState');
-  const dReason = document.getElementById('dReason');
-  const dMetrics = document.getElementById('dMetrics');
+  const sLabel = document.getElementById('sLabel'), sReason = document.getElementById('sReason'), sMetrics = document.getElementById('sMetrics');
+  const dState = document.getElementById('dState'), dReason = document.getElementById('dReason'), dMetrics = document.getElementById('dMetrics');
   const driftEl = document.getElementById('drift');
 
   function renderScene(s){
@@ -449,115 +545,208 @@
     if (s.thresholds) parts.push(`TTC\u2264${s.thresholds.ttc_high_sec}s`);
     sMetrics.textContent = parts.join(' · ');
   }
-
-  async function pollScene(){
-    try {
-      const r = await fetch('/api/live/scene', {cache:'no-store'});
-      if (r.ok) renderScene(await r.json());
-    } catch(_){}
-  }
-
+  async function pollScene(){ try { const r = await fetch('/api/live/scene',{cache:'no-store'}); if (r.ok) renderScene(await r.json()); } catch(_){} }
   function renderDrift(d){
     if (!d) return;
-    if (!d.window_size){
-      dState.textContent = '—';
-      dReason.textContent = 'no labelled feedback yet';
-      dMetrics.textContent = '';
-      return;
-    }
-    dState.textContent = (d.precision != null) ? `P=${Number(d.precision).toFixed(2)}` : '—';
+    if (!d.window_size){ dState.textContent='—'; dReason.textContent='no labelled feedback yet'; dMetrics.textContent=''; return; }
+    dState.textContent = (d.precision!=null) ? `P=${Number(d.precision).toFixed(2)}` : '—';
     dReason.textContent = d.trend ? `trend: ${d.trend}` : '';
     dMetrics.textContent = `n=${d.window_size} · TP=${d.true_positives} · FP=${d.false_positives}`;
     driftEl.classList.toggle('degraded', !!d.alert_triggered);
   }
-
-  async function pollDrift(){
-    try {
-      const r = await fetch('/api/drift', {cache:'no-store'});
-      if (r.ok) renderDrift(await r.json());
-    } catch(_){}
-  }
+  async function pollDrift(){ try { const r = await fetch('/api/drift',{cache:'no-store'}); if (r.ok) renderDrift(await r.json()); } catch(_){} }
   driftEl.addEventListener('click', pollDrift);
 
-  // ---- status poll ----
+  // ── Status poll ──
   async function pollStatus(){
     try {
       const r = await fetch('/api/live/status', {cache:'no-store'});
       if (r.ok) {
         const j = await r.json();
         sourceName = j.source || sourceName;
-        if (j.started_at){
-          const t = typeof j.started_at==='number' ? j.started_at : Date.parse(j.started_at)/1000;
-          if (!isNaN(t)) startedAt = t;
-        }
+        if (j.started_at){ const t = typeof j.started_at==='number' ? j.started_at : Date.parse(j.started_at)/1000; if (!isNaN(t)) startedAt = t; }
         if (j.perception) renderPerception(j.perception);
         if (!statusDot.classList.contains('bad')) setStatus('connected');
       }
     } catch(_){}
   }
-  function tickUptime(){
-    if (startedAt){
-      const secs = Math.max(0, Date.now()/1000 - startedAt);
-      tUp.textContent = fmtUptime(secs);
-    }
-  }
+  function tickUptime(){ if (startedAt){ const secs = Math.max(0, Date.now()/1000 - startedAt); tUp.textContent = fmtUptime(secs); } }
   setInterval(pollStatus, 5000);
   setInterval(pollScene, 7000);
   setInterval(pollDrift, 30000);
   setInterval(tickUptime, 1000);
-  pollStatus();
-  pollScene();
-  pollDrift();
+  pollStatus(); pollScene(); pollDrift();
 
-  // ---- copilot chat ----
-  const chatEl = document.getElementById('chat');
-  const qEl = document.getElementById('q');
-  const askBtn = document.getElementById('askBtn');
-  const form = document.getElementById('composeForm');
+  // ── Copilot ──
+  const chatEl = document.getElementById('chat'), qEl = document.getElementById('q');
+  const askBtn = document.getElementById('askBtn'), form = document.getElementById('composeForm');
   let inFlight = false;
-
   function appendMsg(role, text, isErr){
     const d = document.createElement('div');
     d.className = 'msg ' + (role==='user'?'user':'bot') + (isErr?' err':'');
-    d.textContent = text;
-    chatEl.appendChild(d);
-    chatEl.scrollTop = chatEl.scrollHeight;
-    return d;
+    d.textContent = text; chatEl.appendChild(d); chatEl.scrollTop = chatEl.scrollHeight; return d;
   }
-
   async function ask(query){
     if (inFlight || !query.trim()) return;
-    inFlight = true;
-    askBtn.disabled = true; askBtn.textContent = 'Thinking…';
-    appendMsg('user', query);
-    qEl.value = '';
+    inFlight = true; askBtn.disabled = true; askBtn.textContent = 'Thinking…';
+    appendMsg('user', query); qEl.value = '';
     try {
-      const r = await fetch('/chat', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({query})
-      });
+      const r = await fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query}) });
       if (!r.ok) throw new Error('HTTP '+r.status);
-      const j = await r.json();
-      appendMsg('bot', j.answer || '(no answer)');
-    } catch(err){
-      appendMsg('bot', '(error: '+(err.message||err)+')', true);
-    } finally {
-      inFlight = false;
-      askBtn.disabled = false; askBtn.textContent = 'Ask';
-      qEl.focus();
+      const j = await r.json(); appendMsg('bot', j.answer || '(no answer)');
+    } catch(err){ appendMsg('bot', '(error: '+(err.message||err)+')', true); }
+    finally { inFlight = false; askBtn.disabled = false; askBtn.textContent = 'Ask'; qEl.focus(); }
+  }
+  form.addEventListener('submit', e => { e.preventDefault(); ask(qEl.value); });
+  qEl.addEventListener('keydown', e => { if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); ask(qEl.value); } });
+  document.getElementById('chips').addEventListener('click', e => { const t = e.target.closest('.chip'); if (t) { qEl.value = t.dataset.q || t.textContent; qEl.focus(); } });
+
+  // ════════════════════════════════════════════════════════════════
+  //  TEST PANEL
+  // ════════════════════════════════════════════════════════════════
+
+  const testBadge = document.getElementById('testBadge');
+  const testBadgeDot = document.getElementById('testBadgeDot');
+  const testBadgeLabel = document.getElementById('testBadgeLabel');
+  const testBadgeCounts = document.getElementById('testBadgeCounts');
+  const testOverlay = document.getElementById('testOverlay');
+  const testDrawer = document.getElementById('testDrawer');
+  const testClose = document.getElementById('testClose');
+  const testRerunBtn = document.getElementById('testRerunBtn');
+
+  let drawerOpen = false;
+  function toggleDrawer(open){
+    drawerOpen = open;
+    testOverlay.classList.toggle('open', open);
+    testDrawer.classList.toggle('open', open);
+  }
+  testBadge.addEventListener('click', () => toggleDrawer(!drawerOpen));
+  testOverlay.addEventListener('click', () => toggleDrawer(false));
+  testClose.addEventListener('click', () => toggleDrawer(false));
+
+  testRerunBtn.addEventListener('click', async () => {
+    testRerunBtn.disabled = true;
+    try { await fetch('/api/tests/run', {method:'POST'}); } catch(_){}
+  });
+
+  const testIcons = { passed: '✓', failed: '✗', error: '!', skipped: '○' };
+  let lastTestStatus = '';
+
+  async function pollTests(){
+    try {
+      const r = await fetch('/api/tests/status', {cache:'no-store'});
+      if (!r.ok) return;
+      const d = await r.json();
+      renderTestBadge(d);
+      renderTestDrawer(d);
+      lastTestStatus = d.status;
+    } catch(_){}
+  }
+
+  function renderTestBadge(d){
+    testBadgeDot.className = 'badge-dot ' + d.status;
+    if (d.status === 'idle') {
+      testBadgeLabel.textContent = 'Tests';
+      testBadgeCounts.innerHTML = '';
+    } else if (d.status === 'running') {
+      testBadgeLabel.textContent = 'Running';
+      const pct = d.total > 0 ? Math.round(d.progress / d.total * 100) : 0;
+      testBadgeCounts.innerHTML = `<span>${pct}%</span>`;
+    } else {
+      testBadgeLabel.textContent = d.status === 'passed' ? 'Passed' : 'Failed';
+      let html = `<span class="cnt-pass">${d.passed}</span>`;
+      if (d.failed > 0) html += `<span class="cnt-fail">${d.failed}</span>`;
+      testBadgeCounts.innerHTML = html;
+    }
+    // Auto-open drawer on first failure
+    if (d.status === 'failed' && lastTestStatus === 'running' && !drawerOpen) {
+      toggleDrawer(true);
     }
   }
 
-  form.addEventListener('submit', e => { e.preventDefault(); ask(qEl.value); });
-  qEl.addEventListener('keydown', e => {
-    if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); ask(qEl.value); }
-  });
-  document.getElementById('chips').addEventListener('click', e => {
-    const t = e.target.closest('.chip');
-    if (t) { qEl.value = t.dataset.q || t.textContent; qEl.focus(); }
-  });
+  function renderTestDrawer(d){
+    document.getElementById('tsTotal').textContent = d.total || '—';
+    document.getElementById('tsPassed').textContent = d.passed || '0';
+    document.getElementById('tsFailed').textContent = d.failed || '0';
+    document.getElementById('tsSkipped').textContent = d.skipped || '0';
 
-  // ---- go ----
+    // Progress bar
+    const bar = document.getElementById('testBar');
+    const pct = d.total > 0 ? Math.round(d.progress / d.total * 100) : 0;
+    bar.style.width = pct + '%';
+    bar.classList.remove('done-pass', 'done-fail');
+    if (d.status === 'passed') bar.classList.add('done-pass');
+    else if (d.status === 'failed') bar.classList.add('done-fail');
+
+    const label = document.getElementById('testProgressLabel');
+    if (d.status === 'idle') label.textContent = 'Waiting to start…';
+    else if (d.status === 'running') label.textContent = `Running… ${d.progress}/${d.total}`;
+    else if (d.status === 'passed') label.textContent = `All ${d.total} tests passed`;
+    else label.textContent = `${d.failed} test${d.failed!==1?'s':''} failed`;
+
+    document.getElementById('testElapsed').textContent = d.elapsed_sec > 0 ? `${d.elapsed_sec.toFixed(1)}s` : '';
+    document.getElementById('testTotalTime').textContent = d.status !== 'running' && d.elapsed_sec > 0 ? `Completed in ${d.elapsed_sec.toFixed(1)}s` : '';
+
+    testRerunBtn.disabled = d.status === 'running';
+
+    // Result list grouped by file
+    const listEl = document.getElementById('testList');
+    if (!d.results || d.results.length === 0) {
+      if (d.status === 'running') listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">Running tests…</div>';
+      else if (d.status === 'idle') listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">No test results yet</div>';
+      return;
+    }
+
+    const byFile = {};
+    for (const t of d.results) {
+      const f = t.file || 'unknown';
+      if (!byFile[f]) byFile[f] = [];
+      byFile[f].push(t);
+    }
+
+    let html = '';
+    for (const [file, tests] of Object.entries(byFile)) {
+      const allPassed = tests.every(t => t.outcome === 'passed');
+      const anyFailed = tests.some(t => t.outcome === 'failed' || t.outcome === 'error');
+      const fileIcon = anyFailed ? '✗' : allPassed ? '✓' : '○';
+      const fileColor = anyFailed ? 'var(--high)' : allPassed ? 'var(--green)' : 'var(--muted)';
+      html += `<div class="test-file-group">`;
+      html += `<div class="test-file-header"><span style="color:${fileColor}">${fileIcon}</span> ${escapeHtml(file)}</div>`;
+      for (const t of tests) {
+        const icon = testIcons[t.outcome] || '?';
+        const durStr = t.duration_ms > 0 ? `${t.duration_ms.toFixed(0)}ms` : '';
+        html += `<div class="test-item">`;
+        html += `<span class="test-icon ${t.outcome}">${icon}</span>`;
+        html += `<span class="test-name" title="${escapeHtml(t.node_id)}">${escapeHtml(t.name)}</span>`;
+        html += `<span class="test-dur">${durStr}</span>`;
+        html += `</div>`;
+        if (t.message) {
+          html += `<div class="test-error-msg">${escapeHtml(t.message)}</div>`;
+        }
+      }
+      html += `</div>`;
+    }
+    listEl.innerHTML = html;
+  }
+
+  // Poll tests every 1.5s while running, 10s otherwise
+  let testPollInterval = null;
+  function scheduleTestPoll(){
+    clearInterval(testPollInterval);
+    const ms = (lastTestStatus === 'running') ? 1500 : 10000;
+    testPollInterval = setInterval(pollTests, ms);
+  }
+  setInterval(() => {
+    const isRunning = lastTestStatus === 'running';
+    const currentMs = testPollInterval ? 1500 : 10000;
+    if (isRunning && currentMs !== 1500) scheduleTestPoll();
+    else if (!isRunning && currentMs !== 10000) scheduleTestPoll();
+  }, 2000);
+
+  pollTests();
+  scheduleTestPoll();
+
+  // ── Go ──
   setStatus('connecting');
   connectSSE();
 })();
