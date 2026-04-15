@@ -28,7 +28,7 @@ from ultralytics import YOLO
 VEHICLE_CLASSES = {"car", "truck", "bus", "motorcycle"}
 PEDESTRIAN_CLASSES = {"person"}
 
-CONF_THRESHOLD = 0.35
+CONF_THRESHOLD = 0.60
 from road_safety.config import MODEL_PATH
 TRACKER_CFG = "bytetrack.yaml"
 
@@ -241,6 +241,9 @@ def detect_frame(model: YOLO, frame, persistent: bool = True) -> list[Detection]
         if conf < CONF_THRESHOLD:
             continue
         x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
+        w, h = x2 - x1, y2 - y1
+        if cls == "person" and h > 0 and w / h > 0.7:
+            continue
         out.append(Detection(cls=cls, conf=conf, x1=x1, y1=y1, x2=x2, y2=y2, track_id=tid))
     return out
 
