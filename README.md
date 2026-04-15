@@ -1,14 +1,14 @@
-# Fleet Safety — Live Event Detection + LLM Copilot
+# Live Event Detection + LLM Copilot
 
-A real-time fleet safety dashboard. Pulls a live public camera stream, detects pedestrian-vehicle and vehicle-vehicle proximity events with YOLO, narrates each incident with Claude, and exposes an operator copilot that answers questions over a small statute/policy corpus using RAG.
+A real-time dashcam safety dashboard. Pulls a live public camera stream, detects pedestrian-vehicle and vehicle-vehicle proximity events with YOLO, narrates each incident with Claude, and exposes an operator copilot that answers questions over a small statute/policy corpus using RAG.
 
 Model-agnostic LLM layer (Anthropic + Azure OpenAI drop-in), event metadata as the product surface, CV as a pluggable upstream.
 
 ## Industry challenges and how we solve them
 
-Fleet safety AI is a hard production problem. Below are the six core challenges the industry faces and how this project addresses each one.
+Dashcam safety AI is a hard production problem. Below are the core challenges the industry faces and how this project addresses each one.
 
-### 1. False positives — the #1 fleet safety AI problem
+### 1. False positives — the #1 dashcam safety AI problem
 
 Basic detection systems generate massive false-positive volumes. Close vehicle proximity is normal in a parking lot but dangerous on a highway. Fixed thresholds either miss real danger at high speed or flood drivers with noise during routine maneuvers. Alert fatigue sets in fast — drivers learn to ignore everything, including valid warnings.
 
@@ -147,7 +147,7 @@ Each event is risk-classified (`high` / `medium` / `low`) using physical-unit TT
 ## Setup
 
 ```bash
-cd ~/Desktop/fleet-safety-demo
+cd ~/Desktop/safety-demo
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -200,7 +200,7 @@ Hand-label ground truth in `data/labels.json`, then `python eval.py` writes `dat
 
 ## Design notes
 
-- **Real stream, not a file.** The point is the live feedback loop — events arrive in the UI as they happen. Solves the #1 bottleneck in fleet-safety review: operator time on raw footage.
+- **Real stream, not a file.** The point is the live feedback loop — events arrive in the UI as they happen. Solves the #1 bottleneck in safety review: operator time on raw footage.
 - **LLM on metadata, not pixels.** Claude narrates the structured event JSON; vision enrichment (ALPR) is a separate controlled path with self-consistency + circuit breaker.
 - **Prompt caching on the RAG corpus.** The statute/policy corpus is tagged `cache_control: ephemeral` so repeated copilot queries pay ~0 cost on the corpus tokens.
 - **Graceful degradation.** No API key → templated summaries, chat disabled cleanly. Stream resolution failure → server still serves the UI and batch endpoints.
