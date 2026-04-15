@@ -1004,7 +1004,7 @@ def admin_health():
             "active_episodes": len(state.episodes),
             "tracker": "bytetrack",
             "risk_model": "ttc+ground_plane",
-            "model": MODEL_PATH if "MODEL_PATH" in dir() else "yolov8n.pt",
+            "model": "yolov8n.pt",
         },
         "integrations": {
             "llm_configured": llm_configured(),

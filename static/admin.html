@@ -6,9 +6,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root {
-    --bg: #0b0f14; --panel: #141a22; --border: #1f2937; --text: #e5e7eb;
-    --muted: #9ca3af; --accent: #38bdf8; --high: #ef4444; --medium: #f59e0b;
-    --low: #6b7280; --green: #22c55e;
+    --bg: #0a0e13; --panel: #121820; --card: #0d1117; --border: #1e2733;
+    --text: #e5e7eb; --muted: #8b95a5; --accent: #38bdf8; --high: #ef4444;
+    --medium: #f59e0b; --low: #6b7280; --green: #22c55e; --purple: #a78bfa;
+    --radius: 10px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0 }
   html, body { background: var(--bg); color: var(--text);
@@ -16,88 +17,112 @@
     font-size: 13px; line-height: 1.45; height: 100% }
   body { display: flex; flex-direction: column; min-height: 100vh }
 
-  header { padding: 12px 20px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between; gap: 12px }
-  header h1 { font-size: 16px; font-weight: 600; letter-spacing: .3px }
-  header .nav { display: flex; gap: 10px; align-items: center }
-  header a { color: var(--accent); text-decoration: none; font-size: 12px; opacity: .8 }
+  /* ── Header ── */
+  header { padding: 10px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; background: var(--panel) }
+  header h1 { font-size: 15px; font-weight: 700; letter-spacing: .3px; white-space: nowrap }
+  header .sep { width: 1px; height: 20px; background: var(--border) }
+  header .nav { display: flex; gap: 12px; align-items: center }
+  header a { color: var(--accent); text-decoration: none; font-size: 12px; opacity: .7;
+    transition: opacity .15s }
   header a:hover { opacity: 1 }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
-    border-radius: 999px; background: var(--bg); border: 1px solid var(--border);
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+    border-radius: 999px; background: var(--card); border: 1px solid var(--border);
     font-size: 11px; color: var(--muted) }
   .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block }
-  .dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(34, 197, 94, .5) }
-  .dot.off { background: var(--low) }
+  .dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,.5) }
+  .dot.off { background: var(--high); animation: blink 1.5s infinite }
+  .dot.wait { background: var(--medium) }
+  @keyframes blink { 50% { opacity: .4 } }
 
-  .layout { display: grid; grid-template-columns: 1fr 360px; gap: 0; flex: 1; min-height: 0 }
-  @media (max-width: 960px) { .layout { grid-template-columns: 1fr } }
+  /* ── Main Grid ── */
+  .main { display: grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr;
+    flex: 1; min-height: 0; gap: 0 }
+  @media (max-width: 1100px) { .main { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto } }
 
-  .video-section { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border) }
+  /* ── Health Strip ── */
+  .health-strip { grid-column: 1 / -1; display: flex; gap: 0; border-bottom: 1px solid var(--border);
+    background: var(--panel); overflow-x: auto }
+  .hg { padding: 10px 16px; border-right: 1px solid var(--border); min-width: 0; flex-shrink: 0 }
+  .hg:last-child { border-right: none }
+  .hg-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: .7px;
+    color: var(--muted); margin-bottom: 4px; font-weight: 600 }
+  .hg-val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .hg-val.ok { color: var(--green) }
+  .hg-val.warn { color: var(--medium) }
+  .hg-val.err { color: var(--high) }
+  .hg-val.accent { color: var(--accent) }
+  .hg-sub { font-size: 10px; color: var(--muted); margin-top: 1px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis }
+
+  /* ── Video Section ── */
+  .video-col { display: flex; flex-direction: column; min-height: 0;
+    border-right: 1px solid var(--border) }
   .video-wrap { flex: 1; display: flex; align-items: center; justify-content: center;
-    background: #000; position: relative; min-height: 300px; overflow: hidden }
+    background: #000; position: relative; min-height: 280px; overflow: hidden }
   .video-wrap img { max-width: 100%; max-height: 100%; object-fit: contain }
-  .video-wrap .placeholder { color: #334155; font-size: 14px; text-align: center; padding: 20px }
-  .video-overlay { position: absolute; bottom: 12px; left: 12px; display: flex; gap: 8px }
-  .video-overlay .badge { padding: 4px 10px; border-radius: 6px; font-size: 11px;
-    font-weight: 600; backdrop-filter: blur(8px); letter-spacing: .3px }
-  .badge.det { background: rgba(56, 189, 248, .2); border: 1px solid rgba(56, 189, 248, .4); color: #7dd3fc }
-  .badge.int { background: rgba(239, 68, 68, .2); border: 1px solid rgba(239, 68, 68, .4); color: #fca5a5 }
+  .placeholder { color: #334155; font-size: 14px; text-align: center; padding: 20px;
+    position: absolute; z-index: 1 }
+  .overlay-strip { position: absolute; bottom: 0; left: 0; right: 0;
+    display: flex; gap: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px) }
+  .ov-stat { flex: 1; padding: 7px 12px; text-align: center;
+    border-right: 1px solid rgba(255,255,255,.08) }
+  .ov-stat:last-child { border-right: none }
+  .ov-stat .ov-n { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums }
+  .ov-stat .ov-n.accent { color: var(--accent) }
+  .ov-stat .ov-n.green { color: var(--green) }
+  .ov-stat .ov-n.warn { color: var(--medium) }
+  .ov-stat .ov-n.danger { color: var(--high) }
+  .ov-stat .ov-l { font-size: 9px; text-transform: uppercase; letter-spacing: .5px;
+    color: rgba(255,255,255,.45); margin-top: 1px }
 
-  .stats-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
-    border-top: 1px solid var(--border) }
-  .stat { padding: 10px 14px; border-right: 1px solid var(--border); text-align: center }
-  .stat:last-child { border-right: none }
-  .stat .label { font-size: 10px; color: var(--muted); text-transform: uppercase;
-    letter-spacing: .6px; margin-bottom: 3px }
-  .stat .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums }
-  .stat .val.accent { color: var(--accent) }
-  .stat .val.green { color: var(--green) }
-  .stat .val.warn { color: var(--medium) }
-  .stat .val.danger { color: var(--high) }
-
+  /* ── Sidebar ── */
   .sidebar { display: flex; flex-direction: column; min-height: 0; overflow: hidden }
-  .sidebar-head { padding: 12px 16px; border-bottom: 1px solid var(--border);
-    font-weight: 600; font-size: 13px; display: flex; align-items: center;
-    justify-content: space-between }
-  .sidebar-head .count { color: var(--muted); font-weight: 400; font-size: 11px }
+  .tab-bar { display: flex; border-bottom: 1px solid var(--border); background: var(--panel) }
+  .tab { flex: 1; padding: 9px 14px; text-align: center; font-size: 11.5px; font-weight: 600;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s; text-transform: uppercase; letter-spacing: .5px }
+  .tab:hover { color: var(--text) }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent) }
+  .tab-panel { flex: 1; overflow-y: auto; min-height: 0; display: none }
+  .tab-panel.active { display: block }
+  .tab-panel::-webkit-scrollbar { width: 6px }
+  .tab-panel::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px }
 
-  .det-list { flex: 1; overflow-y: auto; padding: 8px 12px }
-  .det-list::-webkit-scrollbar { width: 6px }
-  .det-list::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px }
-
-  .frame-group { margin-bottom: 12px; animation: fadeIn .3s ease }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px) } to { opacity: 1; transform: none } }
-  .frame-header { font-size: 10px; color: var(--muted); padding: 4px 0; border-bottom: 1px solid var(--border);
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+  /* ── Detections Panel ── */
+  .det-list { padding: 8px 10px }
+  .frame-group { margin-bottom: 10px; animation: fadeIn .25s ease }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(-3px) } to { opacity:1; transform: none } }
+  .frame-hdr { font-size: 10px; color: var(--muted); padding: 3px 0; margin-bottom: 4px;
+    border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
-  .det-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
-    border-radius: 6px; margin-bottom: 3px; font-size: 12px;
-    background: var(--bg); border: 1px solid transparent; transition: border-color .15s }
+  .det-row { display: flex; align-items: center; gap: 6px; padding: 4px 7px;
+    border-radius: 5px; margin-bottom: 2px; font-size: 12px; background: var(--card);
+    border: 1px solid transparent; transition: border-color .12s }
   .det-row:hover { border-color: var(--border) }
-  .det-cls { font-weight: 600; min-width: 72px }
+  .det-cls { font-weight: 600; min-width: 68px }
   .det-cls.person { color: #86efac }
   .det-cls.vehicle { color: #fbbf24 }
   .det-conf { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
-    color: var(--muted); min-width: 38px }
+    color: var(--muted); min-width: 36px }
   .det-track { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
     color: #c4b5fd; background: #1a1022; padding: 1px 5px; border-radius: 3px }
   .det-bbox { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
-    color: var(--muted); margin-left: auto; opacity: .6 }
+    color: var(--muted); margin-left: auto; opacity: .5 }
 
-  .events-section { border-top: 1px solid var(--border) }
-  .event-list { max-height: 220px; overflow-y: auto; padding: 8px 12px }
-  .event-list::-webkit-scrollbar { width: 6px }
-  .event-list::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px }
-
-  .evt-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
-    border-radius: 6px; margin-bottom: 6px; background: var(--bg); border: 1px solid var(--border);
-    animation: fadeIn .3s ease }
-  .evt-card .thumb { width: 64px; height: 40px; border-radius: 4px; overflow: hidden;
+  /* ── Events Panel ── */
+  .evt-list { padding: 8px 10px }
+  .evt-card { display: flex; gap: 10px; padding: 8px 10px; border-radius: 7px;
+    margin-bottom: 6px; background: var(--card); border: 1px solid var(--border);
+    animation: fadeIn .25s ease; cursor: default; transition: border-color .12s }
+  .evt-card:hover { border-color: var(--accent) }
+  .evt-card .thumb { width: 72px; height: 44px; border-radius: 4px; overflow: hidden;
     background: #000; flex-shrink: 0 }
   .evt-card .thumb img { width: 100%; height: 100%; object-fit: cover }
-  .evt-card .info { flex: 1; min-width: 0 }
-  .evt-card .top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px }
-  .risk { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700;
+  .evt-card .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px }
+  .evt-top { display: flex; align-items: center; gap: 5px; flex-wrap: wrap }
+  .risk { padding: 1px 6px; border-radius: 3px; font-size: 9.5px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .4px }
   .risk-high { background: var(--high); color: #fff }
   .risk-medium { background: var(--medium); color: #111 }
@@ -105,62 +130,107 @@
   .evt-type { font-weight: 600; font-size: 12px }
   .evt-time { color: var(--muted); font-size: 10px; margin-left: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+  .evt-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center }
+  .evt-tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--bg);
+    border: 1px solid var(--border); color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+  .evt-tag.kin { color: #86efac; border-color: #14532d; background: #0a1a0e }
+  .evt-tag.kin.warn { color: #fca5a5; border-color: #7f1d1d; background: #2a0f0f }
   .evt-narr { color: var(--muted); font-size: 11px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis }
+  .empty-state { color: var(--muted); text-align: center; padding: 40px 16px; font-size: 12px }
+
+  /* ── Scrollbar global ── */
+  ::-webkit-scrollbar { width: 6px }
+  ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Admin Monitor</h1>
-  <div class="nav">
-    <a href="/">Dashboard</a>
-    <span class="pill">
-      <span class="dot" id="statusDot"></span>
-      <span id="statusText">connecting</span>
-    </span>
+  <h1>Fleet Safety Admin</h1>
+  <span class="sep"></span>
+  <span class="pill" id="statusPill">
+    <span class="dot wait" id="statusDot"></span>
+    <span id="statusText">connecting</span>
+  </span>
+  <span class="pill" id="uptimePill">uptime <strong id="uptimeVal">—</strong></span>
+  <div class="nav" style="margin-left:auto">
+    <a href="/">Event Dashboard</a>
   </div>
 </header>
 
-<div class="layout">
-  <div class="video-section">
+<!-- Health strip -->
+<div class="health-strip" id="healthStrip">
+  <div class="hg"><div class="hg-label">Stream</div><div class="hg-val" id="hStream">—</div><div class="hg-sub" id="hStreamSub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">Frames</div><div class="hg-val accent" id="hFrames">—</div><div class="hg-sub" id="hFramesSub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">Events</div><div class="hg-val" id="hEvents">0</div><div class="hg-sub" id="hEventsSub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">Perception</div><div class="hg-val" id="hPerception">—</div><div class="hg-sub" id="hPerceptionSub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">Scene</div><div class="hg-val" id="hScene">—</div><div class="hg-sub" id="hSceneSub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">Tracker</div><div class="hg-val accent" id="hTracker">—</div><div class="hg-sub" id="hTrackerSub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">LLM</div><div class="hg-val" id="hLlm">—</div><div class="hg-sub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">Slack</div><div class="hg-val" id="hSlack">—</div><div class="hg-sub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">Edge Pub</div><div class="hg-val" id="hEdge">—</div><div class="hg-sub">&nbsp;</div></div>
+  <div class="hg"><div class="hg-label">PII</div><div class="hg-val ok" id="hPii">—</div><div class="hg-sub">&nbsp;</div></div>
+</div>
+
+<div class="main">
+  <!-- Video -->
+  <div class="video-col">
     <div class="video-wrap">
       <img id="videoFeed" alt="Live detection feed" />
       <div class="placeholder" id="videoPlaceholder">Waiting for video stream&hellip;</div>
-      <div class="video-overlay">
-        <span class="badge det" id="badgeDet">0 objects</span>
-        <span class="badge int" id="badgeInt">0 interactions</span>
+      <div class="overlay-strip">
+        <div class="ov-stat"><div class="ov-n accent" id="sTotal">0</div><div class="ov-l">detections</div></div>
+        <div class="ov-stat"><div class="ov-n green" id="sPersons">0</div><div class="ov-l">persons</div></div>
+        <div class="ov-stat"><div class="ov-n warn" id="sVehicles">0</div><div class="ov-l">vehicles</div></div>
+        <div class="ov-stat"><div class="ov-n danger" id="sInter">0</div><div class="ov-l">interactions</div></div>
+        <div class="ov-stat"><div class="ov-n" id="sFps">—</div><div class="ov-l">fps</div></div>
       </div>
-    </div>
-    <div class="stats-bar">
-      <div class="stat"><div class="label">Detections</div><div class="val accent" id="sTotal">0</div></div>
-      <div class="stat"><div class="label">Persons</div><div class="val green" id="sPersons">0</div></div>
-      <div class="stat"><div class="label">Vehicles</div><div class="val warn" id="sVehicles">0</div></div>
-      <div class="stat"><div class="label">Interactions</div><div class="val danger" id="sInter">0</div></div>
-      <div class="stat"><div class="label">FPS</div><div class="val" id="sFps">—</div></div>
     </div>
   </div>
 
+  <!-- Sidebar -->
   <div class="sidebar">
-    <div class="sidebar-head">
-      Live Detections
-      <span class="count" id="detCount">0 objects</span>
+    <div class="tab-bar">
+      <div class="tab active" data-tab="detections">Detections</div>
+      <div class="tab" data-tab="events">Events <span id="evtBadge" style="font-size:10px;color:var(--muted)"></span></div>
+      <div class="tab" data-tab="history">History <span id="histBadge" style="font-size:10px;color:var(--muted)"></span></div>
     </div>
-    <div class="det-list" id="detList">
-      <div style="color:var(--muted);text-align:center;padding:30px 10px;font-size:12px">
-        Waiting for detections&hellip;
+
+    <!-- Tab: Live Detections -->
+    <div class="tab-panel active" id="panel-detections">
+      <div class="det-list" id="detList">
+        <div class="empty-state">Waiting for detections&hellip;</div>
       </div>
     </div>
 
-    <div class="events-section">
-      <div class="sidebar-head">
-        Recent Events
-        <span class="count" id="evtCount">0</span>
+    <!-- Tab: Live Events (new events as they arrive) -->
+    <div class="tab-panel" id="panel-events">
+      <div class="evt-list" id="evtList">
+        <div class="empty-state">No events yet — they appear here in real time</div>
       </div>
-      <div class="event-list" id="evtList">
-        <div style="color:var(--muted);text-align:center;padding:20px 10px;font-size:12px">
-          No events yet
-        </div>
+    </div>
+
+    <!-- Tab: Event History (loaded from server) -->
+    <div class="tab-panel" id="panel-history">
+      <div style="padding:8px 10px;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center">
+        <select id="histFilter" style="background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px">
+          <option value="">All risks</option>
+          <option value="high">High only</option>
+          <option value="medium">Medium only</option>
+          <option value="low">Low only</option>
+        </select>
+        <select id="histTypeFilter" style="background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px">
+          <option value="">All types</option>
+          <option value="pedestrian_proximity">Pedestrian proximity</option>
+          <option value="vehicle_close_interaction">Vehicle interaction</option>
+        </select>
+        <button id="histRefresh" style="background:var(--accent);color:#000;border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer">Refresh</button>
+        <span id="histCount" style="margin-left:auto;color:var(--muted);font-size:11px"></span>
+      </div>
+      <div class="evt-list" id="histList">
+        <div class="empty-state">Loading event history&hellip;</div>
       </div>
     </div>
   </div>
@@ -168,156 +238,173 @@
 
 <script>
 (() => {
-  const videoFeed = document.getElementById('videoFeed');
-  const videoPlaceholder = document.getElementById('videoPlaceholder');
-  const badgeDet = document.getElementById('badgeDet');
-  const badgeInt = document.getElementById('badgeInt');
-  const sTotal = document.getElementById('sTotal');
-  const sPersons = document.getElementById('sPersons');
-  const sVehicles = document.getElementById('sVehicles');
-  const sInter = document.getElementById('sInter');
-  const sFps = document.getElementById('sFps');
-  const detList = document.getElementById('detList');
-  const detCount = document.getElementById('detCount');
-  const evtList = document.getElementById('evtList');
-  const evtCount = document.getElementById('evtCount');
-  const statusDot = document.getElementById('statusDot');
-  const statusText = document.getElementById('statusText');
+  /* ── DOM refs ── */
+  const $ = id => document.getElementById(id);
+  const videoFeed = $('videoFeed'), videoPlaceholder = $('videoPlaceholder');
+  const sTotal = $('sTotal'), sPersons = $('sPersons'), sVehicles = $('sVehicles');
+  const sInter = $('sInter'), sFps = $('sFps');
+  const detList = $('detList'), evtList = $('evtList'), histList = $('histList');
+  const statusDot = $('statusDot'), statusText = $('statusText'), uptimeVal = $('uptimeVal');
+  const evtBadge = $('evtBadge'), histBadge = $('histBadge');
+  const histFilter = $('histFilter'), histTypeFilter = $('histTypeFilter');
 
-  const MAX_EVENTS = 30;
-  const MAX_FRAME_GROUPS = 6;
-  let eventCards = 0;
-  let firstEvent = true;
-  let firstDetection = true;
-  let lastFrameTime = 0;
-  let frameCount = 0;
-  let fpsStartTime = Date.now();
+  const MAX_EVENTS = 50, MAX_FRAMES = 8;
+  let liveEventCount = 0, firstEvent = true, firstDet = true;
+  let frameCount = 0, fpsStart = Date.now();
+  let startedAt = null;
 
+  /* ── Video feed ── */
   videoFeed.src = '/admin/video_feed';
   videoFeed.onload = () => { videoPlaceholder.style.display = 'none'; };
   videoFeed.onerror = () => { videoPlaceholder.textContent = 'Video feed unavailable'; };
 
-  const escHtml = s => (s == null ? '' : String(s))
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  /* ── Helpers ── */
+  const esc = s => (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const pad2 = n => String(n).padStart(2, '0');
   const fmtTime = ts => {
     const d = ts ? new Date(ts) : new Date();
     return isNaN(d) ? '—' : `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
   };
-  const humanType = t => (t || 'event').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+  const humanType = t => (t || 'event').replace(/_/g,' ').replace(/^\w/, c => c.toUpperCase());
+  const fmtUp = s => {
+    if (s == null || s < 0) return '—';
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+    return h > 0 ? `${h}h ${pad2(m)}m` : `${m}m ${pad2(sec)}s`;
+  };
 
-  // --- Detection SSE ---
-  let detEs = null, detBackoff = 1500;
+  /* ── Tabs ── */
+  document.querySelector('.tab-bar').addEventListener('click', e => {
+    const t = e.target.closest('.tab');
+    if (!t) return;
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    $('panel-' + t.dataset.tab).classList.add('active');
+  });
+
+  /* ── Health polling ── */
+  async function pollHealth() {
+    try {
+      const r = await fetch('/api/admin/health', { cache: 'no-store' });
+      if (!r.ok) return;
+      const h = await r.json();
+      const srv = h.server, pip = h.pipeline, intg = h.integrations, perc = h.perception, sc = h.scene;
+
+      // Status dot
+      statusDot.className = srv.running ? 'dot ok' : 'dot off';
+      statusText.textContent = srv.running ? 'live' : 'offline';
+
+      // Uptime
+      if (srv.started_at) startedAt = srv.started_at;
+
+      // Health cells
+      $('hStream').textContent = srv.running ? 'Active' : 'Down';
+      $('hStream').className = 'hg-val ' + (srv.running ? 'ok' : 'err');
+      $('hStreamSub').textContent = (srv.source || '').substring(0, 50);
+
+      $('hFrames').textContent = pip.frames_processed.toLocaleString();
+      $('hFramesSub').textContent = `${pip.frames_read.toLocaleString()} read / ${srv.target_fps} fps target`;
+
+      $('hEvents').textContent = pip.event_count;
+      $('hEvents').className = 'hg-val' + (pip.event_count > 0 ? ' accent' : '');
+      $('hEventsSub').textContent = `${pip.active_episodes} active episode${pip.active_episodes !== 1 ? 's' : ''}`;
+
+      const pOk = perc.state === 'nominal';
+      $('hPerception').textContent = perc.state;
+      $('hPerception').className = 'hg-val ' + (pOk ? 'ok' : 'warn');
+      const pParts = [];
+      if (perc.avg_confidence != null) pParts.push(`conf ${Number(perc.avg_confidence).toFixed(2)}`);
+      if (perc.luminance != null) pParts.push(`lum ${Math.round(perc.luminance)}`);
+      $('hPerceptionSub').textContent = pParts.join(' / ') || perc.reason;
+
+      $('hScene').textContent = sc.label;
+      $('hScene').className = 'hg-val accent';
+      const sParts = [];
+      if (sc.speed_proxy_mps != null) sParts.push(`~${sc.speed_proxy_mps} m/s`);
+      sParts.push(sc.reason || '');
+      $('hSceneSub').textContent = sParts.join(' / ');
+
+      $('hTracker').textContent = pip.tracker;
+      $('hTrackerSub').textContent = pip.risk_model;
+
+      $('hLlm').textContent = intg.llm_configured ? 'On' : 'Off';
+      $('hLlm').className = 'hg-val ' + (intg.llm_configured ? 'ok' : '');
+
+      $('hSlack').textContent = intg.slack_configured ? 'On' : 'Off';
+      $('hSlack').className = 'hg-val ' + (intg.slack_configured ? 'ok' : '');
+
+      $('hEdge').textContent = intg.edge_publisher ? 'On' : 'Off';
+      $('hEdge').className = 'hg-val ' + (intg.edge_publisher ? 'ok' : '');
+
+      $('hPii').textContent = intg.pii_redaction;
+    } catch (_) {}
+  }
+  function tickUptime() {
+    if (startedAt) uptimeVal.textContent = fmtUp(Date.now() / 1000 - startedAt);
+  }
+  setInterval(pollHealth, 4000);
+  setInterval(tickUptime, 1000);
+  pollHealth();
+
+  /* ── Detection SSE ── */
+  let detEs, detBackoff = 1500;
   function connectDetSSE() {
-    try { detEs = new EventSource('/admin/detections'); } catch (e) { scheduleDetReconnect(); return; }
-    detEs.onopen = () => {
-      detBackoff = 1500;
-      statusDot.className = 'dot ok';
-      statusText.textContent = 'live';
-    };
-    detEs.onmessage = ev => {
-      try { renderDetections(JSON.parse(ev.data)); } catch (e) { /* ignore */ }
-    };
-    detEs.onerror = () => {
-      statusDot.className = 'dot off';
-      statusText.textContent = 'reconnecting';
-      try { detEs.close(); } catch (_) {}
-      scheduleDetReconnect();
-    };
+    try { detEs = new EventSource('/admin/detections'); } catch (e) { schedDetRecon(); return; }
+    detEs.onopen = () => { detBackoff = 1500; };
+    detEs.onmessage = ev => { try { renderDets(JSON.parse(ev.data)); } catch (_) {} };
+    detEs.onerror = () => { try { detEs.close(); } catch (_) {} schedDetRecon(); };
   }
-  function scheduleDetReconnect() {
-    setTimeout(connectDetSSE, detBackoff);
-    detBackoff = Math.min(detBackoff * 1.5, 20000);
-  }
+  function schedDetRecon() { setTimeout(connectDetSSE, detBackoff); detBackoff = Math.min(detBackoff * 1.5, 15000); }
 
-  function renderDetections(msg) {
-    if (firstDetection) { detList.innerHTML = ''; firstDetection = false; }
-
+  function renderDets(msg) {
+    if (firstDet) { detList.innerHTML = ''; firstDet = false; }
     frameCount++;
     const now = Date.now();
-    if (now - fpsStartTime >= 3000) {
-      const fps = (frameCount / ((now - fpsStartTime) / 1000)).toFixed(1);
-      sFps.textContent = fps;
-      frameCount = 0;
-      fpsStartTime = now;
+    if (now - fpsStart >= 3000) {
+      sFps.textContent = (frameCount / ((now - fpsStart) / 1000)).toFixed(1);
+      frameCount = 0; fpsStart = now;
     }
+    sTotal.textContent = msg.detections || 0;
+    sPersons.textContent = msg.persons || 0;
+    sVehicles.textContent = msg.vehicles || 0;
+    sInter.textContent = msg.interactions || 0;
 
-    const n = msg.detections || 0;
-    const p = msg.persons || 0;
-    const v = msg.vehicles || 0;
-    const inter = msg.interactions || 0;
+    if (!msg.objects || !msg.objects.length) return;
 
-    sTotal.textContent = n;
-    sPersons.textContent = p;
-    sVehicles.textContent = v;
-    sInter.textContent = inter;
-    badgeDet.textContent = `${n} object${n !== 1 ? 's' : ''}`;
-    badgeInt.textContent = `${inter} interaction${inter !== 1 ? 's' : ''}`;
-    detCount.textContent = `${n} objects`;
-
-    if (!msg.objects || !msg.objects.length) {
-      if (!detList.children.length) {
-        detList.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-size:12px">No objects detected</div>';
-      }
-      return;
-    }
-
-    const group = document.createElement('div');
-    group.className = 'frame-group';
-
+    const g = document.createElement('div');
+    g.className = 'frame-group';
     const ts = msg.ts ? new Date(msg.ts * 1000) : new Date();
-    const timeStr = isNaN(ts) ? '—' : `${pad2(ts.getHours())}:${pad2(ts.getMinutes())}:${pad2(ts.getSeconds())}`;
+    const tStr = isNaN(ts) ? '—' : `${pad2(ts.getHours())}:${pad2(ts.getMinutes())}:${pad2(ts.getSeconds())}`;
+    const hdr = document.createElement('div');
+    hdr.className = 'frame-hdr';
+    hdr.innerHTML = `<span>${tStr}</span><span>${msg.detections} det / ${msg.interactions} int</span>`;
+    g.appendChild(hdr);
 
-    const header = document.createElement('div');
-    header.className = 'frame-header';
-    header.innerHTML = `<span>${timeStr}</span><span>${n} det / ${inter} int</span>`;
-    group.appendChild(header);
-
-    for (const obj of msg.objects) {
-      const row = document.createElement('div');
-      row.className = 'det-row';
-      const isPerson = obj.cls === 'person';
-      const bb = obj.bbox;
-      row.innerHTML = `
-        <span class="det-cls ${isPerson ? 'person' : 'vehicle'}">${escHtml(obj.cls)}</span>
-        <span class="det-conf">${(obj.conf * 100).toFixed(0)}%</span>
-        ${obj.track_id != null ? `<span class="det-track">#${obj.track_id}</span>` : ''}
-        <span class="det-bbox">${bb[0]},${bb[1]} ${bb[2]-bb[0]}×${bb[3]-bb[1]}</span>`;
-      group.appendChild(row);
+    for (const o of msg.objects) {
+      const r = document.createElement('div'); r.className = 'det-row';
+      const isPer = o.cls === 'person', bb = o.bbox;
+      r.innerHTML = `<span class="det-cls ${isPer ? 'person' : 'vehicle'}">${esc(o.cls)}</span>
+        <span class="det-conf">${(o.conf*100).toFixed(0)}%</span>
+        ${o.track_id != null ? `<span class="det-track">#${o.track_id}</span>` : ''}
+        <span class="det-bbox">${bb[2]-bb[0]}×${bb[3]-bb[1]}</span>`;
+      g.appendChild(r);
     }
-
-    detList.insertBefore(group, detList.firstChild);
-    while (detList.children.length > MAX_FRAME_GROUPS) {
-      detList.removeChild(detList.lastChild);
-    }
+    detList.insertBefore(g, detList.firstChild);
+    while (detList.children.length > MAX_FRAMES) detList.removeChild(detList.lastChild);
   }
 
-  // --- Event SSE (reuse existing /stream/events) ---
-  let evtEs = null, evtBackoff = 2000;
+  /* ── Event SSE ── */
+  let evtEs, evtBackoff = 2000;
   function connectEvtSSE() {
-    try { evtEs = new EventSource('/stream/events'); } catch (e) { scheduleEvtReconnect(); return; }
+    try { evtEs = new EventSource('/stream/events'); } catch (e) { schedEvtRecon(); return; }
     evtEs.onmessage = ev => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg && msg._meta) return;
-        addEvent(msg);
-      } catch (e) { /* ignore */ }
+      try { const m = JSON.parse(ev.data); if (m && !m._meta) addEvent(m, evtList, true); } catch (_) {}
     };
-    evtEs.onerror = () => {
-      try { evtEs.close(); } catch (_) {}
-      scheduleEvtReconnect();
-    };
+    evtEs.onerror = () => { try { evtEs.close(); } catch (_) {} schedEvtRecon(); };
   }
-  function scheduleEvtReconnect() {
-    setTimeout(connectEvtSSE, evtBackoff);
-    evtBackoff = Math.min(evtBackoff * 1.5, 30000);
-  }
+  function schedEvtRecon() { setTimeout(connectEvtSSE, evtBackoff); evtBackoff = Math.min(evtBackoff * 1.5, 20000); }
 
-  function addEvent(e) {
-    if (firstEvent) { evtList.innerHTML = ''; firstEvent = false; }
-    eventCards++;
-    evtCount.textContent = eventCards;
-
+  function makeEventCard(e) {
     const card = document.createElement('div');
     card.className = 'evt-card';
     const risk = (e.risk_level || 'low').toLowerCase();
@@ -326,23 +413,75 @@
     if (thumb && !/^https?:/.test(thumb) && !thumb.startsWith('/')) thumb = '/' + thumb;
     const narr = e.narration || e.summary || '';
 
+    let metaBits = '';
+    if (e.ttc_sec != null) {
+      const w = e.ttc_sec <= 1.5 ? ' warn' : '';
+      metaBits += `<span class="evt-tag kin${w}">TTC ${Number(e.ttc_sec).toFixed(1)}s</span>`;
+    }
+    if (e.distance_m != null) metaBits += `<span class="evt-tag kin">${Number(e.distance_m).toFixed(1)}m</span>`;
+    if (e.distance_px != null) metaBits += `<span class="evt-tag">${Math.round(e.distance_px)}px</span>`;
+    if (Array.isArray(e.track_ids) && e.track_ids.length)
+      metaBits += `<span class="evt-tag">#${e.track_ids.join('/')}</span>`;
+    if (e.episode_duration_sec != null) metaBits += `<span class="evt-tag">ep ${Number(e.episode_duration_sec).toFixed(1)}s</span>`;
+
     card.innerHTML = `
-      <div class="thumb">${thumb ? `<img src="${escHtml(thumb)}" alt="">` : ''}</div>
+      <div class="thumb">${thumb ? `<img src="${esc(thumb)}" alt="" onerror="this.parentNode.innerHTML='—'">` : '—'}</div>
       <div class="info">
-        <div class="top">
-          <span class="risk ${riskCls}">${escHtml(risk)}</span>
-          <span class="evt-type">${escHtml(humanType(e.event_type))}</span>
+        <div class="evt-top">
+          <span class="risk ${riskCls}">${esc(risk)}</span>
+          <span class="evt-type">${esc(humanType(e.event_type))}</span>
           <span class="evt-time">${fmtTime(e.wall_time)}</span>
         </div>
-        <div class="evt-narr">${escHtml(narr)}</div>
+        ${metaBits ? `<div class="evt-meta">${metaBits}</div>` : ''}
+        <div class="evt-narr" title="${esc(narr)}">${esc(narr)}</div>
       </div>`;
-
-    evtList.insertBefore(card, evtList.firstChild);
-    while (evtList.children.length > MAX_EVENTS) {
-      evtList.removeChild(evtList.lastChild);
-    }
+    return card;
   }
 
+  function addEvent(e, list, isLive) {
+    if (isLive) {
+      if (firstEvent) { evtList.innerHTML = ''; firstEvent = false; }
+      liveEventCount++;
+      evtBadge.textContent = `(${liveEventCount})`;
+    }
+    list.insertBefore(makeEventCard(e), list.firstChild);
+    while (list.children.length > MAX_EVENTS) list.removeChild(list.lastChild);
+  }
+
+  /* ── Event History (loaded from API) ── */
+  async function loadHistory() {
+    const risk = histFilter.value;
+    const type = histTypeFilter.value;
+    let url = '/api/live/events?limit=200';
+    if (risk) url += `&risk_level=${risk}`;
+    if (type) url += `&event_type=${type}`;
+    histList.innerHTML = '<div class="empty-state">Loading&hellip;</div>';
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const items = await r.json();
+      histList.innerHTML = '';
+      if (!items.length) {
+        histList.innerHTML = '<div class="empty-state">No events found</div>';
+        histBadge.textContent = '(0)';
+        $('histCount').textContent = '0 events';
+        return;
+      }
+      histBadge.textContent = `(${items.length})`;
+      $('histCount').textContent = `${items.length} events`;
+      for (const e of items.reverse()) {
+        histList.appendChild(makeEventCard(e));
+      }
+    } catch (err) {
+      histList.innerHTML = `<div class="empty-state" style="color:var(--high)">Failed to load: ${esc(err.message)}</div>`;
+    }
+  }
+  $('histRefresh').addEventListener('click', loadHistory);
+  histFilter.addEventListener('change', loadHistory);
+  histTypeFilter.addEventListener('change', loadHistory);
+  loadHistory();
+
+  /* ── Start SSE connections ── */
   connectDetSSE();
   connectEvtSSE();
 })();
