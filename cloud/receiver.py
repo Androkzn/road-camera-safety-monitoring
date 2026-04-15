@@ -1,9 +1,9 @@
 """Cloud receiver.
 
-This is **deliberately a separate FastAPI app** from the main server. In a real
-deployment the edge node and the cloud receiver run on different hosts with
-different trust boundaries, scaling profiles, and secrets. Keeping them in one
-process would obscure the edge/cloud split the design is meant to demonstrate.
+This is **deliberately a separate FastAPI app** from the edge server. The edge
+node and the cloud receiver run on different hosts with different trust
+boundaries, scaling profiles, and secrets. The split enforces the security
+boundary in code rather than convention.
 
 Run it standalone:
 

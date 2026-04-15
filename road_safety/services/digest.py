@@ -4,9 +4,9 @@ Two long-lived asyncio tasks:
   * digest_scheduler  — hourly (default), flushes the medium buffer
   * daily_scheduler   — every 24h (default), flushes the low buffer
 
-Intervals are overridable via environment for demos/testing:
-    DIGEST_INTERVAL_SEC  (default 3600)  — set to 60 to flush every minute
-    DAILY_INTERVAL_SEC   (default 86400)
+Intervals are configurable via environment:
+    DIGEST_INTERVAL_SEC  (default 3600)  — medium-tier flush cadence
+    DAILY_INTERVAL_SEC   (default 86400) — low-tier flush cadence
 
 Intentionally minimal: no cron, no sqlite, no config file. If a flush raises,
 we log and keep looping — transient Slack/network errors must not kill the

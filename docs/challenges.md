@@ -10,7 +10,7 @@ This document maps the **major pain points** in production dashcam safety AI sys
 
 False positives are the #1 complaint from road operators. Basic detection systems fire on every close proximity event without understanding context — a stop sign that doesn't apply to the driver's lane, normal close-quarters maneuvering in a parking lot, or highway following distances that look dangerously close at city-street thresholds. The result: drivers learn to ignore the system, and the safety value drops to zero.
 
-Industry data: even state-of-the-art systems generate enough false alerts that inconsistent coaching and reduced driver trust remain the dominant operational problems (Netradyne, 2026).
+Even state-of-the-art systems generate enough false alerts that inconsistent coaching and reduced driver trust remain the dominant operational problems across the industry.
 
 ### How We Address It
 
@@ -123,7 +123,7 @@ Industry data: automated error classification frameworks can reduce manual revie
 
 ### The Challenge
 
-Going from a single-camera demo to thousands of vehicles requires vehicle identity, road-wide aggregation, driver scoring, and multi-tenant isolation. Large providers operate over a million deployed video systems — the data model must support road-scale operations from day one.
+Scaling from a single camera to thousands of vehicles requires vehicle identity, road-wide aggregation, driver scoring, and multi-tenant isolation. Industry deployments operate over a million video systems concurrently — the data model must support road-scale operations from day one.
 
 Industry data: traditional monolithic systems designed for 100 cameras cannot handle modern deployments. Async processing, message queues, and horizontal scaling become requirements.
 
@@ -137,7 +137,7 @@ Industry data: traditional monolithic systems designed for 100 cameras cannot ha
 | **Road-wide aggregation API** | `road_safety/server.py` | `/api/road/summary` provides aggregate event counts, risk breakdowns, and identifies the lowest-scoring vehicle. `/api/road/drivers` ranks drivers worst-first for manager attention. |
 | **Edge/cloud split** | `road_safety/integrations/edge_publisher.py`, `cloud/receiver.py` | Each vehicle runs its own edge node. Events flow to a central cloud receiver via HMAC-signed HTTPS. Cloud deduplicates on `event_id`. |
 
-**Key design principle:** the single-vehicle demo and the multi-vehicle road use the same data model. Adding vehicles is a configuration change, not a code change.
+**Key design principle:** single-vehicle and multi-vehicle deployments use the same data model. Adding vehicles is a configuration change, not a code change.
 
 ---
 

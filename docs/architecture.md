@@ -2,11 +2,13 @@
 
 ## Why split?
 
-Samsara engineers have publicly stated the constraint plainly: low-latency ML
-inference has to happen on-device, and several TB/month of HD video per vehicle
-rules out a cloud-only design. The demo reflects that. Heavy perception, PII
-redaction, and event construction run on the edge. Only typed JSON + small
-redacted thumbnails cross the wire, signed with HMAC.
+Two physical constraints force the split. First, safety-critical perception
+must complete within the round-trip latency budget; cloud RTTs over cellular
+links exceed that budget under load. Second, sustained HD video upload from
+each vehicle is in the multi-TB/month range, which is uneconomic and impossible
+on intermittent connectivity. The platform runs heavy perception, PII redaction,
+and event construction on the edge. Only typed JSON and small redacted
+thumbnails cross the wire, signed with HMAC.
 
 ## Diagram
 
@@ -72,9 +74,10 @@ identifiable PII.
 HMAC-SHA256 over `f"{timestamp}.{body}"` is one shared secret per edge node,
 trivial to rotate via config, and works through any HTTPS proxy. Because the
 payload is already scrubbed, confidentiality is provided by TLS and integrity
-by the HMAC; we do not need strong client identity. mTLS is a reasonable
-upgrade once there is a real PKI and a road-management plane to rotate
-client certs; for a demo it is operational overkill.
+by the HMAC; strong client identity is unnecessary. mTLS is a supported
+upgrade path once a fleet-wide PKI and certificate management plane are in
+place; absent that infrastructure it adds operational cost without
+proportional security benefit.
 
 ## Offline resilience
 

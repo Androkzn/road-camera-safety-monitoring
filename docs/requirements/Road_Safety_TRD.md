@@ -66,7 +66,7 @@
 
 ### 1.1 Problem Statement
 
-Road safety cameras generate massive video volumes that operators cannot review manually. Automated detection systems exist but suffer from five production failure modes: false positive floods, LLM unreliability, privacy liability, silent model drift, and inability to scale beyond single-camera demos. There is no open, modular platform that addresses all five simultaneously.
+Road safety cameras generate massive video volumes that operators cannot review manually. Existing automated detection systems suffer from five production failure modes: false positive floods, LLM unreliability, privacy liability, silent model drift, and inability to scale beyond single-camera deployments. This platform addresses all five simultaneously with a modular, open architecture.
 
 ### 1.2 Proposed Solution
 
@@ -559,9 +559,9 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 | Operation | Auth Required | Gate Mechanism | Notes |
 |---|---|---|---|
-| Public endpoints (status, events, recent, thumbnails) | No | — | Public demo mode |
+| Public endpoints (status, events, recent, redacted thumbnails) | No | — | Operator dashboard view |
 | Unredacted thumbnails | Yes | `X-DSAR-Token` header vs `ROAD_DSAR_TOKEN` env | Audit-logged on success and denial |
-| Feedback submission | No | — | Open for demo; production: require auth |
+| Feedback submission | Recommended | Reverse-proxy auth or API key (deployment-specific) | Audit-logged |
 | Active learning export | No | — | Audit-logged |
 | Chat copilot | No | — | Audit-logged |
 | Agent invocations | No | — | Audit-logged |
@@ -879,8 +879,8 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 
 | ID | Question / Gap | Impacted Section | Severity | Owner | Status |
 |---|---|---|---|---|---|
-| Q-01 | Persistent database choice (SQLite vs PostgreSQL vs Redis) | §5.2, §7.6 | Medium | Architecture | Open — not needed for v1.0 demo |
-| Q-02 | Authentication/authorization middleware for production | §10.1 | Medium | Security | Open — not needed for v1.0 demo |
+| Q-01 | Persistent database choice (SQLite vs PostgreSQL vs Redis) | §5.2, §7.6 | Medium | Architecture | Deferred — JSONL sufficient for v1.0 throughput envelope |
+| Q-02 | Authentication/authorization middleware (SSO, RBAC) | §10.1 | Medium | Security | Deployment-specific — reverse-proxy auth recommended for v1.0 |
 | Q-03 | GPU inference optimization path (TensorRT, ONNX) | §12.3 | Low | ML team | Open — future work |
 | Q-04 | Multi-tenant isolation for SaaS deployment | §2.2 | Low | Architecture | Open — out of scope for v1.0 |
 
@@ -900,8 +900,8 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 | D-08 | 2026-04-12 | Three bounded agents (≤5 tools each) | 68% parameter hallucination when tool catalog > 10 | Single mega-agent (tool overload), two agents (insufficient separation) |
 | D-09 | 2026-04-12 | 5-iteration hard stop for agents | Prevents runaway loops and cost explosions | No limit (risk of infinite loop), 3 (too restrictive for investigation) |
 | D-10 | 2026-04-12 | Decaying penalty model for driver scoring | Score recovers over time; punishes recent events more heavily | Rolling window (loses history), cumulative (never recovers) |
-| D-11 | 2026-04-15 | JSONL for audit/feedback/queue | Simple, append-only, no DB dependency; suitable for demo | SQLite (overhead), PostgreSQL (infrastructure), Redis (volatility) |
-| D-12 | 2026-04-15 | In-memory road registry | Sufficient for demo; road state resets on restart are acceptable | Redis (persistent but adds dependency), DB (over-engineering for demo) |
+| D-11 | 2026-04-15 | JSONL for audit/feedback/queue | Simple, append-only, no DB dependency; meets v1.0 throughput envelope | SQLite (overhead), PostgreSQL (infrastructure), Redis (volatility) |
+| D-12 | 2026-04-15 | In-memory road registry with periodic snapshot | Operational state is reconstructible from event stream; avoids hard dependency on Redis/DB at v1.0 scale | Redis (adds infrastructure dependency), DB (premature for current scale) |
 
 ---
 

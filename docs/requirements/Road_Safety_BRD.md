@@ -59,7 +59,7 @@
 
 - **Constraints:**
   - **Regulatory:** GDPR Art. 4 (PII), Art. 5(1)(e) (retention), Art. 30 (records of processing); CCPA PI definitions
-  - **Platform:** Python 3.10+, runs on laptop CPU (no GPU required for demo)
+  - **Platform:** Python 3.10+, runs on commodity x86 / ARM CPUs (GPU optional, not required)
   - **Budget:** Must operate within Anthropic Haiku free/low-tier rate limits (≤ 5 req/min)
   - **Latency:** Event emission within 2 seconds of real-time frame capture
 

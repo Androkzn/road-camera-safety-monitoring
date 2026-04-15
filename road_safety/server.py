@@ -75,10 +75,10 @@ from road_safety.services.test_runner import run_state as test_run_state, start_
 class Episode:
     """An ongoing interaction between a specific *pair* of tracked objects.
 
-    We hold it open while we keep seeing the same pair, record the worst risk
-    and tightest distance across its lifetime, then emit once when the pair
-    stops being observed (idle flush) or cooldown expires. This is the
-    industry-standard 'episode' model — it's why Samsara/Nauto don't spam.
+    The episode is held open while the pair stays in view, accumulating the
+    worst risk and tightest distance across its lifetime. A single event is
+    emitted on idle flush or cooldown expiry. This is the standard episode
+    model used to suppress per-frame alert flooding in production systems.
     """
 
     def __init__(self, event_type: str, pair: tuple[int, int], started_at: float):
