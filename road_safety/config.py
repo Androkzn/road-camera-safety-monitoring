@@ -72,13 +72,12 @@ load_dotenv(PROJECT_ROOT / ".env")
 DATA_DIR = PROJECT_ROOT / "data"
 THUMBS_DIR = DATA_DIR / "thumbnails"
 
-# Frontend serving strategy:
-#   If the built React bundle (``frontend/dist/``) exists, serve that. The
-#   launcher (``start.py``) builds it before starting uvicorn. If it's
-#   missing (e.g. fresh checkout, frontend skipped), fall back to the
-#   hand-written ``static/`` placeholder so the API still boots.
-_REACT_DIST = PROJECT_ROOT / "frontend" / "dist"
-STATIC_DIR = _REACT_DIST if _REACT_DIST.exists() else PROJECT_ROOT / "static"
+# Frontend serving strategy: serve the built React bundle from
+# ``frontend/dist/``. The launcher (``start.py``) builds it before starting
+# uvicorn. If the directory is missing, the static-files mount in
+# ``server.py`` will fail at boot — fail loud rather than serving a stale
+# fallback.
+STATIC_DIR = PROJECT_ROOT / "frontend" / "dist"
 
 CORPUS_DIR = DATA_DIR / "corpus"
 

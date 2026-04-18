@@ -43,6 +43,12 @@ data/*.MOV
 htmlcov/
 .coverage
 
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Runtime logs
+logs/
+
 # Claude Code — personal overrides only; commit shared config (.claude/settings.json, rules/, skills/, hooks/)
 .claude/settings.local.json
 CLAUDE.local.md

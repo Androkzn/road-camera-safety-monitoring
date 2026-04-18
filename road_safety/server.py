@@ -1554,15 +1554,7 @@ app = FastAPI(title="Live Safety Review", lifespan=lifespan)
 
 THUMBS_DIR.mkdir(parents=True, exist_ok=True)
 
-# ``_REACT_BUILD`` toggles between "Vite-built React SPA" and "legacy
-# static HTML" asset layouts. Default deployments build the React app
-# into ``frontend/dist`` which becomes ``STATIC_DIR`` — presence of a
-# nested ``assets/`` directory is the cheap probe.
-_REACT_BUILD = (STATIC_DIR / "assets").exists()
-if _REACT_BUILD:
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
-else:
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
 def _find_event(event_id: str) -> dict | None:
     """Locate an event by id in the recent-events buffer.
@@ -2315,8 +2307,7 @@ async def watchdog_delete_selected(request: Request):
 
 # ===== SECTION: ROUTE HANDLERS — SPA PAGE PASSTHROUGHS =====
 # All these paths serve the same React SPA entrypoint; the router inside
-# the app handles the actual page switch. When not using the React build,
-# fall back to the legacy static HTML.
+# the app handles the actual page switch.
 
 
 @app.get("/admin")

@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `cd frontend && npm run dev` — Vite dev server (only needed when iterating on frontend separate from the Python server).
 - `docker compose up --build` / `make docker-up` — containerized run; `--profile cloud` or `make docker-up-cloud` adds the receiver.
 
-The server is served from the built `frontend/dist/` if present (see `STATIC_DIR` in `road_safety/config.py`), so backend-only changes do **not** require rebuilding the frontend. A missing `frontend/dist/` falls back to `static/`.
+The server is served from the built `frontend/dist/` (see `STATIC_DIR` in `road_safety/config.py`), so backend-only changes do **not** require rebuilding the frontend. If `frontend/dist/` is missing, the static-files mount fails at boot — run `cd frontend && npm run build` first (or `python start.py`, which builds it for you).
 
 Python dependencies live in a local `.venv`; `start.py` prefers `.venv/bin/python` over the system interpreter. Install with `pip install -e ".[dev]"`.
 

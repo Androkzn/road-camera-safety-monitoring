@@ -120,8 +120,10 @@ def build_frontend() -> bool:
         npm failure — the caller aborts the launch in that case.
     """
     if not FRONTEND_DIR.exists():
-        # Running from a slimmed-down checkout / test container: OK to
-        # continue. The server will fall back to ``static/``.
+        # Running from a slimmed-down checkout / test container without the
+        # frontend source. The static-files mount in the server will fail at
+        # boot if ``frontend/dist/`` is also absent — that's the intended
+        # signal to provision the build before launching.
         print(f"  {D}No frontend/ directory — skipping React build{Z}")
         return True
 
