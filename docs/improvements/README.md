@@ -7,6 +7,7 @@ practice) and cited against official sources.
 | Doc | Focus | Length |
 |-----|-------|--------|
 | [production-scale-plan.md](./production-scale-plan.md) | Consolidated execution blueprint for national-scale rollout: categories, impact, bottlenecks, phased order | ~40 action points |
+| [settings-console-plan.md](./settings-console-plan.md) | Canonical end-to-end plan for the Settings Console: hardening, runtime settings, baseline/impact engine, templates, UI, and benchmark lane | v1.1 |
 | [frontend-execution-plan.md](./frontend-execution-plan.md) | Frontend-only detailed execution plan: workstreams, dependencies, gates, KPIs, risks | ~30 action points |
 | [backend-execution-plan.md](./backend-execution-plan.md) | Backend-only detailed execution plan: workstreams, dependencies, gates, KPIs, risks | ~35 action points |
 | [frontend.md](./frontend.md) | React 19 + Vite SPA: SSE, types, perf, a11y, tests | ~20 recommendations |
@@ -59,13 +60,15 @@ These are independent of the strategic improvements and should be fixed before a
 1. This README (you are here).
 2. [production-scale-plan.md](./production-scale-plan.md) — category and impact
    blueprint for production planning.
-3. [frontend-execution-plan.md](./frontend-execution-plan.md) — FE delivery
+3. [settings-console-plan.md](./settings-console-plan.md) — canonical cross-cutting
+   implementation plan for the Settings Console.
+4. [frontend-execution-plan.md](./frontend-execution-plan.md) — FE delivery
    workstreams and milestones.
-4. [backend-execution-plan.md](./backend-execution-plan.md) — BE delivery
+5. [backend-execution-plan.md](./backend-execution-plan.md) — BE delivery
    workstreams and milestones.
-5. [integration.md](./integration.md) — protocol and contract seam across FE/BE/cloud.
-6. [backend.md](./backend.md) — AI/ML runtime, observability, and compliance details.
-7. [frontend.md](./frontend.md) — React real-time UX, resilience, and type safety details.
+6. [integration.md](./integration.md) — protocol and contract seam across FE/BE/cloud.
+7. [backend.md](./backend.md) — AI/ML runtime, observability, and compliance details.
+8. [frontend.md](./frontend.md) — React real-time UX, resilience, and type safety details.
 
 ## Out of scope for these docs
 
