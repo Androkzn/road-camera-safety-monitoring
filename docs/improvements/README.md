@@ -1,16 +1,40 @@
 # Improvements — index
 
-Three companion documents proposing concrete, prioritized improvements to fleet-safety-demo, each grounded in the actual codebase (not generic best practice) and cited against official sources.
+Four companion documents proposing concrete, prioritized improvements to
+fleet-safety-demo, each grounded in the actual codebase (not generic best
+practice) and cited against official sources.
 
 | Doc | Focus | Length |
 |-----|-------|--------|
+| [production-scale-plan.md](./production-scale-plan.md) | Consolidated execution blueprint for national-scale rollout: categories, impact, bottlenecks, phased order | ~40 action points |
+| [frontend-execution-plan.md](./frontend-execution-plan.md) | Frontend-only detailed execution plan: workstreams, dependencies, gates, KPIs, risks | ~30 action points |
+| [backend-execution-plan.md](./backend-execution-plan.md) | Backend-only detailed execution plan: workstreams, dependencies, gates, KPIs, risks | ~35 action points |
 | [frontend.md](./frontend.md) | React 19 + Vite SPA: SSE, types, perf, a11y, tests | ~20 recommendations |
 | [backend.md](./backend.md) | FastAPI + YOLOv8 + LLM service: caching, observability, MLOps, compliance | ~20 recommendations |
 | [integration.md](./integration.md) | FE↔BE↔cloud seam: SSE protocol, contracts, auth, HMAC, tracing | ~20 recommendations |
 
 ## How to read
 
-Each doc opens with a **TL;DR** of the highest-leverage items, then a **P0 bugs** section (real defects found during analysis — fix-first), then prioritized strategic recommendations (P0/P1/P2), then a **90-day phased rollout**, then a **what I would NOT recommend** section (signals deliberate restraint).
+Use [production-scale-plan.md](./production-scale-plan.md) first for planning.
+Then branch into the dedicated execution docs:
+
+- [frontend-execution-plan.md](./frontend-execution-plan.md)
+- [backend-execution-plan.md](./backend-execution-plan.md)
+
+The plan set provides explicit mapping:
+
+- Why each change is needed.
+- Benefit expected.
+- Problem solved.
+- Suggested phase order for rollout.
+
+Then use the domain docs for implementation specifics.
+
+Each domain doc opens with a **TL;DR** of the highest-leverage items, then a
+**P0 bugs** section (real defects found during analysis — fix-first), then
+prioritized strategic recommendations (P0/P1/P2), then a **90-day phased
+rollout**, then a **what I would NOT recommend** section (signals deliberate
+restraint).
 
 Every recommendation follows the same template:
 
@@ -33,9 +57,15 @@ These are independent of the strategic improvements and should be fixed before a
 ## Reading order for reviewers
 
 1. This README (you are here).
-2. [integration.md](./integration.md) — start here; it surfaces the confirmed bugs and the contract (OpenAPI / SSE protocol) that constrains both ends.
-3. [backend.md](./backend.md) — heaviest doc; covers the AI/ML and observability surface where most senior-engineer judgment shows.
-4. [frontend.md](./frontend.md) — focused on the React 19 patterns and the live-dashboard-specific concerns (SSE bursts, MJPEG, accessibility).
+2. [production-scale-plan.md](./production-scale-plan.md) — category and impact
+   blueprint for production planning.
+3. [frontend-execution-plan.md](./frontend-execution-plan.md) — FE delivery
+   workstreams and milestones.
+4. [backend-execution-plan.md](./backend-execution-plan.md) — BE delivery
+   workstreams and milestones.
+5. [integration.md](./integration.md) — protocol and contract seam across FE/BE/cloud.
+6. [backend.md](./backend.md) — AI/ML runtime, observability, and compliance details.
+7. [frontend.md](./frontend.md) — React real-time UX, resilience, and type safety details.
 
 ## Out of scope for these docs
 

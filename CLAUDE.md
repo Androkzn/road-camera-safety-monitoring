@@ -55,6 +55,9 @@ Detection works with zero LLM calls. The LLM layer has multi-provider failover (
 - `road_safety/integrations/` — `edge_publisher.py` (HMAC batched delivery), `slack.py`, `fnol.py`.
 - `road_safety/api/feedback.py` — feedback routes (others live directly in `server.py`).
 - `road_safety/config.py` — **single source of truth** for paths and env vars. Every module imports from here; never compute `Path(__file__).parent` in modules.
+- `road_safety/logging.py` — JSON-line logger setup (`setup()` called once from the FastAPI lifespan hook). Deliberately has no dependency on `config.py` so it can import early in bootstrap. `ROAD_LOG_FORMAT=text` switches to human-readable output for local dev.
+- `road_safety/security.py` — shared `require_bearer_token()` helper used by both the edge server and the cloud receiver. Constant-time token comparison, fail-closed on unset env var (503), 401/403 on missing/wrong token. Use this for any new admin-tier endpoint instead of rolling a fresh auth check.
+- `tools/` — offline utilities: `analyze.py` (batch event extraction from a video file), `eval_detect.py` (detection precision/recall harness), `eval_enrich.py` (LLM enrichment scorer). See [tools/README.md](tools/README.md).
 - `cloud/receiver.py` — separate FastAPI app; verifies HMAC, dedupes by `event_id` (`INSERT OR IGNORE`), stores in `data/cloud.db`.
 - `frontend/` — React 19 + Vite + TypeScript + react-router. Pages: `AdminPage` (live detections), `DashboardPage` (fleet overview), `MonitoringPage` (incident-queue watchdog).
 

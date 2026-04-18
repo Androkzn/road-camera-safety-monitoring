@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 .DS_Store
 
+# Node / frontend dependencies (reinstalled via `npm install`)
+node_modules/
+
 # Secrets — never commit
 .env
 .env.*
@@ -24,6 +27,8 @@ data/thumbnails/
 data/cloud.db
 data/feedback.jsonl
 data/outbound_queue.jsonl
+data/audit.jsonl
+data/watchdog.jsonl
 data/active_learning/pending/
 data/test_suite/results.json
 .test-report.json
