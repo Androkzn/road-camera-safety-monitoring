@@ -37,3 +37,7 @@ data/*.MOV
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Claude Code — personal overrides only; commit shared config (.claude/settings.json, rules/, skills/, hooks/)
+.claude/settings.local.json
+CLAUDE.local.md

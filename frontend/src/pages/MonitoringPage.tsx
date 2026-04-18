@@ -1,16 +1,97 @@
+/**
+ * MonitoringPage — watchdog incident queue.
+ *
+ * Route binding:
+ *   Rendered by <Route path="/monitoring" element={<MonitoringPage/>} />
+ *   in frontend/src/App.tsx.
+ *
+ * What the user sees (plain English):
+ *   - A header with a title, a "Select" button (multi-select mode toggle) and
+ *     a "Clear All" button.
+ *   - Four filter tiles (Errors / Warnings / Info / Incidents) — click one to
+ *     narrow the list, click again to clear the filter.
+ *   - A meta row summarising watchdog runs + interval.
+ *   - Optional "Immediate Actions" strip — the top 3 non-info incidents with
+ *     click-to-scroll anchor behaviour.
+ *   - A grouped incident feed: each card shows title, severity, evidence
+ *     chips, "What To Check" steps, debug commands, and a runbook line.
+ *   - In select mode, the cards become checkable and a bulk-delete bar appears.
+ *
+ * Hooks called:
+ *   - useEventStream()   → { connected }      — connection dot in TopBar.
+ *     See hooks/useEventStream.ts.
+ *   - useLiveStatus()    → { data: liveStatus } — source label.
+ *     See hooks/useLiveStatus.ts.
+ *   - useWatchdogCtx()   → { status, findings, deleteFindings, clearAll }
+ *     Reads from the React Context defined in hooks/WatchdogContext.tsx,
+ *     which in turn polls the watchdog API. Consuming a context means this
+ *     component re-renders when the provider publishes new values.
+ *   - useState / useMemo / useCallback for local UI state and stable handlers.
+ *
+ * Child components composed here:
+ *   - components/layout/TopBar.tsx — page chrome.
+ *   - A local <FilterTile/> helper (defined at the bottom of this file).
+ *   No other subcomponents — MonitoringPage owns all of its markup inline.
+ *
+ * React concepts demonstrated:
+ *   - Pure helper functions outside the component (findingKey, incidentId,
+ *     formatTimestamp, formatRelative, buildIncidents) — allowed because they
+ *     have no React state; keep them outside so they aren't re-created per
+ *     render.
+ *   - Context consumption (useWatchdogCtx) as an alternative to prop drilling.
+ *   - useMemo to cache expensive derivations (grouping N findings into M
+ *     incidents happens on every render otherwise).
+ *   - useCallback to stabilise handler identity across renders (helps children
+ *     that are React.memo'd and lets handlers be safely listed in effect deps).
+ *   - Set-based selection state (a `Set<string>` held inside useState).
+ *   - Conditional rendering: select-mode chrome, empty list, optional card
+ *     subsections (evidence / steps / commands / runbook).
+ *   - List rendering with `key`, including `index` + `incident.id` composite
+ *     keys for nested lists where items have no stable id.
+ *   - Event propagation control: `e.stopPropagation()` prevents a child button
+ *     click from also triggering the parent card's click handler.
+ *   - CSS Modules with template-string class composition
+ *     (`${styles.a} ${styles[b]}`) for conditional/variant styling.
+ *   - A local functional component (`FilterTile`) with a typed props object.
+ *
+ * Page-specific mechanics:
+ *   - Incident filtering: `filter` is a discriminated string ("all"|"error"|…);
+ *     `toggle` flips the active filter or resets to "all" when re-clicked.
+ *   - Selection state: `selected: Set<string>` holds incident ids in select
+ *     mode. `toggleSelect` uses the functional setter form to derive the next
+ *     Set from the previous one (never mutate state in place).
+ *   - Drawer expand/collapse: there's no literal drawer here, but the
+ *     `selectMode` boolean toggles a selection bar at the top and morphs each
+ *     card to show a checkbox (see the className string composition).
+ *   - Scroll-to anchor: the "Immediate Actions" buttons call
+ *     document.getElementById(...).scrollIntoView() — a rare escape hatch out
+ *     of React's declarative model, used here because we only need to scroll
+ *     the page, not update state.
+ */
+
+// TEACH: Same hook trio as the other pages, plus `useCallback` — which
+// caches a function reference so long as its deps don't change. This is the
+// function-shaped cousin of `useMemo`.
 import { useCallback, useMemo, useState } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useEventStream } from "../hooks/useEventStream";
 import { useWatchdogCtx } from "../hooks/WatchdogContext";
 import type { WatchdogFinding } from "../types";
+// TEACH: CSS Modules. See MonitoringPage.module.css for class definitions.
 import styles from "./MonitoringPage.module.css";
 
+// TEACH: Module-level constants — computed once when the file loads, shared
+// by every render. Place pure constants and helpers outside the component.
 const SEV_ICON: Record<string, string> = { error: "!!", warning: "!", info: "i" };
 const SEV_ORDER: Record<string, number> = { error: 0, warning: 1, info: 2 };
 
+// TEACH: TypeScript string-literal union — `SevFilter` is the type of values
+// that can only be one of these four strings. The compiler won't let us pass
+// a random string into the filter state.
 type SevFilter = "all" | "error" | "warning" | "info";
 
+// A grouped incident record — many `WatchdogFinding`s roll up into one.
 type WatchdogIncident = {
   id: string;
   fingerprint: string;
@@ -24,6 +105,8 @@ type WatchdogIncident = {
   rawKeys: string[];
   latest: WatchdogFinding;
 };
+
+// --- Pure helpers (no React here — regular functions, no hooks) ---
 
 function findingKey(f: WatchdogFinding): string {
   return `${f.snapshot_id}_${f.ts}`;
@@ -60,6 +143,7 @@ function getEvidenceClass(status?: string): string {
   return styles.evidenceContext ?? "";
 }
 
+// Group raw findings into incidents. Pure function of its input — no hooks.
 function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {
   const groups = new Map<string, WatchdogIncident>();
 
@@ -114,21 +198,33 @@ function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {
 }
 
 export function MonitoringPage() {
+  // --- Hooks ---
   const { connected } = useEventStream();
   const { data: liveStatus } = useLiveStatus();
+  // TEACH: `useWatchdogCtx` reads React Context set up in WatchdogContext.tsx.
+  // Context is the standard way to share state without prop-drilling — any
+  // descendant of the provider can call this hook and gets live updates.
   const { status, findings, deleteFindings, clearAll } = useWatchdogCtx();
 
+  // Local UI state for filtering and selection mode.
   const [filter, setFilter] = useState<SevFilter>("all");
   const [selectMode, setSelectMode] = useState(false);
+  // TEACH: Holding a Set in useState. React's equality check is reference
+  // equality (===), so every update MUST allocate a new Set — never mutate
+  // and re-set the same reference, or React will skip the re-render.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
+  // --- Derived state ---
+  // TEACH: Grouping findings into incidents is O(N). useMemo caches the
+  // result until `findings` changes, avoiding rework every keystroke/tick.
   const incidents = useMemo(() => buildIncidents(findings ?? []), [findings]);
   const filtered = useMemo(
     () => (filter === "all" ? incidents : incidents.filter((item) => item.severity === filter)),
     [filter, incidents],
   );
 
+  // Plain derived values — cheap; no need to useMemo.
   const errors = incidents.filter((item) => item.severity === "error").length;
   const warnings = incidents.filter((item) => item.severity === "warning").length;
   const infos = incidents.filter((item) => item.severity === "info").length;
@@ -136,14 +232,23 @@ export function MonitoringPage() {
   const repeatingIncidents = incidents.filter((item) => item.count > 1).length;
   const actionQueue = filtered.filter((item) => item.severity !== "info").slice(0, 3);
 
+  // --- Handlers ---
+  // TEACH: Functional setter form — `prev => next`. Always use it when the
+  // next value depends on the previous one, to avoid stale-closure bugs when
+  // multiple updates happen in the same tick.
   const toggle = (sev: SevFilter) => setFilter((prev) => (prev === sev ? "all" : sev));
 
+  // TEACH: `useCallback` caches the function so long as its deps don't change.
+  // Empty deps [] here means "this function reference is stable for the
+  // lifetime of the component". That matters when passed to React.memo'd
+  // children or used in effect deps.
   const exitSelectMode = useCallback(() => {
     setSelectMode(false);
     setSelected(new Set());
   }, []);
 
   const toggleSelect = useCallback((key: string) => {
+    // TEACH: To "update" an immutable Set, copy it, mutate the copy, return.
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -156,6 +261,9 @@ export function MonitoringPage() {
     setSelected(new Set(filtered.map((item) => item.id)));
   }, [filtered]);
 
+  // TEACH: Async event handler. `useCallback` still returns a stable-ish
+  // reference keyed on its deps. Note the try/finally — `setDeleting(false)`
+  // runs regardless of whether the awaited call throws.
   const handleDeleteSelected = useCallback(async () => {
     if (selected.size === 0) return;
     setDeleting(true);
@@ -183,6 +291,7 @@ export function MonitoringPage() {
   const sourceName = liveStatus?.source ?? "—";
   const lastAgo = status?.last_run_ago_sec;
 
+  // --- Render ---
   return (
     <>
       <TopBar sourceName={sourceName} connected={connected} />
@@ -197,6 +306,9 @@ export function MonitoringPage() {
               </p>
             </div>
             <div className={styles.headerActions}>
+              {/* TEACH: `&&` short-circuit — render the Select button only
+                  when we're not already in select mode AND there is at least
+                  one visible incident. */}
               {!selectMode && filtered.length > 0 && (
                 <button className={styles.actionBtn} onClick={() => setSelectMode(true)}>
                   Select
@@ -204,16 +316,21 @@ export function MonitoringPage() {
               )}
               {!selectMode && totalIncidents > 0 && (
                 <button
+                  // TEACH: Template-string class composition — combining a base
+                  // class with a variant class. Works because `styles.foo` is
+                  // just a string.
                   className={`${styles.actionBtn} ${styles.clearBtn}`}
                   onClick={handleClearAll}
                   disabled={deleting}
                 >
+                  {/* Ternary for button label during async work. */}
                   {deleting ? "Clearing…" : "Clear All"}
                 </button>
               )}
             </div>
           </div>
 
+          {/* Summary tiles — local <FilterTile/> component defined below. */}
           <div className={styles.summaryGrid}>
             <FilterTile label="Errors" value={errors} variant="error" active={filter === "error"} onClick={() => toggle("error")} />
             <FilterTile label="Warnings" value={warnings} variant="warning" active={filter === "warning"} onClick={() => toggle("warning")} />
@@ -240,6 +357,7 @@ export function MonitoringPage() {
           </div>
         </div>
 
+        {/* Multi-select action bar — only visible in select mode. */}
         {selectMode && (
           <div className={styles.selectionBar}>
             <div className={styles.selectionInfo}>
@@ -267,14 +385,21 @@ export function MonitoringPage() {
         )}
 
         <div className={styles.content}>
+          {/* Immediate Actions strip — top 3 urgent incidents. */}
           {actionQueue.length > 0 && (
             <section className={styles.queueSection}>
               <div className={styles.sectionHeader}>Immediate Actions</div>
               <div className={styles.queueGrid}>
+                {/* TEACH: .map over urgent incidents. `key` is incident.id
+                    which is stable (either fingerprint or category:title). */}
                 {actionQueue.map((incident) => (
                   <button
                     key={incident.id}
                     className={`${styles.queueCard} ${styles[incident.severity]}`}
+                    // TEACH: This handler escapes React's virtual DOM: it uses
+                    // `document.getElementById` + `scrollIntoView` to jump the
+                    // viewport to the same incident rendered below. Fine
+                    // because we're only reading layout, not mutating app state.
                     onClick={() => {
                       const el = document.getElementById(`incident-${incident.id}`);
                       el?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -292,8 +417,10 @@ export function MonitoringPage() {
             </section>
           )}
 
+          {/* Full incident feed. */}
           <section className={styles.feedSection}>
             <div className={styles.sectionHeader}>
+              {/* Ternary for "all" vs specific-severity label. */}
               {filter === "all"
                 ? `Showing ${filtered.length} incident groups`
                 : `Showing ${filtered.length} ${filter} incident${filtered.length !== 1 ? "s" : ""}`}
@@ -301,6 +428,7 @@ export function MonitoringPage() {
 
             {filtered.length === 0 && (
               <div className={styles.emptyList}>
+                {/* Nested ternary — collapse if this becomes hard to read. */}
                 {filter !== "all"
                   ? `No ${filter} incidents in the recent window`
                   : status?.run_count
@@ -310,20 +438,33 @@ export function MonitoringPage() {
             )}
 
             <div className={styles.incidentList}>
+              {/* TEACH: Main list render. The callback returns a large JSX
+                  subtree; using `{ ... return ... }` lets us compute locals
+                  (`latest`, `isSelected`) before returning. */}
               {filtered.map((incident) => {
                 const latest = incident.latest;
                 const isSelected = selected.has(incident.id);
                 return (
                   <article
+                    // `id=` is a real DOM id used by the scrollIntoView above.
                     id={`incident-${incident.id}`}
+                    // TEACH: Multi-class composition. `styles[incident.severity]`
+                    // uses a computed property access — the JS value of
+                    // `incident.severity` ("error" | "warning" | "info") is
+                    // used as a key on the styles object.
                     className={`${styles.incidentCard} ${styles[incident.severity]} ${selectMode ? styles.selectable : ""} ${isSelected ? styles.selected : ""}`}
                     key={incident.id}
+                    // TEACH: Conditional handler. `undefined` means "don't add
+                    // an onClick at all", whereas a no-op function would still
+                    // capture clicks. In select mode clicks toggle selection;
+                    // otherwise the card is non-clickable.
                     onClick={selectMode ? () => toggleSelect(incident.id) : undefined}
                   >
                     <div className={styles.incidentHeader}>
                       <div className={styles.incidentHeaderLeft}>
                         {selectMode && (
                           <span className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}>
+                            {/* Simple ternary for checkbox glyph. */}
                             {isSelected ? "✓" : ""}
                           </span>
                         )}
@@ -349,6 +490,11 @@ export function MonitoringPage() {
                       {!selectMode && (
                         <button
                           className={styles.deleteSingle}
+                          // TEACH: `e.stopPropagation()` prevents this click
+                          // from bubbling up to the parent <article>'s
+                          // onClick. Without it, deleting would ALSO toggle
+                          // selection when in select mode (though we're not
+                          // in select mode here — defence in depth).
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteFindings(incident.rawKeys);
@@ -377,16 +523,23 @@ export function MonitoringPage() {
                       <div className={styles.summaryCard}>
                         <span className={styles.summaryLabel}>
                           Likely Cause
+                          {/* Inline ternary producing a string, not JSX. */}
                           {latest.cause_confidence === "inferred" ? " (inferred)" : ""}
                         </span>
                         <p>{latest.likely_cause || "No likely cause attached yet."}</p>
                       </div>
                     </div>
 
+                    {/* Optional sections — render only when the backend provided the data. */}
                     {latest.evidence && latest.evidence.length > 0 && (
                       <div className={styles.sectionBlock}>
                         <div className={styles.blockLabel}>Evidence</div>
                         <div className={styles.evidenceGrid}>
+                          {/* TEACH: Nested list render. Evidence items don't
+                              have their own stable id, so we build a composite
+                              key from the incident id and array index. This is
+                              safe ONLY because the list isn't reordered; it
+                              just grows append-only per incident. */}
                           {latest.evidence.map((item, index) => (
                             <div
                               className={`${styles.evidenceChip} ${getEvidenceClass(item.status)}`}
@@ -437,6 +590,10 @@ export function MonitoringPage() {
   );
 }
 
+// TEACH: Local functional component — same rules as the page component. It
+// receives `props` as its single argument; we destructure inline, and the
+// TypeScript annotation `{ ... }: { ... }` documents the prop shape. Because
+// it's declared in the same module, it's private to this page.
 function FilterTile({
   label,
   value,
@@ -451,6 +608,9 @@ function FilterTile({
   onClick: () => void;
 }) {
   return (
+    // TEACH: Dynamic variant class — `styles[`t${variant}`]` picks the
+    // `.terror`, `.twarning`, `.tinfo`, or `.ttotal` class by concatenating
+    // the string "t" with the variant prop at render time.
     <button className={`${styles.tile} ${styles[`t${variant}`]} ${active ? styles.tileActive : ""}`} onClick={onClick}>
       <div className={styles.tLabel}>{label}</div>
       <div className={styles.tValue}>{value}</div>

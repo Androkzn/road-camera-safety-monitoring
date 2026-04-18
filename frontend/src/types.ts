@@ -1,63 +1,150 @@
+/**
+ * types.ts — Shared TypeScript type declarations for the frontend.
+ *
+ * WHAT THIS FILE IS
+ *   A pure type-definition module. It contains NO runtime code — when the
+ *   TypeScript compiler emits JavaScript, everything in this file is erased.
+ *   These are compile-time contracts only.
+ *
+ *   Each `interface` below mirrors a JSON shape produced by the FastAPI
+ *   backend (see road_safety/server.py and road_safety/services/*). Hooks
+ *   (frontend/src/hooks/*) fetch JSON from `/api/...` endpoints or receive it
+ *   over SSE, then cast/validate it against these types so downstream
+ *   components get autocomplete and catch typos at build time.
+ *
+ * WHERE IT FITS
+ *   Backend  --(JSON)-->  hooks/use*.ts  --(typed)-->  components/*
+ *                         ^^ import types from here ^^
+ *
+ * TYPESCRIPT CONCEPTS INTRODUCED
+ *   - `interface Foo { ... }`: describes the shape of an object. Like a struct
+ *     declaration that only exists at compile time.
+ *   - `interface` vs `type`: largely interchangeable for objects. `interface`
+ *     is conventional for object shapes (and supports declaration-merging).
+ *     `type` is used when we need unions, intersections, tuples, etc.
+ *   - Optional field `foo?: T`: the key may be missing OR `undefined`. The
+ *     backend often omits fields it has no data for, so most fields are `?`.
+ *   - Union types `"high" | "medium" | "low"`: the value must be one of these
+ *     exact string literals. Catches typos like `"Low"` at compile time.
+ *   - Tuple type `[number, number, number, number]`: an array of fixed length
+ *     with per-slot types. Used for bounding boxes (x1, y1, x2, y2).
+ *   - Index signature `Record<string, number>`: "any string key -> number".
+ *     Used for dynamic dictionaries (e.g. `by_severity: {error: 3, warn: 2}`).
+ *   - `export`: makes the interface importable from other files.
+ */
+
+// =============================================================================
+// Event enrichment (LLM/ALPR post-processing output)
+// =============================================================================
+
+/**
+ * Data attached to an event by the LLM enrichment step.
+ * Produced by: road_safety/services/llm.py::enrich_event
+ * Consumed by: components that display event cards (EventCard, AdminEventCard).
+ *
+ * SECURITY NOTE: `plate_text` / `plate_state` are deliberately NOT in this
+ * type. The backend strips them at ingest (see CLAUDE.md "privacy invariant").
+ * Only the hashed plate ever reaches the frontend.
+ */
 export interface Enrichment {
-  plate_hash?: string;
-  readability?: string;
-  vehicle_color?: string;
-  vehicle_type?: string;
+  plate_hash?: string;     // SHA-hash of the license plate; safe to display.
+  readability?: string;    // e.g. "clear" | "partial" | "unreadable".
+  vehicle_color?: string;  // Free-text colour label from the LLM.
+  vehicle_type?: string;   // e.g. "sedan", "truck", "motorcycle".
 }
 
+// =============================================================================
+// Core event — the primary payload pushed over SSE
+// =============================================================================
+
+/**
+ * A conflict/safety event emitted by the detection pipeline.
+ * Produced by: road_safety/server.py::_emit_event (streamed as SSE data).
+ * Consumed by: hooks/useEventStream.ts, hooks/useSSE.ts, then rendered by
+ *              EventCard / AdminEventCard.
+ *
+ * Many fields are optional because the backend omits data it couldn't
+ * compute for a given frame (e.g. no LLM narration if the budget is spent).
+ */
 export interface SafetyEvent {
-  event_id: string;
-  vehicle_id?: string;
-  road_id?: string;
-  driver_id?: string;
-  video_id?: string;
-  timestamp_sec?: number;
-  wall_time?: string;
-  event_type: string;
-  risk_level: "high" | "medium" | "low";
-  confidence?: number;
-  objects?: string[];
-  track_ids?: number[];
-  episode_duration_sec?: number;
-  ttc_sec?: number;
-  distance_m?: number;
-  distance_px?: number;
-  summary?: string;
-  narration?: string;
-  thumbnail?: string;
-  enrichment?: Enrichment;
-  enrichment_skipped?: string;
-  perception_state?: string;
-  _meta?: string;
+  event_id: string;                               // Unique per event; used as React `key`.
+  vehicle_id?: string;                            // From ROAD_VEHICLE_ID env.
+  road_id?: string;                               // From ROAD_ID env.
+  driver_id?: string;                             // From ROAD_DRIVER_ID env.
+  video_id?: string;                              // Source clip identifier.
+  timestamp_sec?: number;                         // Seconds into the stream.
+  wall_time?: string;                             // ISO-8601 UTC wall clock.
+  event_type: string;                             // e.g. "near_miss", "harsh_brake".
+  risk_level: "high" | "medium" | "low";          // Union: one of these 3 exact strings.
+  confidence?: number;                            // 0..1 detector confidence.
+  objects?: string[];                             // Class names involved, e.g. ["person","car"].
+  track_ids?: number[];                           // ByteTrack IDs of the involved tracks.
+  episode_duration_sec?: number;                  // How long the risk sustained.
+  ttc_sec?: number;                               // Time-to-collision.
+  distance_m?: number;                            // Metric distance if depth-gate succeeded.
+  distance_px?: number;                           // Pixel distance fallback.
+  summary?: string;                               // Short auto-generated one-liner.
+  narration?: string;                             // Longer LLM-written description.
+  thumbnail?: string;                             // Base64 or path to the PUBLIC (redacted) thumb.
+  enrichment?: Enrichment;                        // Nested shape defined above.
+  enrichment_skipped?: string;                    // Reason string if LLM wasn't called.
+  perception_state?: string;                      // Snapshot of quality state at emit time.
+  _meta?: string;                                 // Discriminator for non-event SSE messages.
 }
 
+// =============================================================================
+// Perception / live status — telemetry about the pipeline itself
+// =============================================================================
+
+/**
+ * Health snapshot about the QualityMonitor (services/quality.py).
+ * Produced by: `/api/live/status` (poll) or embedded in SSE as a `_meta` msg.
+ * Consumed by: components/dashboard/PerceptionBanner.tsx, HealthStrip.tsx.
+ */
 export interface PerceptionState {
-  _meta: "perception_state";
-  state: string;
-  reason: string;
-  luminance?: number;
-  sharpness?: number;
-  avg_confidence?: number;
-  samples?: number;
+  _meta: "perception_state";   // Literal type: MUST equal this exact string.
+                               // Used as a discriminant to tell this apart
+                               // from other SSE message shapes at runtime.
+  state: string;               // e.g. "healthy" | "degraded" | "blind".
+  reason: string;              // Human-readable cause of the state.
+  luminance?: number;          // 0..255 average frame brightness.
+  sharpness?: number;          // Laplacian variance (higher = sharper).
+  avg_confidence?: number;     // Running mean of detector confidence.
+  samples?: number;            // Sample count the averages were computed over.
 }
 
+/**
+ * Top-level live status (from `/api/live/status`).
+ * Consumed by: hooks/useLiveStatus.ts.
+ */
 export interface LiveStatus {
-  source: string;
-  running: boolean;
-  event_count: number;
-  frames_read: number;
-  frames_processed: number;
-  uptime_sec: number;
-  started_at: number | null;
-  perception?: PerceptionState;
+  source: string;                  // File path, HLS URL, or camera id.
+  running: boolean;                // Is the detection loop alive?
+  event_count: number;             // Events emitted this session.
+  frames_read: number;             // Frames pulled from the stream.
+  frames_processed: number;        // Frames that actually ran through YOLO.
+  uptime_sec: number;              // Seconds since server start.
+  started_at: number | null;       // Unix ts, or null if not running.
+  perception?: PerceptionState;    // Nested quality snapshot.
 }
 
+// =============================================================================
+// Scene context & drift — higher-level pipeline signals
+// =============================================================================
+
+/**
+ * Output of SceneContextClassifier (core/context.py).
+ * Produced by: `/api/road/scene`.
+ * Consumed by: hooks/useScene.ts.
+ */
 export interface SceneContext {
-  label: string;
-  confidence?: number;
-  speed_proxy_mps?: number;
-  pedestrian_rate_per_min?: number;
-  reason: string;
+  label: string;                         // "urban" | "highway" | "parking" | ...
+  confidence?: number;                   // 0..1.
+  speed_proxy_mps?: number;              // Ego-motion speed estimate, m/s.
+  pedestrian_rate_per_min?: number;      // Heuristic density metric.
+  reason: string;                        // Why the classifier chose this label.
+  // Nested inline object type. `thresholds` is optional; if present it has
+  // exactly these four required numeric fields (no `?` on the children).
   thresholds?: {
     ttc_high_sec: number;
     ttc_med_sec: number;
@@ -66,31 +153,61 @@ export interface SceneContext {
   };
 }
 
+/**
+ * Model-drift report (services/drift.py).
+ * Produced by: `/api/road/drift` (admin-only).
+ * Consumed by: hooks/useDrift.ts.
+ */
 export interface DriftReport {
   window_size: number;
   true_positives: number;
   false_positives: number;
-  precision?: number;
-  trend?: string;
+  precision?: number;            // TP / (TP + FP); undefined if zero samples.
+  trend?: string;                // e.g. "stable" | "degrading".
   alert_triggered?: boolean;
 }
 
+// =============================================================================
+// Raw detections — per-frame debug overlay data
+// =============================================================================
+
+/**
+ * A single bounding-box detection in a frame.
+ * Produced by: road_safety server detection debug endpoint.
+ * Consumed by: components/admin/DetectionsPanel.tsx / VideoFeed.tsx.
+ */
 export interface DetectionObject {
-  cls: string;
-  conf: number;
-  track_id?: number;
+  cls: string;                                     // Class name, e.g. "person".
+  conf: number;                                    // Confidence 0..1.
+  track_id?: number;                               // ByteTrack id (if tracked).
+  // Tuple type: exactly four numbers, [x1, y1, x2, y2] in pixel coordinates.
   bbox: [number, number, number, number];
 }
 
+/**
+ * A snapshot of detector output for one frame. Consumed by hooks/useDetections.ts.
+ */
 export interface DetectionSnapshot {
-  ts: number;
-  detections: number;
-  persons: number;
-  vehicles: number;
-  interactions: number;
-  objects: DetectionObject[];
+  ts: number;                          // Snapshot timestamp.
+  detections: number;                  // Total boxes this frame.
+  persons: number;                     // Breakdown: people count.
+  vehicles: number;                    // Breakdown: vehicle count.
+  interactions: number;                // Pairs flagged by find_interactions.
+  objects: DetectionObject[];          // Array of the boxes themselves.
 }
 
+// =============================================================================
+// Health endpoint — aggregated server/integration/scene info
+// =============================================================================
+
+/**
+ * Fat health payload for the admin UI.
+ * Produced by: `/api/admin/health` (admin-only).
+ * Consumed by: hooks/useAdminHealth.ts -> components/admin/HealthStrip.tsx.
+ *
+ * Uses nested inline object types (instead of extracting them) because these
+ * sub-shapes are only used inside HealthData.
+ */
 export interface HealthData {
   server: {
     running: boolean;
@@ -131,6 +248,18 @@ export interface HealthData {
   };
 }
 
+// =============================================================================
+// Watchdog — fingerprinted incident findings
+// =============================================================================
+
+/**
+ * A single watchdog finding (an incident, not a log line).
+ * Produced by: road_safety/services/watchdog.py.
+ * Consumed by: hooks/useWatchdog.ts, components/watchdog/*.
+ *
+ * `severity` is a string-literal union: only these three exact values are
+ * allowed. TypeScript will flag `severity: "critical"` as an error.
+ */
 export interface WatchdogFinding {
   severity: "error" | "warning" | "info";
   category: string;
@@ -141,10 +270,12 @@ export interface WatchdogFinding {
   likely_cause?: string;
   owner?: string;
   runbook?: string;
-  fingerprint?: string;
-  source?: "rule" | "ai";
+  fingerprint?: string;                         // Stable hash for dedup/grouping.
+  source?: "rule" | "ai";                       // Which detector emitted it.
   cause_confidence?: "observed" | "inferred";
   priority_score?: number;
+  // `evidence` is an array of small inline objects, each a key/value pair
+  // (with optional threshold+status). Shown in the watchdog drawer UI.
   evidence?: Array<{
     label: string;
     value: string;
@@ -153,10 +284,18 @@ export interface WatchdogFinding {
   }>;
   investigation_steps?: string[];
   debug_commands?: string[];
-  ts: string;
-  snapshot_id: string;
+  ts: string;                                   // ISO-8601.
+  snapshot_id: string;                          // Links to a pipeline snapshot.
 }
 
+/**
+ * Aggregated watchdog status.
+ * Produced by: `/api/watchdog/status`.
+ * Consumed by: hooks/WatchdogContext.tsx (shared across TopBar + Monitoring).
+ *
+ * `Record<string, number>` is an index signature: "any string key maps to a
+ * number". The backend returns severity/category maps with dynamic keys.
+ */
 export interface WatchdogStatus {
   enabled: boolean;
   interval_sec: number;
@@ -178,26 +317,38 @@ export interface WatchdogStatus {
     count: number;
     first_seen_ts: string;
     last_seen_ts: string;
-    latest: WatchdogFinding;
+    latest: WatchdogFinding;       // Embeds the full latest finding.
   }>;
 }
 
+// =============================================================================
+// Test runner — drives the pytest-in-browser button
+// =============================================================================
+
+/**
+ * Result of a single pytest test, surfaced to the UI by services/test_runner.py.
+ * Consumed by: hooks/useTests.ts -> components/tests/TestDrawer.tsx.
+ */
 export interface TestResult {
   name: string;
   node_id: string;
   file: string;
+  // Pytest outcomes. Union forces exhaustive handling in switch statements.
   outcome: "passed" | "failed" | "error" | "skipped";
   duration_ms: number;
-  message?: string;
+  message?: string;                  // Stack trace / assertion diff if failed.
 }
 
+/**
+ * Aggregate status of a test run (or the idle state between runs).
+ */
 export interface TestStatus {
   status: "idle" | "running" | "passed" | "failed";
   total: number;
   passed: number;
   failed: number;
   skipped: number;
-  progress: number;
+  progress: number;                   // 0..1.
   elapsed_sec: number;
-  results: TestResult[];
+  results: TestResult[];              // Per-test details (see above).
 }

@@ -1,3 +1,17 @@
+/* ============================================================
+ * DashboardPage.module.css
+ * ============================================================
+ * Imported by: frontend/src/pages/DashboardPage.tsx
+ * UI region:   the Dashboard route — a 60/40 split where the
+ *              left panel is the live event stream and the right
+ *              is the Copilot chat. Includes a filter bar above
+ *              the stream.
+ * (See global.css header for CSS Modules scoping notes.)
+ * ============================================================ */
+
+/* Outer grid: 60fr (left) / 40fr (right).
+ * TEACH: `fr` is "fractional unit". `60fr 40fr` is equivalent to
+ * `3fr 2fr`; columns are sized proportional to their fr values. */
 .app {
   display: grid;
   grid-template-columns: 60fr 40fr;
@@ -7,12 +21,14 @@
   min-height: 0;
 }
 
+/* Responsive collapse — under 900px the two panels stack. */
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;
   }
 }
 
+/* Shared panel style (rounded card with border). */
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -23,6 +39,7 @@
   overflow: hidden;
 }
 
+/* Filter toolbar above the event stream. */
 .filterBar {
   display: flex;
   align-items: center;
@@ -32,6 +49,7 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Styled severity/category <select> dropdown. */
 .filterSelect {
   background: var(--card);
   color: var(--text);
@@ -43,11 +61,15 @@
   cursor: pointer;
 }
 
+/* TEACH: :focus fires when the element receives keyboard or
+ * programmatic focus (not just hover). We draw an accent outline
+ * so keyboard users can see which control is active. */
 .filterSelect:focus {
   outline: 1px solid var(--accent);
   border-color: var(--accent);
 }
 
+/* "Clear filters" ghost button. */
 .clearBtn {
   background: transparent;
   color: var(--muted);
@@ -65,6 +87,7 @@
   border-color: var(--muted);
 }
 
+/* Result count pushed to the right. */
 .filterCount {
   margin-left: auto;
   color: var(--muted);
@@ -72,6 +95,7 @@
   white-space: nowrap;
 }
 
+/* Scrollable event stream container. */
 .stream {
   flex: 1;
   overflow-y: auto;
@@ -79,6 +103,7 @@
   min-height: 0;
 }
 
+/* Empty-state placeholder. */
 .empty {
   color: var(--muted);
   text-align: center;

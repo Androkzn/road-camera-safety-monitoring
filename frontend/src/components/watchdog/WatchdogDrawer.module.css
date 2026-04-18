@@ -1,6 +1,18 @@
+/* ============================================================
+ * WatchdogDrawer.module.css
+ * ============================================================
+ * Imported by: frontend/src/components/watchdog/WatchdogDrawer.tsx
+ * UI region:   right-side slide-in drawer showing watchdog
+ *              findings grouped by severity, with a summary grid
+ *              of counts, per-finding expand rows, and a bulk-
+ *              selection bar for clear/delete actions.
+ * (See global.css header for CSS Modules scoping notes.)
+ * ============================================================ */
+
+/* Dimmed backdrop behind the drawer (same pattern as TestDrawer). */
 .overlay {
-  position: fixed;
-  inset: 0;
+  position: fixed;                   /* pin to viewport */
+  inset: 0;                          /* stretch to all edges */
   background: rgba(0, 0, 0, 0.5);
   z-index: 900;
   opacity: 0;
@@ -12,12 +24,13 @@
   pointer-events: auto;
 }
 
+/* Drawer panel — slides in from the right. */
 .drawer {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(560px, 92vw);
+  width: min(560px, 92vw);           /* pick smaller of 560px / 92vw */
   z-index: 901;
   background: var(--panel);
   border-left: 1px solid var(--border);
@@ -30,6 +43,7 @@
   transform: translateX(0);
 }
 
+/* Header row: title + action buttons + close. */
 .head {
   display: flex;
   align-items: center;
@@ -43,12 +57,14 @@
   font-weight: 600;
   flex: 1;
 }
+/* Group holding header action buttons (e.g. Clear). */
 .headActions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+/* Small header action button style. */
 .actionBtn {
   background: none;
   border: 1px solid var(--border);
@@ -67,6 +83,7 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Destructive variant of .actionBtn — red-tinted for "Clear". */
 .clearBtn {
   color: var(--high);
   border-color: rgba(239, 68, 68, 0.3);
@@ -77,6 +94,7 @@
   color: var(--high);
 }
 
+/* "X" close button — square icon-style. */
 .closeBtn {
   background: none;
   border: 1px solid var(--border);
@@ -96,16 +114,18 @@
   color: var(--text);
 }
 
-/* Selection bar */
+/* Selection bar — appears while one or more findings are
+ * checkbox-selected, offering bulk actions. */
 .selectionBar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: rgba(56, 189, 248, 0.06);
+  background: rgba(56, 189, 248, 0.06);    /* cyan-tinted tray */
   border-bottom: 1px solid rgba(56, 189, 248, 0.15);
   gap: 8px;
 }
+/* Left side: selection count. */
 .selectionInfo {
   display: flex;
   align-items: center;
@@ -113,11 +133,13 @@
   font-size: 11px;
   color: var(--text);
 }
+/* Right side: bulk action buttons. */
 .selectionActions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
+/* Small compact button used inside .selectionBar. */
 .selBarBtn {
   background: none;
   border: 1px solid var(--border);
@@ -137,6 +159,7 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Red variant of .selBarBtn for the bulk-delete action. */
 .deleteBtn {
   color: var(--high);
   border-color: rgba(239, 68, 68, 0.3);
@@ -147,7 +170,9 @@
   color: var(--high);
 }
 
-/* Checkbox */
+/* Checkbox square. Renders its "check" via color on the text
+ * (the .tsx inserts a unicode tick; color: transparent hides it
+ * until .checked is applied). */
 .checkbox {
   width: 16px;
   height: 16px;
@@ -163,25 +188,28 @@
   transition: all 0.15s;
   background: transparent;
 }
+/* Compound selector — see FeedbackButtons for a refresher. */
 .checkbox.checked {
   border-color: var(--accent);
   background: var(--accent);
   color: #000;
 }
 
-/* Selectable finding items */
+/* When a finding is in "selectable" mode, the whole row is clickable. */
 .findingItem.selectable {
   cursor: pointer;
 }
 .findingItem.selectable:hover {
   border-color: rgba(56, 189, 248, 0.3);
 }
+/* Visual highlight for a selected finding. `!important` wins over
+ * the base .findingItem border colour that runs after. */
 .findingItem.selected {
   border-color: rgba(56, 189, 248, 0.4) !important;
   background: rgba(56, 189, 248, 0.04);
 }
 
-/* Single-item delete button */
+/* Per-row trash button — hidden until the row is hovered. */
 .deleteSingle {
   background: none;
   border: none;
@@ -195,10 +223,14 @@
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  opacity: 0;
+  opacity: 0;                        /* hidden by default */
   transition: all 0.15s;
   flex-shrink: 0;
 }
+/* TEACH: `.findingItem:hover .deleteSingle` — descendant
+ * combinator with a pseudo-class. "When the user hovers over a
+ * finding row, reveal the delete button INSIDE it." Common
+ * pattern for inline row affordances. */
 .findingItem:hover .deleteSingle {
   opacity: 1;
 }
@@ -207,6 +239,8 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
+/* 4-tile severity grid at the top of the drawer (error/warning/
+ * info/total — each tile filters the list on click). */
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -215,6 +249,8 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* One summary tile. Dimmed by default; .tileActive brightens
+ * the currently-selected severity filter. */
 .tile {
   background: #0b0f14;
   border: 1px solid var(--border);
@@ -246,11 +282,13 @@
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
+/* Colour modifiers for the count value via parent modifier. */
 .terror .tValue { color: var(--high); }
 .twarning .tValue { color: var(--medium); }
 .tinfo .tValue { color: var(--accent); }
 .ttotal .tValue { color: var(--text); }
 
+/* Caption row under the tiles describing the active filter. */
 .filterLabel {
   padding: 6px 16px;
   font-size: 11px;
@@ -258,6 +296,7 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Meta row: left/right info strings. */
 .meta {
   display: flex;
   justify-content: space-between;
@@ -267,12 +306,14 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Scrollable list of findings. */
 .findingsList {
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
 }
 
+/* Empty-state message (no findings in current filter). */
 .emptyList {
   padding: 32px 20px;
   text-align: center;
@@ -280,11 +321,13 @@
   font-size: 13px;
 }
 
+/* Wrapper around findings in one category. */
 .catGroup {
   padding: 0 16px;
   margin-bottom: 4px;
 }
 
+/* Category header (e.g. "LLM", "detection"). */
 .catHeader {
   font-size: 11px;
   color: var(--accent);
@@ -294,6 +337,8 @@
   letter-spacing: 0.5px;
 }
 
+/* A single finding card. Severity is signalled by a 3px colored
+ * stripe on the left edge (see compound selectors below). */
 .findingItem {
   padding: 10px 12px;
   margin-bottom: 6px;
@@ -306,6 +351,7 @@
   border-color: rgba(255, 255, 255, 0.1);
 }
 
+/* Severity-coded left borders via compound selectors. */
 .findingItem.error {
   border-left: 3px solid var(--high);
 }
@@ -316,12 +362,14 @@
   border-left: 3px solid var(--accent);
 }
 
+/* Top line inside a finding: icon | title | timestamp. */
 .findingTop {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+/* Severity badge square (an "!" or "i" glyph, tinted). */
 .sevIcon {
   width: 20px;
   height: 20px;
@@ -346,6 +394,7 @@
   color: var(--accent);
 }
 
+/* Finding title (one-line short headline). */
 .findingTitle {
   flex: 1;
   font-size: 12.5px;
@@ -353,6 +402,7 @@
   color: var(--text);
 }
 
+/* Timestamp on the right of the top row. */
 .findingTs {
   font-size: 10px;
   color: var(--muted);
@@ -360,6 +410,8 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Detailed description below the headline; indented so it
+ * aligns with the text (not the icon). */
 .findingDetail {
   margin-top: 4px;
   font-size: 11.5px;
@@ -368,6 +420,7 @@
   padding-left: 28px;
 }
 
+/* Suggestion line (green) below the detail. */
 .findingSuggestion {
   margin-top: 4px;
   font-size: 11px;

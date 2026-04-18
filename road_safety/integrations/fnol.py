@@ -1,5 +1,12 @@
 """FNOL (First Notice of Loss) payload shaping for insurer integrations.
 
+INTEGRATION STATUS: STUB — wire up before production use.
+-------------------------------------------------------
+This module produces the *shape* of a FNOL record but does NOT transmit
+it. There is no carrier-specific adapter, no HTTP client, no signed
+manifest upload. Consider this the in-house data model; the transport
+layer is deliberately deferred until a real insurer partnership lands.
+
 Why this module exists
 ----------------------
 Insurance is the dominant commercial driver behind fleet dashcam adoption.
@@ -23,22 +30,48 @@ carriers' FNOL SLAs (which expect human triage first). Instead, this
 module produces the shaped record so an operator-driven "Submit to
 insurer" action or a batched end-of-day export can ship it cleanly.
 
-Out of scope here:
+Out of scope here (the stub parts)
+----------------------------------
     - Actual HTTP transport to an insurer (carriers use heterogeneous APIs;
       some still require email with an attached JSON).
-    - MP4 clip export (the `clip_url` field accepts a placeholder until a
-      rolling pre/post-roll buffer is wired up).
+    - MP4 clip export (the ``clip_url`` field accepts a placeholder until
+      a rolling pre/post-roll buffer is wired up).
     - Chain-of-custody signing (insurers increasingly expect signed
       manifests; HMAC of this payload is already available via the
-      edge_publisher path and can be reused here).
+      ``edge_publisher`` path and can be reused here).
+
+PRIVACY NOTE: the counterparty plate identifier here is ONLY the salted
+SHA-256 hash — never the raw plate string. Insurers can still do cross-
+event correlation on the hash (same salt ⇒ same input ⇒ same hash) without
+ever seeing a plate in cleartext.
+
+Files this module reads / writes
+--------------------------------
+None. This is a pure data-shaping module: input dict in, dataclass out.
+
+Environment variables
+---------------------
+None. Config for a future transport layer would live on the carrier
+adapter, not here.
 """
 
+# ``from __future__ import annotations`` — see ``edge_publisher.py`` for
+# the full explanation. Short version: makes ``str | None`` etc. work on
+# older Python versions.
 from __future__ import annotations
 
+# Standard library only — this module is intentionally self-contained so
+# that the insurer-facing data shape is not coupled to any networking or
+# config concerns.
 from dataclasses import asdict, dataclass
 from typing import Any
 
 
+# ``@dataclass`` is a decorator. In Python, a decorator (``@name``) is a
+# function that transforms the class or function defined immediately below
+# it. ``@dataclass`` in particular synthesizes ``__init__``, ``__repr__``,
+# and ``__eq__`` from the class body's typed attributes — so we get a
+# well-behaved value object without boilerplate.
 @dataclass
 class FnolPayload:
     """Insurer-shaped view of a high-risk safety event.
@@ -47,6 +80,11 @@ class FnolPayload:
     the internal detection schema — this is a *translation*, not a
     restructuring. Downstream code and insurer adapters should read from
     this dataclass, not from the raw event dict.
+
+    Each attribute below has its type annotation AND a trailing comment
+    describing its provenance / semantics. The ``| None`` suffix means
+    "may be None when we don't have a value" — e.g. TTC and distance are
+    not always computable (tracker lost, single-object scene, etc.).
     """
 
     event_id: str
@@ -70,11 +108,33 @@ class FnolPayload:
     evidence_hash: str | None  # SHA-256 of the thumbnail for chain-of-custody
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a plain-dict view for JSON serialization / logging.
+
+        ``dataclasses.asdict`` recursively converts dataclass instances into
+        dicts. The returned dict is safe to ``json.dumps`` and safe to
+        hand to an insurer adapter without further munging.
+        """
         return asdict(self)
 
 
 def build_fnol_payload(event: dict, *, operator_verified: bool = False) -> FnolPayload:
     """Translate an internal event dict into the insurer-shaped FNOL record.
+
+    Args:
+        event: internal event dict as produced by the perception pipeline.
+            Must have already been redacted (``enrichment.plate_hash`` set,
+            no raw plate fields).
+        operator_verified: whether a human has reviewed this event in the
+            ops UI. Passed as a keyword-only argument (the ``*`` in the
+            signature forbids positional passing) so call sites read as
+            ``build_fnol_payload(evt, operator_verified=True)`` and the
+            boolean is never ambiguous.
+
+    Returns:
+        A fully-populated ``FnolPayload``. Missing fields in the input
+        collapse to sensible defaults (empty string / None) rather than
+        raising, so the caller can route the payload to an operator UI
+        even if the upstream pipeline was incomplete.
 
     Design notes:
       - Speed source is reported honestly: "optical_flow_proxy" when the
@@ -88,18 +148,23 @@ def build_fnol_payload(event: dict, *, operator_verified: bool = False) -> FnolP
         Upgrade path: when a GPS shim lands, extend location to
         {'text': ..., 'lat': ..., 'lng': ..., 'accuracy_m': ...}.
     """
+    # ``dict.get(k) or {}`` — defensive default. If the event is missing
+    # "enrichment" OR has it set to None, we get an empty dict to traverse.
     enrichment = event.get("enrichment") or {}
 
     # Counterparty: the "other" object in the interaction. We pick whichever
     # of `primary_obj` / `secondary_obj` is NOT our own vehicle class; fall
     # back to 'secondary' because by convention it's the object with which
-    # the ego vehicle interacted.
+    # the ego vehicle interacted. ``(list or [None, None])[-1]`` gives us
+    # the last element of the objects list, or None if it's missing.
     counterparty_type = (
         event.get("secondary_cls")
         or (event.get("objects") or [None, None])[-1]
     )
 
     ego_flow = event.get("ego_flow") or {}
+    # ``isinstance(x, dict)`` is the defensive type guard — an event that
+    # came off the wire could in theory have any type for ``ego_flow``.
     speed_mps = ego_flow.get("speed_proxy_mps") if isinstance(ego_flow, dict) else None
     # If a GPS speed field ever lands (event["gps"]["speed_mps"]) prefer it.
     gps = event.get("gps") or {}
@@ -125,6 +190,7 @@ def build_fnol_payload(event: dict, *, operator_verified: bool = False) -> FnolP
         distance_m=event.get("distance_m"),
         speed_mps=speed_mps,
         speed_source=speed_source,
+        # Salted SHA-256 only — even the insurer never sees a raw plate.
         counterparty_plate_hash=enrichment.get("plate_hash"),
         counterparty_type=counterparty_type,
         thumbnail_url=event.get("thumbnail_public") or event.get("thumbnail_url"),
@@ -141,6 +207,13 @@ def is_fnol_candidate(event: dict) -> bool:
     only high-risk, sustained-episode events — exactly the ones the
     downstream Slack immediate-alert gate also passes. Medium/low events
     belong in driver coaching, not claim files.
+
+    Returns:
+        True iff the event is both (a) high risk and (b) exhibits the
+        kinematic signature of an actual near-miss (sub-second TTC or
+        sub-2m minimum distance). The 1.0s TTC and 2.0m distance are
+        deliberately tight: looser thresholds fill the queue with noise
+        and defeat the purpose of the gate.
     """
     if event.get("risk_level") != "high":
         return False

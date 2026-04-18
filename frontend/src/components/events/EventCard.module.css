@@ -1,3 +1,18 @@
+/* ============================================================
+ * EventCard.module.css
+ * ============================================================
+ * Imported by: frontend/src/components/events/EventCard.tsx
+ * UI region:   full-width event card used on DashboardPage —
+ *              larger thumbnail, narration + summary text,
+ *              feedback buttons, and a flash highlight for
+ *              newly-arrived events.
+ * (See global.css header for CSS Modules scoping notes.)
+ * ============================================================ */
+
+/* Card root. Uses a two-column GRID: fixed 120px thumb | flexible body.
+ * TEACH: `grid-template-columns: 120px 1fr` — first column is a
+ * fixed 120px wide, second column takes one fraction of whatever
+ * remains, i.e. fills the rest of the row. */
 .card {
   display: grid;
   grid-template-columns: 120px 1fr;
@@ -12,11 +27,14 @@
 .card:hover {
   border-color: #2d3748;
 }
+/* .flash is briefly added by the .tsx when a new event arrives,
+ * producing a subtle cyan glow so the user notices it. */
 .flash {
   border-color: var(--accent);
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.08);
 }
 
+/* Thumbnail cell in the left grid column. */
 .thumb {
   width: 120px;
   height: 72px;
@@ -33,9 +51,10 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
+  display: block;                     /* remove inline-image baseline gap */
 }
 
+/* Right-hand text column — stacked rows separated by small gap. */
 .body {
   min-width: 0;
   display: flex;
@@ -43,6 +62,7 @@
   gap: 4px;
 }
 
+/* First row: event type + meta badges. */
 .row1 {
   display: flex;
   align-items: center;
@@ -50,11 +70,13 @@
   flex-wrap: wrap;
 }
 
+/* Bold event type label. */
 .etype {
   font-weight: 600;
   font-size: 13px;
 }
 
+/* Meta badges row (speed, driver, etc.). */
 .meta {
   color: var(--muted);
   font-size: 11px;
@@ -63,10 +85,17 @@
   flex-wrap: wrap;
   align-items: center;
 }
+/* Separator dot between meta items. */
 .sep {
   color: #374151;
 }
 
+/* Narration (one-sentence LLM summary), clamped to 2 lines.
+ * TEACH: The `-webkit-line-clamp` trick combines:
+ *   display: -webkit-box  + -webkit-box-orient: vertical
+ *   + -webkit-line-clamp: N + overflow: hidden
+ * to truncate multi-line text after N lines with an ellipsis.
+ * Non-standard but well supported in modern browsers. */
 .narr {
   font-style: italic;
   color: #cbd5e1;
@@ -77,6 +106,7 @@
   font-size: 12px;
 }
 
+/* Paragraph-style summary, also clamped to 2 lines. */
 .summ {
   color: #cbd5e1;
   display: -webkit-box;
@@ -86,6 +116,7 @@
   font-size: 12px;
 }
 
+/* Bottom row: feedback buttons on the left, status on the right. */
 .row3 {
   display: flex;
   justify-content: space-between;
@@ -95,6 +126,7 @@
   flex-wrap: wrap;
 }
 
+/* Small red-tinted note shown when an event was skipped/suppressed. */
 .skipNote {
   color: #fca5a5;
   font-size: 10.5px;

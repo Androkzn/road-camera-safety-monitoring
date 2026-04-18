@@ -1,3 +1,15 @@
+/* ============================================================
+ * TestBadge.module.css
+ * ============================================================
+ * Imported by: frontend/src/components/tests/TestBadge.tsx
+ * UI region:   small clickable badge in the TopBar / Admin area
+ *              summarizing the test-runner state (idle / running
+ *              / passed / failed) with pass/fail counts. Click
+ *              opens the TestDrawer.
+ * (See global.css header for CSS Modules scoping notes.)
+ * ============================================================ */
+
+/* Pill-shaped badge — dot + label + counts. */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -9,20 +21,23 @@
   cursor: pointer;
   border: 1px solid var(--border);
   background: #0b0f14;
-  transition: all 0.2s;
-  user-select: none;
+  transition: all 0.2s;             /* `all` = animate every animatable prop */
+  user-select: none;                 /* prevent text selection on drag */
   color: var(--text);
 }
 .badge:hover {
   border-color: var(--accent);
 }
 
+/* Circular status dot to the left of the label. */
 .dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 50%;                /* makes a square into a circle */
   flex-shrink: 0;
 }
+/* Dot colour variants. `animation` pulls the global pulse-dot
+ * keyframes defined in global.css. */
 .idle {
   background: var(--muted);
 }
@@ -37,6 +52,7 @@
   background: var(--high);
 }
 
+/* Pass / fail count numbers next to the dot. */
 .counts {
   display: flex;
   gap: 6px;
