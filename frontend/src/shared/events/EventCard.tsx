@@ -1,0 +1,136 @@
+/**
+ * EventCard — public-facing card for one SafetyEvent. Larger and richer
+ * than AdminEventCard: shows enrichment row (vehicle color/type, plate
+ * hash), and embeds FeedbackButtons so viewers can mark the detection
+ * correct or wrong.
+ */
+
+import { useState, useEffect } from "react";
+
+import {
+  formatWallTime,
+  humanEventType,
+  formatConfidence,
+  normalizeThumbnail,
+} from "../lib/format";
+import { RiskBadge, Tag } from "../ui";
+import type { SafetyEvent } from "../types/common";
+
+import { FeedbackButtons } from "./FeedbackButtons";
+import styles from "./EventCard.module.css";
+
+interface EventCardProps {
+  event: SafetyEvent;
+  isNew?: boolean;
+}
+
+export function EventCard({ event: e, isNew }: EventCardProps) {
+  const [flash, setFlash] = useState(isNew);
+
+  useEffect(() => {
+    if (!isNew) return;
+    const t = setTimeout(() => setFlash(false), 1500);
+    return () => clearTimeout(t);
+  }, [isNew]);
+
+  const thumb = normalizeThumbnail(e.thumbnail);
+  const objs = e.objects?.length ? e.objects.join(" · ") : "—";
+  const enr = e.enrichment;
+
+  return (
+    <div className={`${styles.card} ${flash ? styles.flash : ""}`}>
+      <div className={styles.thumb}>
+        {thumb ? (
+          <img
+            src={thumb}
+            alt=""
+            onError={(ev) => {
+              (ev.target as HTMLImageElement).style.display = "none";
+              (ev.target as HTMLImageElement).parentElement!.textContent = "no preview";
+            }}
+          />
+        ) : (
+          <span>no preview</span>
+        )}
+      </div>
+      <div className={styles.body}>
+        <div className={styles.row1}>
+          <RiskBadge level={e.risk_level} />
+          <span className={styles.etype}>{humanEventType(e.event_type)}</span>
+          <span className={styles.meta}>
+            <span>{formatWallTime(e.wall_time)}</span>
+            <span className={styles.sep}>•</span>
+            <span>
+              {e.timestamp_sec != null ? `T+${Number(e.timestamp_sec).toFixed(1)}s` : ""}
+            </span>
+          </span>
+        </div>
+
+        <div className={styles.meta}>
+          <span>{objs}</span>
+          <span className={styles.sep}>•</span>
+          <span>conf {formatConfidence(e.confidence)}</span>
+        </div>
+
+        {(e.ttc_sec != null || e.distance_m != null || e.distance_px != null) && (
+          <div className={styles.meta}>
+            {e.ttc_sec != null && (
+              <Tag variant={e.ttc_sec <= 1.5 ? "kin-warn" : "kin"} title="time-to-collision">
+                TTC {Number(e.ttc_sec).toFixed(1)}s
+              </Tag>
+            )}
+            {e.distance_m != null && (
+              <Tag variant="kin" title="distance">
+                {Number(e.distance_m).toFixed(1)}m
+              </Tag>
+            )}
+            {e.distance_px != null && <Tag>{Math.round(e.distance_px)}px</Tag>}
+          </div>
+        )}
+
+        {e.narration ? (
+          <div className={styles.narr}>{e.narration}</div>
+        ) : e.summary ? (
+          <div className={styles.summ}>{e.summary}</div>
+        ) : null}
+
+        {e.enrichment_skipped && (
+          <div className={styles.skipNote}>
+            vision enrichment skipped ({e.enrichment_skipped})
+          </div>
+        )}
+
+        <div className={styles.row3}>
+          {e.track_ids?.length ? (
+            <Tag variant="track">#{e.track_ids.join(" / #")}</Tag>
+          ) : null}
+          {e.episode_duration_sec != null && (
+            <Tag>ep {Number(e.episode_duration_sec).toFixed(1)}s</Tag>
+          )}
+          {/* Privacy invariant: only the SALTED HASH ever reaches the
+              frontend. Raw plate text is scrubbed in enrich_event(). */}
+          {enr?.plate_hash && (
+            <Tag variant="hash" title="salted plate hash">
+              {enr.plate_hash}
+            </Tag>
+          )}
+          {!enr?.plate_hash && enr?.readability && (
+            <Tag variant="muted">plate {enr.readability}</Tag>
+          )}
+          {(enr?.vehicle_color || enr?.vehicle_type) && (
+            <Tag>
+              {[enr.vehicle_color, enr.vehicle_type].filter(Boolean).join(" ")}
+            </Tag>
+          )}
+        </div>
+
+        <div className={styles.row3}>
+          <Tag>{e.event_id || ""}</Tag>
+          <Tag>{e.video_id || ""}</Tag>
+        </div>
+
+        <FeedbackButtons eventId={e.event_id} />
+      </div>
+    </div>
+  );
+}

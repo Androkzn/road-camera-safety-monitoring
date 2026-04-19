@@ -85,6 +85,39 @@ def _is_youtube(source: str) -> bool:
     return "youtube.com" in source or "youtu.be" in source
 
 
+def classify_source(source: str) -> str:
+    """Tag a source string with a UI-visible transport mode.
+
+    Used to distinguish the demo "fake dashcam" MP4 loop from real live feeds
+    in the admin grid and status API. The returned value is a stable short
+    string suitable for a CSS class / badge label.
+
+    Returns:
+        ``"live_yt"``       — YouTube live URL.
+        ``"dashcam_file"``  — local video file (path points at an existing
+                               file on disk; webcam indices use ``"webcam"``).
+        ``"webcam"``        — ``"0"`` / ``"1"`` / etc. (webcam device index).
+        ``"live_hls"``      — HTTP(S) URL that isn't YouTube (HLS/RTSP/etc.).
+        ``"unknown"``       — empty / unrecognised.
+    """
+    s = (source or "").strip()
+    if not s:
+        return "unknown"
+    if _is_youtube(s):
+        return "live_yt"
+    # Webcam source: ``cv2.VideoCapture("0")`` opens /dev/video0. Treat
+    # short numeric strings as device indices, not as file paths.
+    if s.isdigit() and len(s) <= 2:
+        return "webcam"
+    lowered = s.lower()
+    if lowered.startswith(("http://", "https://", "rtsp://", "rtmp://")):
+        return "live_hls"
+    # Anything else is treated as a local file path. We don't stat it here
+    # (classifier must be cheap + pure) — the reader itself will surface
+    # "failed to open" if the path is wrong.
+    return "dashcam_file"
+
+
 def resolve_hls(source: str) -> str:
     """Resolve a YouTube URL to a direct media URL; pass-through for everything else.
 
@@ -181,11 +214,18 @@ class StreamReader:
     ``StreamReader`` instance per active stream.
     """
 
-    def __init__(self, source_url: str, target_fps: float = 2.0, *, original_source: str = ""):
+    def __init__(
+        self,
+        source_url: str,
+        target_fps: float = 2.0,
+        *,
+        original_source: str = "",
+        loop: bool = False,
+    ):
         """Initialise without spawning the thread. Call ``start()`` to begin capture.
 
-        The ``*`` in the signature forces ``original_source`` to be passed by
-        keyword only — prevents accidental positional mix-ups with ``source_url``.
+        The ``*`` in the signature forces later kwargs to be passed by keyword
+        only — prevents accidental positional mix-ups with ``source_url``.
 
         Args:
             source_url: Resolved stream URL (post-``resolve_hls``). For YouTube
@@ -196,10 +236,15 @@ class StreamReader:
             original_source: The *pre-resolution* user input. Required because
                 the yt-dlp pipe re-runs yt-dlp with the original URL (the
                 resolved URL is already single-use / signature-expired).
+            loop: When True and the source is a finite local file, rewind and
+                keep reading once EOF is reached instead of exiting. Used by
+                the demo "fake dashcam" mode to keep the MP4 replaying forever.
+                No effect on live network sources (you cannot rewind HLS).
         """
         self.source_url = source_url
         self.original_source = original_source or source_url
         self.target_fps = target_fps
+        self.loop = loop
         self._thread: threading.Thread | None = None
         # ``threading.Event`` is a thread-safe boolean flag. ``set()`` flips it
         # true; ``is_set()`` reads it; ``wait()`` blocks until set. We use it
@@ -314,21 +359,44 @@ class StreamReader:
 
         i = 0
         consecutive_fail = 0
-        # The loop polls ``_stop`` every iteration. Because ``cap.read()``
-        # itself blocks, the loop won't notice a stop request *during* a
-        # blocked read — that's why ``stop()`` also has a 5s join timeout.
+        # Realtime pacing for the demo dashcam loop. Local files decode as
+        # fast as the CPU allows — without throttling, a 30s MP4 would play
+        # through in a fraction of a second and the perception pipeline's
+        # TTC math (which assumes wall-clock timestamps) would be meaningless.
+        # Deadline-based: next callback fires at ``next_deadline``; if we're
+        # ahead we sleep, if we're behind we fire immediately and catch up.
+        next_deadline = time.time() if self.loop else 0.0
         while not self._stop.is_set():
             ok, frame = cap.read()
             if not ok:
-                consecutive_fail += 1
-                # 50 * 100ms = 5s of continuous failures before giving up.
-                # Short enough to surface outages quickly; long enough to ride
-                # through typical network hiccups.
-                if consecutive_fail > 50:
-                    print("[stream] too many read failures — stopping")
-                    break
-                time.sleep(0.1)
-                continue
+                # Looping replay for finite local files (demo dashcam mode).
+                # ``CAP_PROP_POS_FRAMES`` = 0 rewinds to the start; guarded by
+                # ``self.loop`` so live network sources still bail on EOF.
+                if self.loop:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ok, frame = cap.read()
+                    if ok:
+                        consecutive_fail = 0
+                    else:
+                        # Rewind attempt also failed — fall through to retry /
+                        # give-up path; prevents an infinite busy loop on a
+                        # file that genuinely won't open.
+                        consecutive_fail += 1
+                        if consecutive_fail > 50:
+                            print("[stream] loop: rewind keeps failing — stopping")
+                            break
+                        time.sleep(0.1)
+                        continue
+                else:
+                    consecutive_fail += 1
+                    # 50 * 100ms = 5s of continuous failures before giving up.
+                    # Short enough to surface outages quickly; long enough to
+                    # ride through typical network hiccups.
+                    if consecutive_fail > 50:
+                        print("[stream] too many read failures — stopping")
+                        break
+                    time.sleep(0.1)
+                    continue
             consecutive_fail = 0
             self.frames_read += 1
             if i % step == 0:
@@ -341,6 +409,22 @@ class StreamReader:
                     self.frames_processed += 1
                 except Exception as exc:
                     print(f"[stream] on_frame error: {exc}")
+                # Pace the looped dashcam replay in wall-clock so TTC / ego-
+                # speed estimates reflect real seconds of motion, not CPU
+                # decode speed. Live network sources self-throttle via their
+                # own network pacing — no sleep needed.
+                if self.loop and self.target_fps > 0:
+                    next_deadline += 1.0 / self.target_fps
+                    delay = next_deadline - time.time()
+                    if delay > 0:
+                        # ``Event.wait(timeout)`` returns early when ``stop()``
+                        # flips the flag, so we stay responsive to shutdown
+                        # even while sleeping between paced frames.
+                        self._stop.wait(timeout=delay)
+                    else:
+                        # Fell behind — reset the deadline so we don't try
+                        # to "catch up" with a burst of un-paced callbacks.
+                        next_deadline = time.time()
             i += 1
 
         cap.release()

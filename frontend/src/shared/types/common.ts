@@ -1,0 +1,292 @@
+/**
+ * Shared TypeScript types — cross-feature backend contracts.
+ *
+ * Mirrors JSON shapes produced by FastAPI handlers in the `road_safety`
+ * Python package. Pure types, no runtime code (TS erases them at build).
+ *
+ * Feature-specific types (e.g. settings) live in their own feature folder
+ * (`features/settings/types.ts`).
+ */
+
+// =============================================================================
+// Event enrichment (LLM/ALPR post-processing output)
+// =============================================================================
+
+/**
+ * Data attached to an event by the LLM enrichment step.
+ * SECURITY: `plate_text` / `plate_state` are deliberately NOT in this
+ * type — backend strips them at ingest. Only the hashed plate reaches
+ * the frontend.
+ */
+export interface Enrichment {
+  plate_hash?: string;
+  readability?: string;
+  vehicle_color?: string;
+  vehicle_type?: string;
+}
+
+// =============================================================================
+// Core event — the primary payload pushed over SSE
+// =============================================================================
+
+export interface SafetyEvent {
+  event_id: string;
+  vehicle_id?: string;
+  road_id?: string;
+  driver_id?: string;
+  video_id?: string;
+  timestamp_sec?: number;
+  wall_time?: string;
+  event_type: string;
+  risk_level: "high" | "medium" | "low";
+  confidence?: number;
+  objects?: string[];
+  track_ids?: number[];
+  episode_duration_sec?: number;
+  ttc_sec?: number;
+  distance_m?: number;
+  distance_px?: number;
+  summary?: string;
+  narration?: string;
+  thumbnail?: string;
+  enrichment?: Enrichment;
+  enrichment_skipped?: string;
+  perception_state?: string;
+  _meta?: string;
+}
+
+// =============================================================================
+// Perception / live status
+// =============================================================================
+
+export interface PerceptionState {
+  _meta: "perception_state";
+  state: string;
+  reason: string;
+  luminance?: number;
+  sharpness?: number;
+  avg_confidence?: number;
+  samples?: number;
+}
+
+export interface LiveStatus {
+  source: string;
+  running: boolean;
+  event_count: number;
+  frames_read: number;
+  frames_processed: number;
+  uptime_sec: number;
+  started_at: number | null;
+  perception?: PerceptionState;
+  target_fps?: number;
+  alpr_mode?: string;
+  location?: string;
+}
+
+/**
+ * Transport / origin of a perception source, used to pick a UI badge.
+ *  - `dashcam_file` — local MP4 replayed on a loop (the demo dashcam).
+ *  - `live_yt`      — YouTube live URL (resolved via yt-dlp).
+ *  - `live_hls`     — HLS / RTSP / RTMP network URL.
+ *  - `webcam`       — OS webcam device (`cv2.VideoCapture("0")`).
+ *  - `unknown`      — empty / unrecognised (no badge).
+ */
+export type StreamType =
+  | "dashcam_file"
+  | "live_yt"
+  | "live_hls"
+  | "webcam"
+  | "unknown";
+
+export interface LiveSourceStatus {
+  id: string;
+  name: string;
+  url: string;
+  /** Classification of the source transport; drives the grid tile badge. */
+  stream_type: StreamType;
+  running: boolean;
+  detection_enabled: boolean;
+  last_error: string | null;
+  frames_read: number;
+  frames_processed: number;
+  uptime_sec: number;
+  started_at: number | null;
+  active_episodes: number;
+  perception_state: string | null;
+  perception_reason: string | null;
+}
+
+export interface LiveSourcesResponse {
+  primary_id: string;
+  sources: LiveSourceStatus[];
+}
+
+// =============================================================================
+// Scene context & drift
+// =============================================================================
+
+export interface SceneContext {
+  label: string;
+  confidence?: number;
+  speed_proxy_mps?: number;
+  pedestrian_rate_per_min?: number;
+  reason: string;
+  thresholds?: {
+    ttc_high_sec: number;
+    ttc_med_sec: number;
+    dist_high_m: number;
+    dist_med_m: number;
+  };
+}
+
+export interface DriftReport {
+  window_size: number;
+  true_positives: number;
+  false_positives: number;
+  precision?: number;
+  trend?: string;
+  alert_triggered?: boolean;
+}
+
+// =============================================================================
+// Raw detections — per-frame debug overlay data
+// =============================================================================
+
+export interface DetectionObject {
+  cls: string;
+  conf: number;
+  track_id?: number;
+  bbox: [number, number, number, number];
+}
+
+export interface DetectionSnapshot {
+  ts: number;
+  detections: number;
+  persons: number;
+  vehicles: number;
+  interactions: number;
+  objects: DetectionObject[];
+}
+
+// =============================================================================
+// Health endpoint
+// =============================================================================
+
+export interface HealthData {
+  server: {
+    running: boolean;
+    uptime_sec: number;
+    started_at: number | null;
+    source: string;
+    target_fps: number;
+  };
+  pipeline: {
+    frames_read: number;
+    frames_processed: number;
+    event_count: number;
+    active_episodes: number;
+    tracker: string;
+    risk_model: string;
+    model: string;
+  };
+  integrations: {
+    llm_configured: boolean;
+    slack_configured: boolean;
+    edge_publisher: boolean;
+    pii_redaction: string;
+    dsar_endpoint: boolean;
+  };
+  perception: {
+    state: string;
+    reason: string;
+    samples: number;
+    avg_confidence?: number;
+    luminance?: number;
+    sharpness?: number;
+  };
+  scene: {
+    label: string;
+    confidence?: number;
+    speed_proxy_mps?: number;
+    reason: string;
+  };
+}
+
+// =============================================================================
+// Watchdog
+// =============================================================================
+
+export interface WatchdogFinding {
+  severity: "error" | "warning" | "info";
+  category: string;
+  title: string;
+  detail: string;
+  suggestion: string;
+  impact?: string;
+  likely_cause?: string;
+  owner?: string;
+  runbook?: string;
+  fingerprint?: string;
+  source?: "rule" | "ai";
+  cause_confidence?: "observed" | "inferred";
+  priority_score?: number;
+  evidence?: Array<{
+    label: string;
+    value: string;
+    threshold?: string;
+    status?: string;
+  }>;
+  investigation_steps?: string[];
+  debug_commands?: string[];
+  ts: string;
+  snapshot_id: string;
+}
+
+export interface WatchdogStatus {
+  enabled: boolean;
+  interval_sec: number;
+  last_run: number;
+  last_run_ago_sec: number | null;
+  run_count: number;
+  total_findings_emitted: number;
+  total_findings: number;
+  unique_incidents?: number;
+  repeating_incidents?: number;
+  by_severity: Record<string, number>;
+  by_category: Record<string, number>;
+  top_incidents?: Array<{
+    fingerprint: string;
+    severity: string;
+    category: string;
+    title: string;
+    owner: string;
+    count: number;
+    first_seen_ts: string;
+    last_seen_ts: string;
+    latest: WatchdogFinding;
+  }>;
+}
+
+// =============================================================================
+// Test runner
+// =============================================================================
+
+export interface TestResult {
+  name: string;
+  node_id: string;
+  file: string;
+  outcome: "passed" | "failed" | "error" | "skipped";
+  duration_ms: number;
+  message?: string;
+}
+
+export interface TestStatus {
+  status: "idle" | "running" | "passed" | "failed";
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  progress: number;
+  elapsed_sec: number;
+  results: TestResult[];
+}

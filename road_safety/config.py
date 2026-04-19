@@ -99,10 +99,25 @@ YT_DLP_PATH = str(_VENV_YT_DLP) if _VENV_YT_DLP.exists() else "yt-dlp"
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: STREAM SETTINGS
 # ─────────────────────────────────────────────────────────────────────────────
+# Demo "fake dashcam" fallback: when no operator has configured streams via
+# ``ROAD_STREAM_SOURCE`` or ``ROAD_STREAM_SOURCES``, we default to the
+# bundled MP4s so the admin UI has something to show out of the box. Two
+# files ship with the repo:
+#   * iPhone-captured front dashcam → tagged as the primary vehicle cam
+#   * DJI drone/action-cam exterior view → tagged as "Left Side" so the
+#     operator sees both angles of the same vehicle simultaneously.
+# The ``StreamReader`` loops local files, so the demo replays end-to-end
+# without operator action. Set either env var to override for a real
+# deployment.
+_DEMO_DASHCAM_FILE = PROJECT_ROOT / "resourses" / "Safe Fleet iPhone.mp4"
+_DEMO_DJI_FILE = PROJECT_ROOT / "resourses" / "Safe Fleet DJI.mp4"
+_DEMO_DASHCAM_SOURCE = str(_DEMO_DASHCAM_FILE) if _DEMO_DASHCAM_FILE.exists() else ""
+_DEMO_DJI_SOURCE = str(_DEMO_DJI_FILE) if _DEMO_DJI_FILE.exists() else ""
+
 # ``ROAD_STREAM_SOURCE`` — what the edge node captures from. Empty string
-# means "no default; set at runtime via API or docker-compose". Accepted
-# forms: HLS URL, local file path, webcam index (e.g. ``0``), YouTube URL.
-DEFAULT_STREAM_SOURCE = os.getenv("ROAD_STREAM_SOURCE", "")
+# falls back to the demo dashcam loop above. Accepted forms: HLS URL,
+# local file path, webcam index (e.g. ``0``), YouTube URL.
+DEFAULT_STREAM_SOURCE = os.getenv("ROAD_STREAM_SOURCE", _DEMO_DASHCAM_SOURCE)
 
 
 def _parse_stream_sources() -> list[dict[str, str]]:
@@ -122,6 +137,25 @@ def _parse_stream_sources() -> list[dict[str, str]]:
     raw = os.getenv("ROAD_STREAM_SOURCES", "").strip()
     if not raw:
         if DEFAULT_STREAM_SOURCE:
+            # Demo naming: when the fallback is the bundled dashcam MP4,
+            # label it with the demo vehicle identity so the admin UI shows
+            # "Fox Factory — Nissan Rogue XX 001 X" instead of "Primary".
+            # When the DJI exterior-view MP4 is also present, add it as a
+            # second source labelled "Left Side" so both angles of the demo
+            # vehicle are monitored in parallel.
+            if DEFAULT_STREAM_SOURCE == _DEMO_DASHCAM_SOURCE:
+                sources = [{
+                    "id": "primary",
+                    "name": "Fox Factory — Nissan Rogue XX 001 X",
+                    "url": DEFAULT_STREAM_SOURCE,
+                }]
+                if _DEMO_DJI_SOURCE:
+                    sources.append({
+                        "id": "left_side",
+                        "name": "Left Side Camera",
+                        "url": _DEMO_DJI_SOURCE,
+                    })
+                return sources
             return [{"id": "primary", "name": "Primary", "url": DEFAULT_STREAM_SOURCE}]
         return []
     # Prefer ``;`` as the entry separator when it's present (lets labelled
@@ -222,9 +256,13 @@ ALPR_MODE = os.getenv("ROAD_ALPR_MODE", "off").strip().lower()
 # anyway if they're missing (so dev on a laptop still works) but it logs a
 # warning and tags events with ``unidentified_*_<hostname>`` — such events
 # will never attribute to a real fleet entity.
-VEHICLE_ID = os.getenv("ROAD_VEHICLE_ID", "")
-ROAD_ID = os.getenv("ROAD_ID", "")
-DRIVER_ID = os.getenv("ROAD_DRIVER_ID", "")
+# Demo defaults match the bundled dashcam MP4 vehicle identity (Nissan
+# Rogue, plate XX 001 X, Fox Factory fleet). Override via env vars for
+# real deployments; the server also logs a warning when these remain at
+# their hostname-derived fallback (see ``_MISSING_IDENTITY`` in server.py).
+VEHICLE_ID = os.getenv("ROAD_VEHICLE_ID", "fox_factory_rogue_xx001x")
+ROAD_ID = os.getenv("ROAD_ID", "fox_factory_demo_route")
+DRIVER_ID = os.getenv("ROAD_DRIVER_ID", "fox_factory_driver_01")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: LOCATION
@@ -282,3 +320,33 @@ WATCHDOG_ENABLED = os.getenv("ROAD_WATCHDOG_ENABLED", "1").lower() not in ("0", 
 # Seconds between watchdog sweeps. 60s is the default: fast enough to page
 # on real incidents, slow enough to avoid amplifying noise during a storm.
 WATCHDOG_INTERVAL_SEC = int(os.getenv("ROAD_WATCHDOG_INTERVAL_SEC", "60"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Section: BACKGROUND VALIDATOR (dual-model shadow detection)
+# ─────────────────────────────────────────────────────────────────────────────
+# A second, heavier detector that shadows the primary YOLO pipeline. It
+# never gates live alerts — it runs off a bounded queue, re-processes the
+# peak frame of every emitted episode, and samples "quiet" frames to look
+# for events the primary missed. Disagreements become watchdog incidents
+# under the ``validator`` category.
+#
+# Disabled by default so production installations don't pay for it until
+# the operator explicitly enables shadow-mode validation.
+VALIDATOR_ENABLED = os.getenv("ROAD_VALIDATOR_ENABLED", "0").lower() not in ("0", "false", "no", "")
+# Which backend to use. ``rtdetr`` uses ultralytics' RT-DETR-L weights —
+# same package as YOLO, no new dependency. ``codetr``/``rfdetr`` would
+# need optional extra deps and are not implemented yet.
+VALIDATOR_BACKEND = os.getenv("ROAD_VALIDATOR_BACKEND", "rtdetr").strip().lower()
+VALIDATOR_MODEL_PATH = os.getenv("ROAD_VALIDATOR_MODEL_PATH", "rtdetr-l.pt")
+# Explicit device pin for the secondary. Empty = auto. Operators typically
+# pin this to ``cpu`` when the primary is on the GPU so the two don't
+# contend for memory or compute.
+VALIDATOR_DEVICE = os.getenv("ROAD_VALIDATOR_DEVICE", "")
+# Minimum seconds between sampled (non-episode) validator jobs per source.
+# 3s ≈ one shadow pass every 6 primary frames at TARGET_FPS=2.
+VALIDATOR_SAMPLE_SEC = float(os.getenv("ROAD_VALIDATOR_SAMPLE_SEC", "3.0"))
+# Bounded queue depth — if the worker can't keep up, oldest jobs are dropped.
+VALIDATOR_QUEUE_MAX = int(os.getenv("ROAD_VALIDATOR_QUEUE_MAX", "32"))
+# IoU threshold for "same object" matching between primary and secondary
+# bboxes. ≥0.3 is a lenient match so noisy secondary detections still count.
+VALIDATOR_IOU_THRESHOLD = float(os.getenv("ROAD_VALIDATOR_IOU_THRESHOLD", "0.3"))

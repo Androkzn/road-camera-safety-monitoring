@@ -112,6 +112,7 @@ _OWNER_BY_CATEGORY = {
     "stream": "Video ingest",
     "scene": "Scene understanding",
     "system": "Platform",
+    "validator": "ML quality",
 }
 
 # One-liner runbook hint per category, linking the finding to standing
@@ -123,6 +124,7 @@ _RUNBOOK_BY_CATEGORY = {
     "stream": "Check stream source health, frame throughput, and local resource pressure.",
     "scene": "Validate scene classifier inputs and thresholds against current roadway conditions.",
     "system": "Inspect recent deploys, runtime logs, and subsystem health endpoints.",
+    "validator": "Compare primary YOLO output against the heavier shadow model, review evidence on both sides, and queue disagreements for labeling.",
 }
 
 # Fallback "impact" copy per category. ``impact`` describes the operator-
@@ -135,6 +137,7 @@ _DEFAULT_IMPACT_BY_CATEGORY = {
     "stream": "Live detection coverage is reduced because frames are not moving through the pipeline reliably.",
     "scene": "Context-aware thresholds may become unreliable, increasing false positives or missed conflicts.",
     "system": "The dashboard may report misleading health information until the underlying issue is fixed.",
+    "validator": "The primary detector disagrees with the shadow model, suggesting false alerts or missed events that warrant labeling review.",
 }
 
 

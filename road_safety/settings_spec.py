@@ -42,6 +42,9 @@ from road_safety.config import (
     MAX_RECENT_EVENTS,
     PAIR_COOLDOWN_SEC,
     TARGET_FPS,
+    VALIDATOR_ENABLED,
+    VALIDATOR_IOU_THRESHOLD,
+    VALIDATOR_SAMPLE_SEC,
 )
 
 
@@ -297,6 +300,37 @@ SETTINGS_SPEC: list[SettingSpec] = [
         min_value=0.5,
         max_value=10.0,
         step=0.5,            # half-fps snaps; finer granularity isn't useful
+    ),
+    # --- validator (dual-model shadow detector) ----------------------------
+    SettingSpec(
+        key="VALIDATOR_ENABLED",
+        default=bool(VALIDATOR_ENABLED),
+        type="bool",
+        category="performance",
+        mutability="restart_required",
+        description="Run a heavier secondary detector in the background to flag primary disagreements. Restart required to load weights.",
+    ),
+    SettingSpec(
+        key="VALIDATOR_SAMPLE_SEC",
+        default=float(VALIDATOR_SAMPLE_SEC),
+        type="float",
+        category="performance",
+        mutability="hot_apply",
+        description="Seconds between sampled validator jobs per source. Lower = more compute, higher = more misses.",
+        min_value=0.5,
+        max_value=60.0,
+        step=0.5,
+    ),
+    SettingSpec(
+        key="VALIDATOR_IOU_THRESHOLD",
+        default=float(VALIDATOR_IOU_THRESHOLD),
+        type="float",
+        category="performance",
+        mutability="hot_apply",
+        description="Minimum IoU for primary/secondary bbox match. Higher = stricter agreement.",
+        min_value=0.1,
+        max_value=0.9,
+        step=0.05,
     ),
 ]
 

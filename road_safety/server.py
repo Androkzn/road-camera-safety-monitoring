@@ -132,6 +132,10 @@ from road_safety.config import (
     PUBLIC_THUMBS_REQUIRE_TOKEN,
     SCORE_DECAY_INTERVAL_SEC,
     SSE_REPLAY_COUNT,
+    VALIDATOR_ENABLED,
+    VALIDATOR_IOU_THRESHOLD,
+    VALIDATOR_QUEUE_MAX,
+    VALIDATOR_SAMPLE_SEC,
     WATCHDOG_ENABLED,
     WATCHDOG_INTERVAL_SEC,
     STATIC_DIR,
@@ -157,7 +161,13 @@ from road_safety.core.detection import (
     load_model,
     tracks_converging,
 )
-from road_safety.core.stream import StreamReader, resolve_hls
+from road_safety.core.stream import StreamReader, classify_source, resolve_hls
+from road_safety.core.validator import (
+    DiscrepancyComparator,
+    SecondaryDetector,
+    ValidatorJob,
+    ValidatorWorker,
+)
 from road_safety.core.quality import QualityMonitor
 from road_safety.core.context import SceneContextClassifier
 from road_safety.core.egomotion import EgoMotionEstimator
@@ -168,6 +178,7 @@ from road_safety.services.agents import AgentExecutor, run_coaching_agent, run_i
 from road_safety.services.registry import road_registry
 from road_safety.services.drift import ActiveLearningSampler, DriftMonitor, drift_warning_message
 from road_safety.services.digest import start_schedulers as start_digest_schedulers
+from road_safety.services import demo_track as demo_track_service
 from road_safety.integrations.slack import notify_event as slack_notify, slack_configured
 from road_safety.integrations.edge_publisher import EdgePublisher
 from road_safety.api.feedback import mount as mount_feedback_routes
@@ -178,7 +189,7 @@ from road_safety.settings_store import STORE as SETTINGS_STORE
 from road_safety.compliance import audit
 from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
 from road_safety.services.test_runner import run_state as test_run_state, start_test_run
-from road_safety.services.watchdog import Watchdog, tail as watchdog_tail, stats as watchdog_stats, delete_findings as watchdog_delete, delete_findings_by_id as watchdog_delete_by_id
+from road_safety.services.watchdog import Watchdog, WatchdogFinding, _write_finding as _watchdog_write_finding, tail as watchdog_tail, stats as watchdog_stats, delete_findings as watchdog_delete, delete_findings_by_id as watchdog_delete_by_id
 from road_safety.security import require_bearer_token
 
 
@@ -442,6 +453,10 @@ class StreamSlot:
         # Pre-resolution operator-supplied URL. The resolved URL (post
         # yt-dlp) is stashed on ``reader.source_url`` once started.
         self.original_source = original_source
+        # UI-facing mode tag: "dashcam_file" (looping demo MP4), "live_yt",
+        # "live_hls", "webcam", "unknown". Drives the badge on the admin
+        # grid tile and whether the reader loops on EOF.
+        self.stream_type = classify_source(original_source)
         # ``None`` until the slot has been started at least once.
         self.reader: StreamReader | None = None
         # Most recent reason a start attempt failed (e.g. yt-dlp resolution
@@ -535,6 +550,7 @@ class StreamSlot:
             "id": self.source_id,
             "name": self.name,
             "url": self.original_source,
+            "stream_type": self.stream_type,
             "running": self.is_running(),
             "detection_enabled": self.detection_enabled,
             "last_error": self.last_error,
@@ -584,6 +600,10 @@ class LiveState:
         self.edge_publisher = EdgePublisher()
         self.agent_executor: AgentExecutor | None = None
         self.admin_detection_subscribers: set[asyncio.Queue] = set()
+        # Background validator (dual-model shadow detector). Populated in
+        # ``lifespan`` when ``VALIDATOR_ENABLED`` is true; ``None`` in dev
+        # and single-model deployments.
+        self.validator: "ValidatorWorker | None" = None
         # Source registry. Always contains at least the primary slot
         # (created here so legacy ``state.X`` proxies have a target to
         # delegate to). ``lifespan`` may rename / replace it once it
@@ -1002,7 +1022,16 @@ def _start_slot(slot: StreamSlot) -> None:
         raise RuntimeError(f"slot {slot.source_id} has no source URL")
     hls = resolve_hls(slot.original_source)
     live_fps = float(SETTINGS_STORE.snapshot().get("TARGET_FPS", TARGET_FPS))
-    reader = StreamReader(hls, target_fps=live_fps, original_source=slot.original_source)
+    # Local-file sources loop forever by default so the demo "fake dashcam"
+    # MP4 replays end-to-end. Live URLs (YT/HLS/RTSP) keep the legacy
+    # "exit on EOF" behaviour — there is no EOF on a live feed anyway.
+    should_loop = slot.stream_type == "dashcam_file"
+    reader = StreamReader(
+        hls,
+        target_fps=live_fps,
+        original_source=slot.original_source,
+        loop=should_loop,
+    )
     reader.start(_make_on_frame(slot))
     slot.reader = reader
     slot.last_error = None
@@ -1134,6 +1163,23 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # ----- Gate 1: tracked detection (YOLO + ByteTrack) -----
     detections = detect_frame(state.model, frame)
     frame_h = frame.shape[0]  # image height — needed by pinhole distance estimates.
+
+    # ----- Shadow-mode validator tee (sampled) -----
+    # Non-blocking fan-out to the background dual-model validator. Runs
+    # at most once per ``VALIDATOR_SAMPLE_SEC`` per source. Heavy work
+    # happens on the asyncio loop / worker thread; this call is O(1).
+    if state.validator is not None and state.loop is not None:
+        if state.validator.should_sample(slot.source_id, wall_ts):
+            state.loop.call_soon_threadsafe(
+                state.validator.enqueue,
+                ValidatorJob(
+                    kind="sampled",
+                    slot_id=slot.source_id,
+                    wall_ts=wall_ts,
+                    frame=frame.copy(),
+                    primary_detections=list(detections),
+                ),
+            )
 
     # ----- Gate 2: perception-quality observer -----
     # Feed every frame so degradations (night, rain, glare, dirty lens)
@@ -1494,6 +1540,28 @@ def _flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
     # dispatch all happen there, not in this background thread.
     asyncio.run_coroutine_threadsafe(_emit_event(event, internal_name), state.loop)
 
+    # ----- Validator deep re-check of the peak frame -----
+    # Non-blocking hand-off to the shadow validator. It will re-run a
+    # heavier detector on ``ep.peak_frame`` and emit watchdog findings
+    # if the secondary disagrees (false positive, classification mismatch).
+    if (
+        state.validator is not None
+        and state.loop is not None
+        and ep.peak_frame is not None
+    ):
+        state.validator.mark_primary_event(slot.source_id, wall_ts)
+        state.loop.call_soon_threadsafe(
+            state.validator.enqueue,
+            ValidatorJob(
+                kind="episode",
+                slot_id=slot.source_id,
+                wall_ts=wall_ts,
+                frame=ep.peak_frame,
+                primary_detections=list(ep.peak_detections),
+                primary_event=event,
+            ),
+        )
+
 
 # ===== SECTION: SSE BROADCAST HELPERS =====
 # Each connected client has its own ``asyncio.Queue``. Broadcast = iterate
@@ -1816,6 +1884,39 @@ async def lifespan(app: FastAPI):
     start_test_run()
     log.info("test suite started in background")
 
+    # Background validator — shadow-mode dual-model disagreement detector.
+    # Runs a heavier detector on sampled frames + every emitted episode's
+    # peak frame; publishes disagreements as watchdog findings. Never
+    # blocks the primary perception path.
+    validator_task = None
+    if VALIDATOR_ENABLED:
+        try:
+            detector = SecondaryDetector()
+            comparator = DiscrepancyComparator(iou_threshold=VALIDATOR_IOU_THRESHOLD)
+            state.validator = ValidatorWorker(
+                detector=detector,
+                comparator=comparator,
+                write_finding=_watchdog_write_finding,
+                finding_ctor=WatchdogFinding,
+                observer_record_skip=(
+                    getattr(llm_observer, "record_skip", None)
+                ),
+                queue_max=VALIDATOR_QUEUE_MAX,
+                sample_sec=VALIDATOR_SAMPLE_SEC,
+            )
+            validator_task = asyncio.create_task(state.validator.run_forever())
+            log.info(
+                "validator started (backend=%s, sample_sec=%.1f, queue_max=%d)",
+                detector.backend,
+                VALIDATOR_SAMPLE_SEC,
+                VALIDATOR_QUEUE_MAX,
+            )
+        except Exception as exc:
+            log.warning("validator failed to start, continuing without it: %s", exc)
+            state.validator = None
+    else:
+        log.info("validator disabled (ROAD_VALIDATOR_ENABLED=0)")
+
     # AI Watchdog — background health monitor.
     # Collects a snapshot of the system's health periodically and fingerprints
     # repeated issues into an incident queue (not a log-tail wall of red).
@@ -1924,6 +2025,8 @@ async def lifespan(app: FastAPI):
         score_decay_task.cancel()
     if watchdog_task is not None:
         watchdog_task.cancel()
+    if validator_task is not None:
+        validator_task.cancel()
 
 
 # ===== SECTION: FASTAPI APP CONSTRUCTION + STATIC MOUNTS =====
@@ -2270,6 +2373,48 @@ def live_status():
             "avg_confidence": q["avg_confidence"],
             "luminance": q["luminance"],
             "sharpness": q["sharpness"],
+        },
+    }
+
+
+@app.get("/api/demo/track")
+def demo_track():
+    """Return the bundled demo GPS track + vehicle identity for the map overlay.
+
+    HTTP: GET /api/demo/track
+    AUTH: public (no PII — just a synthetic route and demo plate "XX 001 X").
+    Response shape::
+
+        {
+          "ok": true,
+          "vehicle": {
+            "plate": "XX 001 X",
+            "model": "Nissan Rogue",
+            "company": "Fox Factory",
+            "vehicle_id": "<resolved ROAD_VEHICLE_ID>"
+          },
+          "points": [{"lat": float, "lng": float, "t_sec": float}, ...],
+          "total_duration_sec": float,
+          "bounds": {"south": float, "west": float, "north": float, "east": float}
+        }
+
+    The frontend loops through ``points`` at a display-friendly cadence
+    (faster than the original wall-clock spacing) and interpolates between
+    consecutive points to animate the map marker smoothly. Cached in-process
+    after first read — the source JSON is part of the repo and doesn't
+    change between requests.
+    """
+    payload = demo_track_service.load_track()
+    # Layer the demo vehicle identity on top of the cached geo payload. The
+    # vehicle dict is tiny + cheap to build; returning it here keeps the
+    # frontend map self-contained (one fetch, full picture).
+    return {
+        **payload,
+        "vehicle": {
+            "plate": "XX 001 X",
+            "model": "Nissan Rogue",
+            "company": "Fox Factory",
+            "vehicle_id": RESOLVED_VEHICLE_ID,
         },
     }
 

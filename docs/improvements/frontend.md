@@ -16,7 +16,7 @@
 4. **`Last-Event-ID` resumption + heartbeat-stall watchdog.** A laptop wake / proxy idle today produces an "alive but frozen" dashboard — the worst kind of demo failure.
 5. **Sanitize copilot chat output through DOMPurify.** Pre-emptive XSS guard for LLM-generated text.
 6. **Vitest + React Testing Library + MSW.** Zero FE tests today. Five strategic tests beat fifty snapshot tests.
-7. **Cap concurrent MJPEG decoders + pause minimized/off-screen tiles** (R21). 6-tile Admin grid pinned the renderer at ~76 % CPU during the 2026-04-19 perf incident; the new `focusedId` + `tileMini` state in `MultiSourceGrid` is the priority signal — wire it to a single-shot snapshot endpoint and `IntersectionObserver`.
+7. **Cap concurrent MJPEG decoders + pause minimized/off-screen tiles** (R21). 6-tile Admin grid pinned the renderer at ~76 % CPU during the 2026-04-19 perf incident; `focusedId` + `tileMini` state in `MultiSourceGrid` is the priority signal (now persisted cross-page via `localStorage.road_admin_focused_id`, consumed by the `SettingsPage` Live Preview as its default source) — remaining work is to wire it to a single-shot snapshot endpoint and `IntersectionObserver` for the minimized strip itself.
 
 The codebase is small and clean: [useSSE.ts](../../frontend/src/hooks/useSSE.ts) already does the right basics (ref-pinned callback, exponential backoff capped at 30s, bounded buffers). [tsconfig.app.json](../../frontend/tsconfig.app.json) already has `strict: true` and `noUncheckedIndexedAccess: true`. The recommendations below are ordered by ROI for a *demo / showcase* whose audience is technical reviewers.
 
@@ -399,7 +399,7 @@ echo 'npx lint-staged' > .husky/pre-commit
 
 ### R21 `[M]` Cap simultaneous MJPEG decoders; pause minimized + off-screen tiles
 
-**Context — 2026-04-19 perf incident.** With 6 stream tiles mounted on the Admin grid, six `<img>` elements held a `multipart/x-mixed-replace` connection open simultaneously. Each one decodes a JPEG every ~500 ms in the renderer process; we measured Cursor Helper (Renderer) at ~76 % CPU during the saturation event. The new tap-to-focus layout (`MultiSourceGrid` + `SelectedStreamHeader`) gives us the priority signal — we just don't act on it yet.
+**Context — 2026-04-19 perf incident.** With 6 stream tiles mounted on the Admin grid, six `<img>` elements held a `multipart/x-mixed-replace` connection open simultaneously. Each one decodes a JPEG every ~500 ms in the renderer process; we measured Cursor Helper (Renderer) at ~76 % CPU during the saturation event. The tap-to-focus layout (`MultiSourceGrid` + `SelectedStreamHeader`) gives us the priority signal, and since 2026-04-19 the focused id is durable (`localStorage.road_admin_focused_id`, with a `admin-focused-id-changed` custom event for same-tab listeners and the native `storage` event for cross-tab sync) — the `SettingsPage` Live Preview already consumes it as the default source via `<StreamImage>`. What's still missing is the in-grid throttling of the minimized tiles themselves.
 
 **Pattern.** Treat MJPEG `<img>` mounts as a scarce resource: only the focused tile (or the visible window of a virtualized strip) decodes at full rate; the rest fall back to a paused snapshot.
 
@@ -409,7 +409,7 @@ echo 'npx lint-staged' > .husky/pre-commit
 - Cap any concurrent live MJPEG mounts at `navigator.hardwareConcurrency / 2` — anything beyond gets snapshots until something is paused.
 - `document.visibilityState === "hidden"` should pause every live decoder (re-uses the R12 visibility hook).
 
-**Why this project.** Pairs directly with [backend.md R-PERF](./backend.md#r-perf-h-multi-source-load-governance-per-slot-detection-toggle--runtime-cpu-guard) — server-side shared encoder + client-side decoder budget together turn N-stream cost into ~constant-cost. The focus state lifted into `AdminPage` (alongside the new `useLiveSources`-once pattern) is the natural priority input.
+**Why this project.** Pairs directly with [backend.md R-PERF](./backend.md#r-perf-h-multi-source-load-governance-per-slot-detection-toggle--runtime-cpu-guard) — server-side shared encoder + client-side decoder budget together turn N-stream cost into ~constant-cost. The focus state lifted into `AdminPage` (alongside the `useLiveSources`-once pattern) is the natural priority input, and is now exported to any page via `localStorage` + `admin-focused-id-changed` event — the `SettingsPage` Live Preview is the first cross-page consumer.
 
 **Trade-off.** Snapshots lose the live "moving" affordance for minimized tiles; mitigate with a low (1 fps) refresh and a "paused" badge so the operator isn't surprised.
 
