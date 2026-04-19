@@ -107,7 +107,7 @@ from pathlib import Path
 
 import cv2
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from road_safety.logging import setup as setup_logging, get_logger
@@ -469,6 +469,29 @@ class StreamSlot:
         self._annotated_jpeg: bytes | None = None
         self._frame_detections: list[dict] = []
         self._frame_ts: float = 0.0
+        # Active MJPEG viewer count. Incremented by ``_mjpeg_response`` on
+        # connect and decremented in its ``finally`` block on disconnect.
+        # When zero, ``_on_frame`` skips ``_render_annotated_frame`` /
+        # ``cv2.imencode`` — the biggest per-frame cost after YOLO itself.
+        self._mjpeg_subscribers: int = 0
+
+    def has_viewers(self) -> bool:
+        # Int read is atomic in CPython; a one-frame stale value is harmless
+        # (at worst we skip one encode the frame a viewer connects on).
+        return self._mjpeg_subscribers > 0
+
+    def _acquire_viewer(self) -> None:
+        with self._frame_lock:
+            self._mjpeg_subscribers += 1
+
+    def _release_viewer(self) -> None:
+        with self._frame_lock:
+            self._mjpeg_subscribers = max(0, self._mjpeg_subscribers - 1)
+            if self._mjpeg_subscribers == 0:
+                # Drop the last encoded frame so the next subscriber sees the
+                # warming-up placeholder until a fresh encode lands, instead
+                # of a potentially-stale frozen image from an old session.
+                self._annotated_jpeg = None
 
     def is_running(self) -> bool:
         return (
@@ -1051,7 +1074,11 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # write the raw (un-annotated) JPEG to the MJPEG buffer so the
     # operator can keep watching the camera live, then return without
     # running YOLO, quality / scene / ego, or any event emission.
+    # Skip the encode entirely when nobody is watching — with detection
+    # off there is no SSE/event side-effect to preserve.
     if not slot.detection_enabled:
+        if not slot.has_viewers():
+            return
         try:
             ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if ok:
@@ -1253,8 +1280,18 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # ----- Admin video feed + detections broadcast -----
     # Non-safety-critical visualization. Wrapped in try/except so a JPEG
     # encoding failure does not break the perception loop for the next frame.
+    #
+    # JPEG encode is the single most expensive step here after YOLO itself
+    # (_render_annotated_frame does frame.copy + N overlays + cv2.imencode).
+    # Skip it when no MJPEG client is attached to this slot — the SSE
+    # detection-metadata broadcast below still runs so dashboard counters
+    # keep updating even with no video viewers.
     try:
-        jpeg_bytes = _render_annotated_frame(frame, detections, interactions)
+        has_viewers = slot.has_viewers()
+        jpeg_bytes = (
+            _render_annotated_frame(frame, detections, interactions)
+            if has_viewers else None
+        )
         det_snapshot = [
             {
                 "cls": d.cls, "conf": round(d.conf, 3),
@@ -1264,7 +1301,8 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
             for d in detections
         ]
         with slot._frame_lock:
-            slot._annotated_jpeg = jpeg_bytes
+            if jpeg_bytes is not None:
+                slot._annotated_jpeg = jpeg_bytes
             slot._frame_detections = det_snapshot
             slot._frame_ts = wall_ts
 
@@ -2686,33 +2724,42 @@ def _mjpeg_response(slot: StreamSlot) -> StreamingResponse:
     """
 
     def generate():
-        # Emit the placeholder ONCE up front so the <img> tag receives data
-        # immediately — even browsers that time out on a 4 s no-data stream
-        # stay connected.
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + _WARMING_UP_JPEG + b"\r\n"
-        )
-        sent_real = False
-        while True:
-            with slot._frame_lock:
-                jpeg = slot._annotated_jpeg
-            if jpeg is not None:
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
-                )
-                sent_real = True
-            elif not sent_real:
-                # Still warming up — keep the placeholder visible (and the
-                # connection alive) instead of yielding nothing.
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + _WARMING_UP_JPEG + b"\r\n"
-                )
-            # ~0.4s matches the 2fps perception tick; faster would resend
-            # identical frames.
-            time.sleep(0.4)
+        # Announce ourselves as an active viewer so the perception loop
+        # actually produces annotated JPEGs for this slot. When the client
+        # disconnects, StreamingResponse closes the generator which fires
+        # the finally block below and releases the viewer slot — so the
+        # encode cost stops the moment the tile is unmounted.
+        slot._acquire_viewer()
+        try:
+            # Emit the placeholder ONCE up front so the <img> tag receives
+            # data immediately — even browsers that time out on a 4 s
+            # no-data stream stay connected.
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + _WARMING_UP_JPEG + b"\r\n"
+            )
+            sent_real = False
+            while True:
+                with slot._frame_lock:
+                    jpeg = slot._annotated_jpeg
+                if jpeg is not None:
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+                    )
+                    sent_real = True
+                elif not sent_real:
+                    # Still warming up — keep the placeholder visible (and the
+                    # connection alive) instead of yielding nothing.
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n" + _WARMING_UP_JPEG + b"\r\n"
+                    )
+                # ~0.4s matches the 2fps perception tick; faster would resend
+                # identical frames.
+                time.sleep(0.4)
+        finally:
+            slot._release_viewer()
 
     return StreamingResponse(
         generate(),
@@ -2745,6 +2792,26 @@ def admin_video_feed_for(source_id: str):
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
     return _mjpeg_response(slot)
+
+
+@app.get("/admin/frame/{source_id}")
+def admin_frame_for(source_id: str):
+    # Single-shot JPEG for the admin grid's polling renderer. MJPEG holds a
+    # persistent multipart connection per tile, which bumps into the browser's
+    # 6-concurrent-connections-per-host cap once you have >4 tiles + the SSE
+    # channel open. Polling short-lived JPEGs dodges that cap.
+    slot = state.slots.get(source_id)
+    if slot is None:
+        raise HTTPException(404, f"unknown source: {source_id}")
+    with slot._frame_lock:
+        jpeg = slot._annotated_jpeg
+    if jpeg is None:
+        jpeg = _WARMING_UP_JPEG
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ===== SECTION: ROUTE HANDLERS — MULTI-SOURCE LIFECYCLE =====

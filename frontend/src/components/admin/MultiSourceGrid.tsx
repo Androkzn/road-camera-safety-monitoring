@@ -51,8 +51,21 @@ function StreamTile({
   onRemove: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
+  // Polling tick. Rather than one persistent MJPEG connection per tile (which
+  // collides with the browser's 6-conn-per-host cap once you have >4 tiles +
+  // the SSE channel), we fetch a fresh JPEG every ~400ms. The tick doubles as
+  // a cache-busting query param so the <img> actually reloads.
+  const [tick, setTick] = useState(() => Date.now());
   const dialog = useDialog();
   const running = source.running;
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => setTick(Date.now()), 400);
+    return () => window.clearInterval(id);
+  }, [running, source.id]);
+  useEffect(() => {
+    setImgError(false);
+  }, [source.id, running]);
   // We render Start vs Pause based on the *action in flight* whenever busy
   // is set — otherwise the button would flip mid-action because we
   // optimistically swap ``running`` as soon as the user clicks. Without
@@ -96,11 +109,8 @@ function StreamTile({
       >
         {running && !imgError ? (
           <img
-            // Cache-busted on running-state transitions so the browser
-            // re-establishes the MJPEG connection after a pause/resume
-            // cycle (some browsers cache the closed multipart stream).
             key={`${source.id}-${source.started_at ?? "x"}`}
-            src={`/admin/video_feed/${source.id}`}
+            src={`/admin/frame/${source.id}?t=${tick}`}
             alt={`Live feed: ${source.name}`}
             className={styles.video}
             onError={() => setImgError(true)}
