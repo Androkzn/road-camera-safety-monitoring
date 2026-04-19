@@ -104,6 +104,50 @@ YT_DLP_PATH = str(_VENV_YT_DLP) if _VENV_YT_DLP.exists() else "yt-dlp"
 # forms: HLS URL, local file path, webcam index (e.g. ``0``), YouTube URL.
 DEFAULT_STREAM_SOURCE = os.getenv("ROAD_STREAM_SOURCE", "")
 
+
+def _parse_stream_sources() -> list[dict[str, str]]:
+    """Parse ``ROAD_STREAM_SOURCES`` into a list of ``{id, name, url}`` dicts.
+
+    Two accepted formats (auto-detected per entry, comma-separated):
+      - bare URL: ``https://youtu.be/abc`` — id auto-assigned ``src1``,
+        name derived from URL.
+      - labelled: ``id|name|url`` (pipe-separated 3-tuple) — explicit ids
+        let operators address streams stably from the API.
+
+    When unset, falls back to a single-element list built from
+    ``DEFAULT_STREAM_SOURCE`` (preserving the legacy single-stream
+    behaviour). When both env vars are empty, returns ``[]`` and the server
+    starts with no live sources — the operator can still add them via API.
+    """
+    raw = os.getenv("ROAD_STREAM_SOURCES", "").strip()
+    if not raw:
+        if DEFAULT_STREAM_SOURCE:
+            return [{"id": "primary", "name": "Primary", "url": DEFAULT_STREAM_SOURCE}]
+        return []
+    out: list[dict[str, str]] = []
+    for i, entry in enumerate(raw.split(",")):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "|" in entry:
+            parts = [p.strip() for p in entry.split("|", 2)]
+            if len(parts) == 3 and parts[0] and parts[2]:
+                out.append({"id": parts[0], "name": parts[1] or parts[0], "url": parts[2]})
+                continue
+        # Bare URL — auto id/name. First entry becomes "primary" so legacy
+        # endpoints (``/admin/video_feed`` without a source id) continue to
+        # serve the same stream as before.
+        sid = "primary" if i == 0 else f"src{i + 1}"
+        name = "Primary" if i == 0 else f"Source {i + 1}"
+        out.append({"id": sid, "name": name, "url": entry})
+    return out
+
+
+# List of ``{id, name, url}`` dicts the edge node will monitor in parallel.
+# Each gets its own perception slot (reader + quality/scene/episodes) and
+# emits events tagged with ``source_id``. See ``server.py::StreamSlot``.
+STREAM_SOURCES = _parse_stream_sources()
+
 # ``ROAD_TARGET_FPS`` — processing rate of the perception loop. The default
 # of 2 fps is the tested sweet spot: fast enough to catch TTC windows
 # (time-to-collision) in city driving, slow enough to keep the CPU cool and

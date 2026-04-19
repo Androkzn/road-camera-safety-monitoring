@@ -131,6 +131,31 @@ export interface LiveStatus {
   location?: string;               // Free-form location tag.
 }
 
+/**
+ * Per-source perception slot status, returned by `/api/live/sources`
+ * and the start/pause endpoints. Mirrors `StreamSlot.status_dict()` in
+ * road_safety/server.py.
+ */
+export interface LiveSourceStatus {
+  id: string;
+  name: string;
+  url: string;
+  running: boolean;
+  last_error: string | null;
+  frames_read: number;
+  frames_processed: number;
+  uptime_sec: number;
+  started_at: number | null;
+  active_episodes: number;
+  perception_state: string | null;
+  perception_reason: string | null;
+}
+
+export interface LiveSourcesResponse {
+  primary_id: string;
+  sources: LiveSourceStatus[];
+}
+
 // =============================================================================
 // Scene context & drift — higher-level pipeline signals
 // =============================================================================

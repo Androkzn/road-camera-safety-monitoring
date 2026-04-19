@@ -36,6 +36,8 @@
 import type {
   DriftReport,
   HealthData,
+  LiveSourceStatus,
+  LiveSourcesResponse,
   LiveStatus,
   SafetyEvent,
   SceneContext,
@@ -191,4 +193,18 @@ export const api = {
   // TEACH: Default parameter value `n = 50`. If the caller invokes
   // `api.getWatchdogRecent()` with no argument, `n` is 50.
   getWatchdogRecent: (n = 50) => fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`),
+
+  // --- Multi-source perception lifecycle ---
+  // List every configured perception source with running status.
+  getLiveSources: () => fetchJson<LiveSourcesResponse>("/api/live/sources"),
+  // Resume capture on a paused source.
+  startLiveSource: (id: string) =>
+    fetchJson<LiveSourceStatus>(`/api/live/sources/${encodeURIComponent(id)}/start`, {
+      method: "POST",
+    }),
+  // Pause a running source (slot is preserved for restart).
+  pauseLiveSource: (id: string) =>
+    fetchJson<LiveSourceStatus>(`/api/live/sources/${encodeURIComponent(id)}/pause`, {
+      method: "POST",
+    }),
 };

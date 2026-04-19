@@ -1,0 +1,160 @@
+/* ============================================================
+ * MultiSourceGrid.module.css
+ * ============================================================
+ * Imported by: components/admin/MultiSourceGrid.tsx
+ * UI region:   left column of AdminPage when multiple perception
+ *              sources are configured. One tile per source with
+ *              its own MJPEG feed and start/pause control.
+ * ============================================================ */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+  border-right: 1px solid var(--border);
+}
+
+.empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  flex: 1;
+  border-right: 1px solid var(--border);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #0f172a);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.videoWrap {
+  position: relative;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.placeholder {
+  color: #475569;
+  font-size: 12px;
+  padding: 12px;
+  text-align: center;
+}
+
+.statusDot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+}
+
+.dotRunning {
+  background: var(--green, #22c55e);
+}
+
+.dotPaused {
+  background: var(--muted, #64748b);
+}
+
+.meta {
+  padding: 8px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.metaTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.name {
+  font-size: 13px;
+  color: var(--text, #e2e8f0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.host {
+  font-size: 10px;
+  color: var(--muted, #64748b);
+  white-space: nowrap;
+}
+
+.metaStats {
+  display: flex;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+
+.warn {
+  color: var(--medium, #f59e0b);
+}
+
+.actions {
+  padding: 0 10px 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.btnStart {
+  background: var(--green, #22c55e);
+  color: #042713;
+  border-color: transparent;
+}
+
+.btnPause {
+  background: transparent;
+  color: var(--text, #e2e8f0);
+}
+
+.btnPause:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}

@@ -119,6 +119,7 @@ from road_safety.config import (
     ALPR_MODE,
     DATA_DIR,
     DEFAULT_STREAM_SOURCE as DEFAULT_SOURCE,
+    STREAM_SOURCES,
     ADMIN_TOKEN,
     DSAR_TOKEN,
     DRIVER_ID,
@@ -412,86 +413,218 @@ class Episode:
 # so read/write guards (``threading.Lock``) protect any non-atomic fields.
 
 
-class LiveState:
-    """Process-wide in-memory state for the live safety pipeline.
+class StreamSlot:
+    """Per-source perception state.
 
-    This class does not own a lock at the object level — instead, specific
-    mutable-from-multiple-threads fields (``_annotated_jpeg``,
-    ``_frame_detections``, ``_frame_ts``) are guarded by ``_frame_lock``,
-    and the asyncio-side collections (``subscribers``,
-    ``admin_detection_subscribers``, ``recent_events``) are only mutated
-    from the asyncio loop. The perception thread hands results to the
-    loop via ``asyncio.run_coroutine_threadsafe``.
+    Each monitored stream gets its own slot bundling: the StreamReader,
+    the per-frame annotated JPEG buffer, and every per-source perception
+    object (quality, scene, ego, track history, episodes, pair cooldown).
+    Detected events from this slot land in the SHARED ``state.recent_events``
+    buffer with ``source_id`` / ``source_name`` tags so downstream
+    consumers (UI, Slack, cloud) can disambiguate.
 
-    Lifecycle:
-        * Constructed at module import time.
-        * ``lifespan`` populates ``loop``, ``model``, ``reader``,
-          ``agent_executor``, ``watchdog`` on startup.
-        * On shutdown, ``lifespan`` cancels background tasks and stops
-          the stream reader.
+    Why per-slot for quality/scene/ego/episodes/pair_cooldown:
+        These are stateful estimators whose output depends on a rolling
+        window of frames from ONE camera. Sharing them across cameras
+        would corrupt every estimate.
+
+    Why shared for recent_events / subscribers / drift / publisher:
+        These are pure aggregators / fan-outs — no per-source state to
+        maintain. SSE clients want one merged stream, the cloud wants
+        one HMAC-signed batch, drift is fleet-wide.
     """
 
-    def __init__(self):
-        """Initialise all fields to their pre-startup empty state."""
-        # Loaded YOLO model object — populated in ``lifespan``.
-        self.model = None
-        # Background frame reader (HLS / file / webcam / YouTube).
+    def __init__(self, source_id: str, name: str, original_source: str):
+        self.source_id = source_id
+        self.name = name
+        # Pre-resolution operator-supplied URL. The resolved URL (post
+        # yt-dlp) is stashed on ``reader.source_url`` once started.
+        self.original_source = original_source
+        # ``None`` until the slot has been started at least once.
         self.reader: StreamReader | None = None
-        # Human-readable label of the source the operator asked for.
-        self.source_label: str = DEFAULT_SOURCE
-        # The running asyncio event loop. Captured in ``lifespan`` so the
-        # perception thread can schedule coroutines onto it.
-        self.loop: asyncio.AbstractEventLoop | None = None
-        # Rolling buffer of fully-enriched events (capped at
-        # MAX_RECENT_EVENTS). This is the source-of-truth for HTTP reads
-        # and drift analysis. A list (not deque) — O(1) append + O(1)
-        # slice semantics are enough at this cap.
-        self.recent_events: list[dict] = []
-        # Set of asyncio queues — one per connected SSE client. Broadcasts
-        # iterate a *copy* (``list(...)``) so disconnecting clients don't
-        # mutate-during-iteration.
-        self.subscribers: set[asyncio.Queue] = set()
-        # Monotonically increasing counter mixed into the event_id so
-        # multiple events in the same millisecond don't collide.
-        self.event_counter = 0
-        # Per-track trailing window (positions + timestamps) used by TTC
-        # estimators. See ``core/detection.py::TrackHistory``.
+        # Most recent reason a start attempt failed (e.g. yt-dlp resolution
+        # failure). Cleared on successful start. Surfaced over the API so
+        # operators see *why* a stream is offline.
+        self.last_error: str | None = None
+        # Per-source perception estimators — fresh state machine per camera.
         self.track_history = TrackHistory()
-        # Active episodes keyed by canonical pair tuple. Entries live only
-        # while the pair is actively interacting; flushed after
-        # EPISODE_IDLE_FLUSH_SEC of absence.
         self.episodes: dict[tuple[int, int], Episode] = {}
-        # Per-pair cooldown timestamps. After a pair emits, the same
-        # pair is muted for PAIR_COOLDOWN_SEC to avoid re-alerting while
-        # the same objects remain in-frame.
         self.pair_cooldown: dict[tuple[int, int], float] = {}
-        # Perception-quality monitor — detects night/rain/glare/dirty lens.
         self.quality = QualityMonitor()
-        # Last broadcast perception state so we only emit a control-plane
-        # SSE message when the state actually transitions.
         self.last_perception_state: str | None = None
-        # Ego-motion, scene context, drift monitor, active-learning sampler,
-        # edge publisher, and agent executor.
         self.ego = EgoMotionEstimator()
         self.scene = SceneContextClassifier()
         self.last_ego_flow = None
         self.last_scene_ctx = None
-        self.drift = DriftMonitor()
-        self.active_learner = ActiveLearningSampler()
-        self.edge_publisher = EdgePublisher()
-        # Agent executor is wired after lifespan sets event_lookup.
-        self.agent_executor: AgentExecutor | None = None
-        # Admin video feed: latest annotated JPEG bytes + per-frame detection snapshot.
-        # The perception thread WRITES these; HTTP handlers READ them.
-        # A ``threading.Lock`` guards the triplet because bytes / list / float
-        # writes are not atomic on CPython if read in the middle of an update.
+        # Per-source MJPEG buffer. The capture thread writes; HTTP handlers
+        # read. A dedicated lock per slot avoids cross-source contention.
         self._frame_lock = threading.Lock()
         self._annotated_jpeg: bytes | None = None
         self._frame_detections: list[dict] = []
         self._frame_ts: float = 0.0
-        # Separate subscriber set — admin detection snapshots are a
-        # noisier channel than the public safety-event SSE.
+
+    def is_running(self) -> bool:
+        return (
+            self.reader is not None
+            and self.reader._thread is not None
+            and self.reader._thread.is_alive()
+        )
+
+    def status_dict(self) -> dict:
+        """Public snapshot for ``/api/live/sources``."""
+        q = self.quality.state()
+        r = self.reader
+        return {
+            "id": self.source_id,
+            "name": self.name,
+            "url": self.original_source,
+            "running": self.is_running(),
+            "last_error": self.last_error,
+            "frames_read": r.frames_read if r else 0,
+            "frames_processed": r.frames_processed if r else 0,
+            "uptime_sec": round(r.uptime_sec(), 1) if r else 0.0,
+            "started_at": r.started_at if r else None,
+            "active_episodes": len(self.episodes),
+            "perception_state": q.get("state"),
+            "perception_reason": q.get("reason"),
+        }
+
+
+class LiveState:
+    """Process-wide in-memory state for the live safety pipeline.
+
+    Holds the loaded YOLO model, the asyncio loop, every shared aggregator
+    (recent events, SSE subscribers, drift monitor, edge publisher), and a
+    registry of per-source ``StreamSlot``s.
+
+    Backwards-compatibility: legacy code paths read fields like
+    ``state.reader``, ``state.quality``, ``state.scene``, ``state.episodes``
+    that used to be single-source. Those are now ``@property``s that
+    delegate to the *primary* slot. Any new code should use
+    ``state.slots[source_id]`` explicitly.
+
+    Lifecycle:
+        * Constructed at module import time with an empty primary slot
+          (no reader yet) so attribute access during import doesn't NPE.
+        * ``lifespan`` populates ``loop``, ``model``, builds the
+          configured slots, starts each reader.
+        * On shutdown, ``lifespan`` cancels background tasks and stops
+          every slot's reader.
+    """
+
+    PRIMARY_ID = "primary"
+
+    def __init__(self):
+        self.model = None
+        self.source_label: str = DEFAULT_SOURCE
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self.recent_events: list[dict] = []
+        self.subscribers: set[asyncio.Queue] = set()
+        self.event_counter = 0
+        self.drift = DriftMonitor()
+        self.active_learner = ActiveLearningSampler()
+        self.edge_publisher = EdgePublisher()
+        self.agent_executor: AgentExecutor | None = None
         self.admin_detection_subscribers: set[asyncio.Queue] = set()
+        # Source registry. Always contains at least the primary slot
+        # (created here so legacy ``state.X`` proxies have a target to
+        # delegate to). ``lifespan`` may rename / replace it once it
+        # reads the configured sources.
+        self.slots: dict[str, StreamSlot] = {
+            self.PRIMARY_ID: StreamSlot(self.PRIMARY_ID, "Primary", DEFAULT_SOURCE),
+        }
+
+    # ----- Per-slot proxies (legacy single-source accessors) -----
+    # Every read here delegates to the primary slot. Writes that mutate
+    # objects in place (``state.episodes[key] = ...``) work because the
+    # property returns the live dict reference.
+    @property
+    def primary_slot(self) -> StreamSlot:
+        return self.slots.get(self.PRIMARY_ID) or next(iter(self.slots.values()))
+
+    @property
+    def reader(self) -> StreamReader | None:
+        return self.primary_slot.reader
+
+    @reader.setter
+    def reader(self, v):
+        self.primary_slot.reader = v
+
+    @property
+    def track_history(self):
+        return self.primary_slot.track_history
+
+    @property
+    def episodes(self):
+        return self.primary_slot.episodes
+
+    @property
+    def pair_cooldown(self):
+        return self.primary_slot.pair_cooldown
+
+    @property
+    def quality(self):
+        return self.primary_slot.quality
+
+    @property
+    def last_perception_state(self):
+        return self.primary_slot.last_perception_state
+
+    @last_perception_state.setter
+    def last_perception_state(self, v):
+        self.primary_slot.last_perception_state = v
+
+    @property
+    def ego(self):
+        return self.primary_slot.ego
+
+    @property
+    def scene(self):
+        return self.primary_slot.scene
+
+    @property
+    def last_ego_flow(self):
+        return self.primary_slot.last_ego_flow
+
+    @last_ego_flow.setter
+    def last_ego_flow(self, v):
+        self.primary_slot.last_ego_flow = v
+
+    @property
+    def last_scene_ctx(self):
+        return self.primary_slot.last_scene_ctx
+
+    @last_scene_ctx.setter
+    def last_scene_ctx(self, v):
+        self.primary_slot.last_scene_ctx = v
+
+    @property
+    def _frame_lock(self):
+        return self.primary_slot._frame_lock
+
+    @property
+    def _annotated_jpeg(self):
+        return self.primary_slot._annotated_jpeg
+
+    @_annotated_jpeg.setter
+    def _annotated_jpeg(self, v):
+        self.primary_slot._annotated_jpeg = v
+
+    @property
+    def _frame_detections(self):
+        return self.primary_slot._frame_detections
+
+    @_frame_detections.setter
+    def _frame_detections(self, v):
+        self.primary_slot._frame_detections = v
+
+    @property
+    def _frame_ts(self):
+        return self.primary_slot._frame_ts
+
+    @_frame_ts.setter
+    def _frame_ts(self, v):
+        self.primary_slot._frame_ts = v
 
 
 # Module-level singleton. Import-time construction is safe because
@@ -784,7 +917,61 @@ def _render_annotated_frame(frame, detections, interactions):
 # the docstring below. If you touch this function, run ``tests/test_core.py``.
 
 
-def _on_frame(wall_ts: float, frame) -> None:
+def _start_slot(slot: StreamSlot) -> None:
+    """Resolve the slot's source URL and spawn its capture thread.
+
+    Idempotent in spirit but assumes the caller has checked
+    ``slot.is_running()`` and stopped any prior reader. On success,
+    ``slot.reader`` is replaced with a freshly-started ``StreamReader``
+    and ``slot.last_error`` is cleared.
+
+    Raises:
+        RuntimeError / Exception from ``resolve_hls`` if the URL can't
+        be resolved (yt-dlp failure, geo-block, signature change).
+    """
+    if not slot.original_source:
+        raise RuntimeError(f"slot {slot.source_id} has no source URL")
+    hls = resolve_hls(slot.original_source)
+    reader = StreamReader(hls, target_fps=TARGET_FPS, original_source=slot.original_source)
+    reader.start(_make_on_frame(slot))
+    slot.reader = reader
+    slot.last_error = None
+    log.info("slot %s started (source=%s)", slot.source_id, slot.original_source[:80])
+
+
+def _stop_slot(slot: StreamSlot) -> None:
+    """Stop the slot's capture thread without dropping the slot.
+
+    The slot stays in ``state.slots`` so the operator can restart it
+    later. Per-source perception state (quality / scene / episodes)
+    is intentionally NOT reset — restarting the same camera shouldn't
+    re-learn its scene from scratch.
+    """
+    r = slot.reader
+    if r is not None:
+        try:
+            r.stop()
+        except Exception as exc:
+            log.warning("slot %s stop failed: %s", slot.source_id, exc)
+    slot.reader = None
+
+
+def _make_on_frame(slot: StreamSlot):
+    """Return a thread-safe ``on_frame(wall_ts, frame)`` closure for ``slot``.
+
+    Each StreamReader needs its own callback that knows which slot it
+    belongs to. The closure binds ``slot`` so the per-source perception
+    state (quality, scene, ego, episodes…) updates correctly without
+    crossing wires between cameras.
+    """
+
+    def _cb(wall_ts: float, frame) -> None:
+        _on_frame(slot, wall_ts, frame)
+
+    return _cb
+
+
+def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     """Perception hot path — runs in the StreamReader background thread.
 
     CPU-bound YOLO + gate evaluation happens here. Results are handed to
@@ -792,6 +979,9 @@ def _on_frame(wall_ts: float, frame) -> None:
     block that loop with the heavy work.
 
     Args:
+        slot: The ``StreamSlot`` whose reader produced this frame. All
+            per-source perception state (quality, scene, ego, episodes,
+            track history, frame buffer) is read/written via ``slot.X``.
         wall_ts: Wall-clock timestamp (``time.time()``) when the frame
             was captured by the stream reader.
         frame: Raw BGR numpy image. This buffer is shared with the reader —
@@ -846,15 +1036,15 @@ def _on_frame(wall_ts: float, frame) -> None:
     # flip the pipeline into conservative mode. ``risk_adjustment`` returns
     # multipliers applied below; ``state()`` is a human-readable summary we
     # broadcast over SSE when it transitions.
-    state.quality.observe_frame(frame, detections, wall_ts)
-    adj = state.quality.risk_adjustment()
-    qstate = state.quality.state()
-    if qstate["state"] != state.last_perception_state and state.loop is not None:
-        state.last_perception_state = qstate["state"]
+    slot.quality.observe_frame(frame, detections, wall_ts)
+    adj = slot.quality.risk_adjustment()
+    qstate = slot.quality.state()
+    if qstate["state"] != slot.last_perception_state and state.loop is not None:
+        slot.last_perception_state = qstate["state"]
         # ``run_coroutine_threadsafe`` is the official bridge from a
         # worker thread to the asyncio loop. We schedule and forget —
         # the returned Future is not awaited here.
-        asyncio.run_coroutine_threadsafe(_broadcast_perception(qstate), state.loop)
+        asyncio.run_coroutine_threadsafe(_broadcast_perception(qstate, slot), state.loop)
 
     # ----- Gate 3: ego-motion estimation -----
     # Farneback dense optical flow on the masked background → ego flow vector
@@ -863,11 +1053,11 @@ def _on_frame(wall_ts: float, frame) -> None:
     # context. Wrapped in try/except because optical flow can fail on tiny /
     # degenerate frames and we don't want one bad frame to crash the thread.
     try:
-        ego_flow = state.ego.update(frame, detections, wall_ts)
+        ego_flow = slot.ego.update(frame, detections, wall_ts)
     except Exception as exc:
-        log.warning("ego-motion update failed: %s", exc)
+        log.warning("ego-motion update failed (%s): %s", slot.source_id, exc)
         ego_flow = None
-    state.last_ego_flow = ego_flow
+    slot.last_ego_flow = ego_flow
 
     # ----- Gate 4: scene context + adaptive thresholds -----
     # Classify urban / highway / parking from rolling detection density +
@@ -883,10 +1073,10 @@ def _on_frame(wall_ts: float, frame) -> None:
         speed_proxy = ego_flow.speed_proxy_mps
     else:
         speed_proxy = None
-    state.scene.observe(detections, wall_ts, speed_proxy_mps=speed_proxy)
-    scene_ctx = state.scene.classify()
-    state.last_scene_ctx = scene_ctx
-    thr = state.scene.adaptive_thresholds(scene_ctx)
+    slot.scene.observe(detections, wall_ts, speed_proxy_mps=speed_proxy)
+    scene_ctx = slot.scene.classify()
+    slot.last_scene_ctx = scene_ctx
+    thr = slot.scene.adaptive_thresholds(scene_ctx)
 
     # ----- Gate 5: update per-track history -----
     # ``live_ids`` is the set of tracks still present THIS frame; ``prune``
@@ -896,8 +1086,8 @@ def _on_frame(wall_ts: float, frame) -> None:
     for det in detections:
         if det.track_id is not None:
             live_ids.add(det.track_id)
-            state.track_history.update(det, wall_ts)
-    state.track_history.prune(live_ids, wall_ts)
+            slot.track_history.update(det, wall_ts)
+    slot.track_history.prune(live_ids, wall_ts)
 
     # ----- Gate 6: candidate interaction generation -----
     interactions = find_interactions(detections)
@@ -908,8 +1098,8 @@ def _on_frame(wall_ts: float, frame) -> None:
     for event_type, a, b, distance_px in interactions:
         # Pull the trailing-window samples for both tracks — needed for
         # TTC and convergence checks. May be empty for brand-new tracks.
-        hist_a = state.track_history.samples(a.track_id)
-        hist_b = state.track_history.samples(b.track_id)
+        hist_a = slot.track_history.samples(a.track_id)
+        hist_b = slot.track_history.samples(b.track_id)
 
         # Inter-object distance (depth difference + lateral offset), not
         # single-object range-to-camera. Fall back to per-object range if
@@ -942,8 +1132,8 @@ def _on_frame(wall_ts: float, frame) -> None:
         approaching_a = approaching_b = False
         if ego_flow is not None:
             try:
-                rm_a = state.ego.relative_motion(a.track_id, a, ego_flow, state.track_history)
-                rm_b = state.ego.relative_motion(b.track_id, b, ego_flow, state.track_history)
+                rm_a = slot.ego.relative_motion(a.track_id, a, ego_flow, slot.track_history)
+                rm_b = slot.ego.relative_motion(b.track_id, b, ego_flow, slot.track_history)
                 # ``bool(rm and rm.approaching)`` handles both None and False
                 # uniformly — we need a strict bool for the OR below.
                 approaching_a = bool(rm_a and rm_a.approaching)
@@ -959,7 +1149,7 @@ def _on_frame(wall_ts: float, frame) -> None:
         ttc = estimate_pair_ttc(hist_a, hist_b)
         if ttc is None:
             for sub in (a, b):
-                hist = state.track_history.samples(sub.track_id)
+                hist = slot.track_history.samples(sub.track_id)
                 cand = estimate_ttc_sec(hist)
                 if cand is not None and (ttc is None or cand < ttc):
                     ttc = cand
@@ -998,16 +1188,16 @@ def _on_frame(wall_ts: float, frame) -> None:
             # ``int(wall_ts)`` buckets to a 1s window.
             key = (event_type, "no_track", int(wall_ts))
 
-        cooldown_until = state.pair_cooldown.get(key, 0.0)
+        cooldown_until = slot.pair_cooldown.get(key, 0.0)
         if wall_ts < cooldown_until:
             continue
 
         # ----- Gate 15: episode open / update -----
         seen_pairs_this_frame.add(key)
-        ep = state.episodes.get(key)
+        ep = slot.episodes.get(key)
         if ep is None:
             ep = Episode(event_type, key, wall_ts)
-            state.episodes[key] = ep
+            slot.episodes[key] = ep
         ep.update(frame, detections, a, b, distance_px, ttc, dist_m, risk, wall_ts)
 
     # ----- Gate 16: idle-flush episodes -----
@@ -1015,14 +1205,14 @@ def _on_frame(wall_ts: float, frame) -> None:
     # When a pair has gone EPISODE_IDLE_FLUSH_SEC without a fresh frame,
     # we emit the one peak event and start a cooldown window to prevent
     # re-alerting on the same objects if they re-appear shortly after.
-    for key in list(state.episodes.keys()):
-        ep = state.episodes[key]
+    for key in list(slot.episodes.keys()):
+        ep = slot.episodes[key]
         if key in seen_pairs_this_frame:
             continue
         if wall_ts - ep.last_seen_at >= EPISODE_IDLE_FLUSH_SEC:
-            _flush_episode(ep, wall_ts)
-            state.episodes.pop(key, None)
-            state.pair_cooldown[key] = wall_ts + PAIR_COOLDOWN_SEC
+            _flush_episode(slot, ep, wall_ts)
+            slot.episodes.pop(key, None)
+            slot.pair_cooldown[key] = wall_ts + PAIR_COOLDOWN_SEC
 
     # ----- Admin video feed + detections broadcast -----
     # Non-safety-critical visualization. Wrapped in try/except so a JPEG
@@ -1037,14 +1227,16 @@ def _on_frame(wall_ts: float, frame) -> None:
             }
             for d in detections
         ]
-        with state._frame_lock:
-            state._annotated_jpeg = jpeg_bytes
-            state._frame_detections = det_snapshot
-            state._frame_ts = wall_ts
+        with slot._frame_lock:
+            slot._annotated_jpeg = jpeg_bytes
+            slot._frame_detections = det_snapshot
+            slot._frame_ts = wall_ts
 
         if state.loop is not None:
             msg = {
                 "ts": round(wall_ts, 3),
+                "source_id": slot.source_id,
+                "source_name": slot.name,
                 "detections": len(detections),
                 "persons": sum(1 for d in detections if d.cls == "person"),
                 "vehicles": sum(1 for d in detections if d.cls in VEHICLE_CLASSES),
@@ -1055,13 +1247,13 @@ def _on_frame(wall_ts: float, frame) -> None:
                 _broadcast_admin_detections(msg), state.loop
             )
     except Exception as exc:
-        log.warning("annotated frame failed: %s", exc)
+        log.warning("annotated frame failed (%s): %s", slot.source_id, exc)
 
 
 # ===== SECTION: EVENT MATERIALIZATION (EPISODE -> TYPED EVENT DICT) =====
 
 
-def _flush_episode(ep: Episode, wall_ts: float) -> None:
+def _flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
     """Materialise an episode's peak frame into an Event and hand off to the
     asyncio side for LLM enrichment + egress.
 
@@ -1118,23 +1310,25 @@ def _flush_episode(ep: Episode, wall_ts: float) -> None:
     # ``stream_t`` is seconds-since-stream-start; handy for aligning an
     # event back to a recorded video file. Falls back to 0 when there is
     # no active reader (single-shot test mode).
-    stream_t = ep.started_at - (state.reader.started_at if state.reader else ep.started_at)
+    stream_t = ep.started_at - (slot.reader.started_at if slot.reader else ep.started_at)
     # Filter out None track ids (untracked fallback case).
     pair_ids = [tid for tid in (a.track_id, b.track_id) if tid is not None]
     duration_sec = round(ep.last_seen_at - ep.started_at, 2)
 
-    scene_ctx = state.last_scene_ctx
-    ego = state.last_ego_flow
+    scene_ctx = slot.last_scene_ctx
+    ego = slot.last_ego_flow
     # ===== Typed event dict — the canonical wire format =====
     # Every field here is part of the public contract with downstream
     # consumers (dashboard, Slack, cloud). If you rename a field, grep
     # for it in frontend/ and cloud/ first.
     event = {
         "event_id": event_id,
+        "source_id": slot.source_id,
+        "source_name": slot.name,
         "vehicle_id": RESOLVED_VEHICLE_ID,
         "road_id": RESOLVED_ROAD_ID,
         "driver_id": RESOLVED_DRIVER_ID,
-        "video_id": DEFAULT_SOURCE or "stream",
+        "video_id": slot.original_source or DEFAULT_SOURCE or "stream",
         "timestamp_sec": round(stream_t, 2),
         "wall_time": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "event_type": ep.event_type,
@@ -1192,7 +1386,7 @@ def _flush_episode(ep: Episode, wall_ts: float) -> None:
 # swallowed so a single slow consumer can't back-pressure the whole fan-out.
 
 
-async def _broadcast_perception(qstate: dict) -> None:
+async def _broadcast_perception(qstate: dict, slot: "StreamSlot | None" = None) -> None:
     """Broadcast a perception-state change as a control-plane SSE message.
 
     Uses a sentinel ``_meta: "perception_state"`` so the UI can render a
@@ -1201,11 +1395,16 @@ async def _broadcast_perception(qstate: dict) -> None:
     Args:
         qstate: A dict from ``QualityMonitor.state()`` describing the new
             perception state (nominal / degraded / blind, plus reason text).
+        slot: Source the change came from. Tagged onto the message so the
+            UI can attribute the banner to the right stream.
     """
     # ``**qstate`` unpacks the dict into kwargs at literal-construction
     # time — merges the ``_meta`` tag with the fields. Python's dict
     # unpacking syntax ``{**a, **b}`` is equivalent to ``a | b`` on 3.9+.
     msg = {"_meta": "perception_state", **qstate}
+    if slot is not None:
+        msg["source_id"] = slot.source_id
+        msg["source_name"] = slot.name
     # ``list(state.subscribers)`` snapshots the set so a concurrent
     # disconnect can't mutate what we're iterating over.
     for q in list(state.subscribers):
@@ -1398,21 +1597,38 @@ async def lifespan(app: FastAPI):
     # events rather than the on-disk snapshot.
     state.drift.set_event_source(lambda: list(state.recent_events))
 
-    log.info("resolving source: %s", DEFAULT_SOURCE)
-    try:
-        hls = resolve_hls(DEFAULT_SOURCE)
-        state.source_label = DEFAULT_SOURCE
-        log.info("HLS resolved (%d chars)", len(hls))
-    except Exception as exc:
-        log.error("stream resolution failed: %s", exc)
-        hls = None
+    # ----- Build per-source slots and start each reader -----
+    # ``STREAM_SOURCES`` is parsed in ``config.py`` from
+    # ``ROAD_STREAM_SOURCES`` (multi-source, primary fallback to legacy
+    # ``ROAD_STREAM_SOURCE``). When the env is empty we keep the
+    # default-constructed empty primary slot — the API still works,
+    # operators can start a stream later via ``/api/live/sources/.../start``.
+    if STREAM_SOURCES:
+        # Replace the placeholder primary slot with the configured one.
+        state.slots.clear()
+        for entry in STREAM_SOURCES:
+            sid = entry["id"]
+            state.slots[sid] = StreamSlot(sid, entry.get("name") or sid, entry["url"])
+        # Track human-readable label for the legacy ``/api/live/status``
+        # response (single-source clients still see the primary URL).
+        primary = state.primary_slot
+        state.source_label = primary.original_source
 
-    if hls:
-        state.reader = StreamReader(hls, target_fps=TARGET_FPS, original_source=DEFAULT_SOURCE)
-        state.reader.start(_on_frame)
-        log.info("stream reader started")
+    started = []
+    for slot in state.slots.values():
+        if not slot.original_source:
+            log.warning("slot %s has no source URL; skipping start", slot.source_id)
+            continue
+        try:
+            _start_slot(slot)
+            started.append(slot.source_id)
+        except Exception as exc:
+            log.error("failed to start slot %s: %s", slot.source_id, exc)
+            slot.last_error = str(exc)
+    if started:
+        log.info("started %d stream reader(s): %s", len(started), ", ".join(started))
     else:
-        log.warning("running without live stream (resolution failed)")
+        log.warning("no live streams started (no sources or all failed)")
 
     # Digest schedulers (medium hourly, low daily). Idempotent.
     start_digest_schedulers(state.loop)
@@ -1539,8 +1755,12 @@ async def lifespan(app: FastAPI):
     # ``cancel()`` on an asyncio.Task raises CancelledError inside the
     # coroutine at its next await point; the tasks above all handle this
     # by re-raising (clean exit).
-    if state.reader:
-        state.reader.stop()
+    for slot in state.slots.values():
+        if slot.reader:
+            try:
+                slot.reader.stop()
+            except Exception as exc:
+                log.warning("slot %s stop failed: %s", slot.source_id, exc)
     if edge_task is not None:
         edge_task.cancel()
     retention_task.cancel()
@@ -2375,37 +2595,114 @@ def settings_page():
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/admin/video_feed")
-def admin_video_feed():
-    """MJPEG stream of annotated frames (bounding boxes + interaction lines).
+def _mjpeg_response(slot: StreamSlot) -> StreamingResponse:
+    """Build an MJPEG ``StreamingResponse`` reading from ``slot``'s buffer.
 
-    HTTP: GET /admin/video_feed
-    AUTH: public (network-gated operator UI)
-    Response: ``multipart/x-mixed-replace`` stream — each JPEG part is a
-        freshly-annotated frame. Consumer renders in an ``<img>`` tag.
+    Shared by the legacy primary-only ``/admin/video_feed`` endpoint and
+    the new per-source ``/admin/video_feed/{source_id}`` endpoint.
     """
-    def generate():
-        """Synchronous generator yielding MJPEG parts.
 
-        Reads the latest annotated JPEG under ``_frame_lock``, yields it
-        with the MJPEG boundary, then sleeps ~0.4s. WHY 0.4s: matches
-        roughly the 2fps perception tick — any faster and we'd resend
-        identical frames, wasting bandwidth.
-        """
+    def generate():
         while True:
-            with state._frame_lock:
-                jpeg = state._annotated_jpeg
+            with slot._frame_lock:
+                jpeg = slot._annotated_jpeg
             if jpeg is not None:
                 yield (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
                 )
+            # ~0.4s matches the 2fps perception tick; faster would resend
+            # identical frames.
             time.sleep(0.4)
 
     return StreamingResponse(
         generate(),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
+
+
+@app.get("/admin/video_feed")
+def admin_video_feed():
+    """MJPEG stream of annotated frames for the PRIMARY source.
+
+    HTTP: GET /admin/video_feed
+    AUTH: public (network-gated operator UI)
+    Response: ``multipart/x-mixed-replace`` stream — each JPEG part is a
+        freshly-annotated frame. Consumer renders in an ``<img>`` tag.
+
+    For multi-source UIs prefer ``/admin/video_feed/{source_id}``.
+    """
+    return _mjpeg_response(state.primary_slot)
+
+
+@app.get("/admin/video_feed/{source_id}")
+def admin_video_feed_for(source_id: str):
+    """Per-source MJPEG stream — one slot's annotated frames.
+
+    HTTP: GET /admin/video_feed/{source_id}
+    AUTH: public (network-gated operator UI)
+    """
+    slot = state.slots.get(source_id)
+    if slot is None:
+        raise HTTPException(404, f"unknown source: {source_id}")
+    return _mjpeg_response(slot)
+
+
+# ===== SECTION: ROUTE HANDLERS — MULTI-SOURCE LIFECYCLE =====
+
+
+@app.get("/api/live/sources")
+def live_sources():
+    """List every configured source with running status + counters.
+
+    HTTP: GET /api/live/sources
+    AUTH: public (the same status info is on ``/api/live/status``)
+    """
+    return {
+        "primary_id": state.PRIMARY_ID,
+        "sources": [slot.status_dict() for slot in state.slots.values()],
+    }
+
+
+@app.post("/api/live/sources/{source_id}/start")
+def live_source_start(source_id: str):
+    """Resume capture for a paused source.
+
+    HTTP: POST /api/live/sources/{source_id}/start
+    AUTH: public (operator network)
+    Returns: the slot's status dict, with ``running=true`` on success
+        or ``last_error`` populated on failure.
+    """
+    slot = state.slots.get(source_id)
+    if slot is None:
+        raise HTTPException(404, f"unknown source: {source_id}")
+    if slot.is_running():
+        return {"ok": True, "already_running": True, **slot.status_dict()}
+    try:
+        _start_slot(slot)
+    except Exception as exc:
+        slot.last_error = str(exc)
+        log.warning("start slot %s failed: %s", source_id, exc)
+        # Surface the failure in the response so the UI can render it
+        # next to the start button without polling for status.
+        return {"ok": False, "error": str(exc), **slot.status_dict()}
+    audit.log("stream_start", source_id)
+    return {"ok": True, **slot.status_dict()}
+
+
+@app.post("/api/live/sources/{source_id}/pause")
+def live_source_pause(source_id: str):
+    """Pause capture for a running source (slot is preserved for restart).
+
+    HTTP: POST /api/live/sources/{source_id}/pause
+    AUTH: public (operator network)
+    """
+    slot = state.slots.get(source_id)
+    if slot is None:
+        raise HTTPException(404, f"unknown source: {source_id}")
+    _stop_slot(slot)
+    audit.log("stream_pause", source_id)
+    return {"ok": True, **slot.status_dict()}
 
 
 @app.get("/admin/detections")

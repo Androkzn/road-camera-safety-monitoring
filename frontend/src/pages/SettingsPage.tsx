@@ -122,6 +122,9 @@ const TOKEN_REWRITES: Record<string, string> = {
   LUM: "Luminance",
   LEN: "Length",
   MED: "Medium",
+  // Statistical / metric tokens used by the impact engine
+  FP: "FP",
+  TP: "TP",
   // Common short words — fully spelled out
   MIN: "Minimum",
   MAX: "Maximum",
@@ -167,19 +170,27 @@ function unitFromTail(tokens: string[]): { unit: string | null; consume: number 
  *   ``VEHICLE_PAIR_CONF_FLOOR``     → "Vehicle Pair Confidence Floor"
  *   ``risk-tier``                   → "Risk Tier"
  */
+function humanizeToken(word: string): string {
+  const upper = word.toUpperCase();
+  if (TOKEN_REWRITES[upper] !== undefined) return TOKEN_REWRITES[upper];
+  // Percentile shorthand like P50 / P95 / P99 — stylised as lowercase.
+  if (/^P\d+$/.test(upper)) return upper.toLowerCase();
+  const lower = word.toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
 function humanize(raw: string): string {
   const tokens = raw.split(/[_\-\s]+/).filter(Boolean);
   const { unit, consume } = unitFromTail(tokens);
   const head = consume > 0 ? tokens.slice(0, tokens.length - consume) : tokens;
-  const headLabel = head
-    .map((word) => {
-      const upper = word.toUpperCase();
-      if (TOKEN_REWRITES[upper] !== undefined) return TOKEN_REWRITES[upper];
-      const lower = word.toLowerCase();
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join(" ");
+  const headLabel = head.map(humanizeToken).join(" ");
   return unit ? `${headLabel}, ${unit}` : headLabel;
+}
+
+/** Friendlier label for the impact-session lifecycle state. */
+function formatState(state: string): string {
+  if (state === "monitoring_unattended") return "Monitoring (unattended)";
+  return humanize(state);
 }
 
 // ---------------------------------------------------------------------------

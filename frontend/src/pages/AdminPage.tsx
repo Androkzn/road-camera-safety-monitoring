@@ -69,7 +69,7 @@
 import { useState, useEffect } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import { Pill } from "../components/ui";
-import { HealthStrip, VideoFeed, DetectionsPanel, HistoryPanel, TabBar } from "../components/admin";
+import { HealthStrip, MultiSourceGrid, DetectionsPanel, HistoryPanel, TabBar } from "../components/admin";
 import { AdminEventCard } from "../components/events";
 import { useAdminHealth } from "../hooks/useAdminHealth";
 import { useDetections } from "../hooks/useDetections";
@@ -92,7 +92,7 @@ export function AdminPage() {
   // idiom — it's "take the `data` key out of the returned object and call the
   // local binding `health`".
   const { data: health } = useAdminHealth();
-  const { frames, stats } = useDetections();
+  const { frames } = useDetections();
   const { events: liveEvents, connected } = useEventStream();
 
   // --- Derived state ---
