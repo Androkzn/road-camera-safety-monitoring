@@ -505,6 +505,23 @@ class ValidatorWorker:
         self.findings_emitted = 0
         self._running = False
 
+    # ---- status (operator-facing) -----------------------------------
+    def status(self) -> dict:
+        """Snapshot of worker health for the ``/api/validator/status`` route."""
+        return {
+            "running": self._running,
+            "backend": self.detector.backend,
+            "model_path": self.detector.model_path,
+            "device": self.detector.device or "auto",
+            "queue_depth": self.queue.qsize(),
+            "queue_max": self.queue.maxsize,
+            "sample_sec": self.sample_sec,
+            "iou_threshold": self.comparator.iou_threshold,
+            "jobs_processed": self.jobs_processed,
+            "jobs_dropped": self.jobs_dropped,
+            "findings_emitted": self.findings_emitted,
+        }
+
     # ---- producer API (called from primary thread / loop) -----------
     def should_sample(self, slot_id: str, wall_ts: float) -> bool:
         """Rate-limit sampled jobs to at most one every ``sample_sec`` per slot."""

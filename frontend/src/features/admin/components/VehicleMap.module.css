@@ -41,20 +41,26 @@
   background: var(--card);
 }
 
+/* Anchored top-right so it can't collide with Leaflet's default zoom
+ * control (top-left). ``z-index: 500`` keeps the badge above tile and
+ * marker panes (Leaflet's own controls sit at 800+, which is fine — we
+ * never want the badge to cover the zoom buttons). */
 .badge {
   position: absolute;
   top: 12px;
-  left: 12px;
+  right: 12px;
   z-index: 500;
   background: rgba(20, 26, 34, 0.92);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 10px 12px;
   min-width: 180px;
+  max-width: calc(100% - 72px);
   color: var(--text);
   font-size: 12px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
+  pointer-events: none;
 }
 
 .plate {

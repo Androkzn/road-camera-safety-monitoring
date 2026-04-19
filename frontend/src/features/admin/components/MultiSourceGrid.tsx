@@ -378,6 +378,28 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
     });
   };
 
+  // Shared "Start all" / "Pause all" controls. The per-tile start/pause
+  // buttons still work for targeted control; these toolbar actions iterate
+  // every source so the operator can bring the whole fleet online with one
+  // click. The hook's optimistic update handles the running flag per-tile.
+  const runningCount = sources.filter((s) => s.running).length;
+  const allRunning = sources.length > 0 && runningCount === sources.length;
+  const noneRunning = runningCount === 0;
+  // Any start/pause mutation leaves a row in ``busyById`` until the server
+  // confirms — while any row is in-flight we disable both bulk buttons to
+  // avoid piling up requests on a slow backend.
+  const anyBusy = Object.values(busyById).some((v) => v != null);
+  const startAll = () => {
+    sources.forEach((s) => {
+      if (!s.running) start(s.id);
+    });
+  };
+  const pauseAll = () => {
+    sources.forEach((s) => {
+      if (s.running) pause(s.id);
+    });
+  };
+
   const focusedSource = focusedId ? sources.find((s) => s.id === focusedId) ?? null : null;
   const minimizedSources = focusedSource ? sources.filter((s) => s.id !== focusedSource.id) : [];
 
@@ -400,10 +422,34 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
     <div className={styles.gridWrap}>
       <div className={styles.toolbar}>
         <span className={styles.toolbarLabel}>
-          Detection: <strong>{enabledCount}</strong> / {sources.length} streams
+          Running: <strong>{runningCount}</strong> / {sources.length}
+          {sources.length > 0 && (
+            <>
+              {" · "}
+              Detection: <strong>{enabledCount}</strong> / {sources.length}
+            </>
+          )}
         </span>
         <div className={styles.toolbarActions}>
           <AddStreamForm onAdd={add} />
+          <button
+            type="button"
+            className={`${styles.toolbarBtn} ${styles.toolbarBtnStart}`}
+            onClick={startAll}
+            disabled={allRunning || sources.length === 0 || anyBusy}
+            title="Start every paused stream"
+          >
+            Start all
+          </button>
+          <button
+            type="button"
+            className={styles.toolbarBtn}
+            onClick={pauseAll}
+            disabled={noneRunning || anyBusy}
+            title="Pause every running stream"
+          >
+            Pause all
+          </button>
           <button
             type="button"
             className={styles.toolbarBtn}

@@ -58,6 +58,20 @@
   cursor: not-allowed;
 }
 
+/* Primary emphasis for "Start all" — the dominant operator action when
+ * every tile is paused (first boot, after a global pause). Uses the same
+ * green as the per-tile Start button so the visual language is consistent. */
+.toolbarBtnStart {
+  background: var(--green, #22c55e);
+  color: #042713;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.toolbarBtnStart:hover:not(:disabled) {
+  background: #16a34a;
+}
+
 /* "+ Add stream" trigger — emphasised so operators notice the affordance. */
 .addToggle {
   padding: 4px 10px;

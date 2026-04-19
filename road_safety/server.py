@@ -2829,6 +2829,21 @@ def watchdog_summary():
     return state.watchdog.status()
 
 
+@app.get("/api/validator/status")
+def validator_status():
+    """Background shadow-validator worker status.
+
+    HTTP: GET /api/validator/status
+    AUTH: public
+    Returns: ``{"enabled": False}`` when the validator was disabled at
+        startup, otherwise queue depth + processed/dropped counters from
+        ``ValidatorWorker.status()``.
+    """
+    if state.validator is None:
+        return {"enabled": False}
+    return {"enabled": True, **state.validator.status()}
+
+
 @app.get("/api/watchdog/recent")
 def watchdog_recent(n: int = 50):
     """Most recent watchdog findings for investigation.
