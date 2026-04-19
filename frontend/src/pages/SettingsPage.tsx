@@ -1235,8 +1235,10 @@ export function SettingsPage() {
             </details>
           ))}
 
-          {settings.loading && !settings.schema && (
-            <p className={styles.subtle}>Loading settings…</p>
+          {!settings.schema && !settings.error && (
+            <p className={styles.subtle}>
+              {settings.loading ? "Loading settings…" : "Settings not loaded yet."}
+            </p>
           )}
         </section>
 

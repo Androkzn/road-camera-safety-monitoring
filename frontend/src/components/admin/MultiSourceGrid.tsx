@@ -41,7 +41,7 @@ function StreamTile({
   onRemove,
 }: {
   source: LiveSourceStatus;
-  busy: boolean;
+  busy: BusyAction | null;
   focused: boolean;
   minimized: boolean;
   onFocusToggle: () => void;
@@ -53,6 +53,16 @@ function StreamTile({
   const [imgError, setImgError] = useState(false);
   const dialog = useDialog();
   const running = source.running;
+  // We render Start vs Pause based on the *action in flight* whenever busy
+  // is set — otherwise the button would flip mid-action because we
+  // optimistically swap ``running`` as soon as the user clicks. Without
+  // this guard, clicking Start renders "Pausing…" and clicking Pause
+  // renders "Starting…".
+  const showAsRunning =
+    busy === "starting" ? true :
+    busy === "pausing"  ? false :
+    running;
+  const isPending = busy === "starting" || busy === "pausing";
   const detection = source.detection_enabled;
 
   const tileClass = [
@@ -164,23 +174,23 @@ function StreamTile({
           />
           <span>Detection</span>
         </label>
-        {running ? (
+        {showAsRunning ? (
           <button
             type="button"
             className={`${styles.btn} ${styles.btnPause}`}
             onClick={onPause}
-            disabled={busy}
+            disabled={isPending}
           >
-            {busy ? "Pausing…" : "Pause"}
+            {busy === "pausing" ? "Pausing…" : "Pause"}
           </button>
         ) : (
           <button
             type="button"
             className={`${styles.btn} ${styles.btnStart}`}
             onClick={onStart}
-            disabled={busy}
+            disabled={isPending}
           >
-            {busy ? "Starting…" : "Start"}
+            {busy === "starting" ? "Starting…" : "Start"}
           </button>
         )}
       </div>
@@ -332,7 +342,7 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
     <StreamTile
       key={s.id}
       source={s}
-      busy={!!busyById[s.id]}
+      busy={busyById[s.id] ?? null}
       focused={opts.focused}
       minimized={opts.minimized}
       onFocusToggle={() => onFocusChange(focusedId === s.id ? null : s.id)}
