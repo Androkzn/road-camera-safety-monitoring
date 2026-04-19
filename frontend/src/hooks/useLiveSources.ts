@@ -62,7 +62,7 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
     };
   }, [refresh, intervalMs]);
 
-  const mark = useCallback((id: string, v: boolean) => {
+  const mark = useCallback((id: string, v: BusyAction | null) => {
     setBusyById((prev) => ({ ...prev, [id]: v }));
   }, []);
 
@@ -71,15 +71,15 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
   // "Pausing…" / "Starting…" if a request hangs (the request itself is
   // wrapped in try/finally so this is belt-and-braces, not strictly needed).
   useEffect(() => {
-    const stuck = Object.entries(busyById).filter(([, v]) => v);
+    const stuck = Object.entries(busyById).filter(([, v]) => !!v);
     if (stuck.length === 0) return;
     const t = window.setTimeout(() => {
       setBusyById((prev) => {
-        const next: Record<string, boolean> = { ...prev };
+        const next: Record<string, BusyAction | null> = { ...prev };
         let changed = false;
         for (const [id] of stuck) {
           if (next[id]) {
-            next[id] = false;
+            next[id] = null;
             changed = true;
           }
         }
