@@ -450,6 +450,14 @@ class TrackHistory:
 def load_model(path: str = MODEL_PATH) -> YOLO:
     """Load a YOLOv8 model from disk (or downloads from ultralytics on first run).
 
+    Selects the best available accelerator at load time:
+      * Apple Silicon (M-series): ``mps`` — typically 3-6x faster than CPU
+        for YOLOv8s at 640x360.
+      * NVIDIA: ``cuda``.
+      * Otherwise: CPU.
+    Override via ``ROAD_YOLO_DEVICE`` (``cpu`` | ``mps`` | ``cuda`` | ``cuda:0`` …)
+    for explicit pinning or to disable MPS if it misbehaves on a given chip.
+
     Args:
         path: Path to a .pt weights file or a built-in name like ``yolov8n.pt``.
             Defaults to ``MODEL_PATH`` from config (honours ``ROAD_MODEL_PATH``).
@@ -457,7 +465,39 @@ def load_model(path: str = MODEL_PATH) -> YOLO:
     Returns:
         An ``ultralytics.YOLO`` instance ready for ``.track()`` / ``.__call__()``.
     """
-    return YOLO(path)
+    import logging
+    import os
+
+    log = logging.getLogger(__name__)
+    model = YOLO(path)
+
+    requested = (os.environ.get("ROAD_YOLO_DEVICE") or "").strip().lower()
+    device: str | None = None
+    try:
+        import torch  # type: ignore
+
+        if requested:
+            device = requested
+        elif torch.cuda.is_available():
+            device = "cuda"
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        if device and device != "cpu":
+            model.to(device)
+        log.info("YOLO model loaded on device=%s (path=%s)", device, path)
+    except Exception as exc:
+        # Never block startup on accelerator failure — fall back to CPU and
+        # log loudly so the operator can investigate.
+        log.warning(
+            "YOLO accelerator selection failed (requested=%r), falling back to CPU: %s",
+            requested or "auto",
+            exc,
+        )
+
+    return model
 
 
 def bbox_edge_distance(a: Detection, b: Detection) -> float:

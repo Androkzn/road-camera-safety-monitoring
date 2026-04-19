@@ -23,6 +23,7 @@ import { useImpact } from "../hooks/useImpact";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useSettings } from "../hooks/useSettings";
 import { useSettingsTemplates } from "../hooks/useSettingsTemplates";
+import { useDialog } from "../components/ui/Dialog";
 import {
   type AdminApiError,
   MissingAdminTokenError,
@@ -987,30 +988,60 @@ export function SettingsPage() {
       const errors = extractValidationErrors(exc);
       if (errors) { setValidationErrors(errors); return; }
       if (isPrivacyConfirmRequired(exc)) {
-        if (confirm("This change touches a privacy-sensitive setting (ALPR_MODE). Confirm?")) {
+        const confirmed = await dialog.confirm({
+          title: "Privacy-sensitive change",
+          message:
+            "This change touches a privacy-sensitive setting (ALPR_MODE). " +
+            "Toggling License Plate Recognition changes what data leaves the edge — confirm to proceed.",
+          okLabel: "Apply with privacy change",
+          variant: "warning",
+        });
+        if (confirmed) {
           await doApply({ confirmPrivacy: true });
-          return;
         }
         return;
       }
       if (exc instanceof MissingAdminTokenError) return;
       const status = (exc as AdminApiError).status;
       if (status === 409) {
-        alert("Settings changed elsewhere — refreshing the view.");
+        await dialog.alert({
+          title: "Settings changed elsewhere",
+          message: "Another operator (or another tab) updated the settings since you opened this page. Refreshing the view now.",
+          variant: "warning",
+        });
         await settings.refresh();
         setDraft({});
         return;
       }
-      if (status === 429) { alert("Apply rate-limited. Try again in a few seconds."); return; }
+      if (status === 429) {
+        await dialog.alert({
+          title: "Apply rate-limited",
+          message: "Too many applies in quick succession. Wait a few seconds and try again.",
+          variant: "warning",
+        });
+        return;
+      }
       console.error(exc);
-      alert(`Apply failed: ${(exc as Error).message}`);
+      await dialog.alert({
+        title: "Apply failed",
+        message: (exc as Error).message,
+        variant: "danger",
+      });
     } finally {
       setSubmitting(false);
     }
   }
 
   async function doRollback() {
-    if (!confirm("Revert to last-known-good?")) return;
+    const ok = await dialog.confirm({
+      title: "Rollback to last-known-good",
+      message:
+        "Restore the snapshot that was active immediately before the most recent apply. " +
+        "Subscribers (LLM bucket, track-history rebuild, etc.) will re-fire.",
+      okLabel: "Rollback",
+      variant: "danger",
+    });
+    if (!ok) return;
     setSubmitting(true);
     try {
       const res = await settings.rollback();
@@ -1018,7 +1049,11 @@ export function SettingsPage() {
       setDraft({});
       await impact.refresh();
     } catch (exc) {
-      alert(`Rollback failed: ${(exc as Error).message}`);
+      await dialog.alert({
+        title: "Rollback failed",
+        message: (exc as Error).message,
+        variant: "danger",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -1033,13 +1068,24 @@ export function SettingsPage() {
       await impact.refresh();
     } catch (exc) {
       if (isPrivacyConfirmRequired(exc)) {
-        if (confirm("Template touches a privacy-sensitive setting. Confirm?")) {
+        const confirmed = await dialog.confirm({
+          title: "Template touches privacy setting",
+          message:
+            "This template changes a privacy-sensitive setting (ALPR_MODE). Confirm to proceed.",
+          okLabel: "Apply template",
+          variant: "warning",
+        });
+        if (confirmed) {
           await templates.applyTemplate(id, { confirm_privacy_change: true });
           await settings.refresh();
         }
         return;
       }
-      alert(`Apply template failed: ${(exc as Error).message}`);
+      await dialog.alert({
+        title: "Apply template failed",
+        message: (exc as Error).message,
+        variant: "danger",
+      });
     } finally {
       setSubmitting(false);
     }
