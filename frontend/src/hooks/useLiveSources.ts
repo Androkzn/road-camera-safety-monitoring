@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { dialog } from "../components/ui/Dialog";
 import { api } from "../lib/api";
 import type { LiveSourceStatus, LiveSourcesResponse } from "../types";
 
@@ -60,30 +61,86 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
     setBusyById((prev) => ({ ...prev, [id]: v }));
   }, []);
 
+  // Safety belt: any slot stuck in the "busy" state for more than 8 s gets
+  // force-cleared. Prevents the Start / Pause button from getting wedged on
+  // "Pausing…" / "Starting…" if a request hangs (the request itself is
+  // wrapped in try/finally so this is belt-and-braces, not strictly needed).
+  useEffect(() => {
+    const stuck = Object.entries(busyById).filter(([, v]) => v);
+    if (stuck.length === 0) return;
+    const t = window.setTimeout(() => {
+      setBusyById((prev) => {
+        const next: Record<string, boolean> = { ...prev };
+        let changed = false;
+        for (const [id] of stuck) {
+          if (next[id]) {
+            next[id] = false;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 8000);
+    return () => window.clearTimeout(t);
+  }, [busyById]);
+
+  /** Optimistically flip a slot's ``running`` flag so the button label
+   *  swaps immediately. The next ``refresh()`` reconciles authoritative
+   *  state from the backend. */
+  const setRunningOptimistic = useCallback((id: string, running: boolean) => {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            sources: prev.sources.map((s) =>
+              s.id === id ? { ...s, running } : s,
+            ),
+          }
+        : prev,
+    );
+  }, []);
+
   const start = useCallback(
     async (id: string) => {
       mark(id, true);
+      setRunningOptimistic(id, true);
       try {
         await api.startLiveSource(id);
+      } catch (exc) {
+        // Roll back the optimistic flip and surface the failure.
+        setRunningOptimistic(id, false);
+        void dialog.alert({
+          title: "Start stream failed",
+          message: (exc as Error)?.message ?? "unknown error",
+          variant: "danger",
+        });
       } finally {
         mark(id, false);
         await refresh();
       }
     },
-    [mark, refresh],
+    [mark, refresh, setRunningOptimistic],
   );
 
   const pause = useCallback(
     async (id: string) => {
       mark(id, true);
+      setRunningOptimistic(id, false);
       try {
         await api.pauseLiveSource(id);
+      } catch (exc) {
+        setRunningOptimistic(id, true);
+        void dialog.alert({
+          title: "Pause stream failed",
+          message: (exc as Error)?.message ?? "unknown error",
+          variant: "danger",
+        });
       } finally {
         mark(id, false);
         await refresh();
       }
     },
-    [mark, refresh],
+    [mark, refresh, setRunningOptimistic],
   );
 
   const setDetection = useCallback(
