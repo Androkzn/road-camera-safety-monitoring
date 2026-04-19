@@ -15,11 +15,13 @@
  * get horizontal overflow or a hidden settings panel.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { StreamImage } from "../components/admin/StreamImage";
 import { TopBar } from "../components/layout/TopBar";
 import { useAdminToken } from "../hooks/useAdminToken";
 import { useImpact } from "../hooks/useImpact";
+import { useLiveSources } from "../hooks/useLiveSources";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useSettings } from "../hooks/useSettings";
 import { useSettingsTemplates } from "../hooks/useSettingsTemplates";
@@ -35,6 +37,7 @@ import type {
   ImpactReport,
   SettingSpec,
   SettingsTemplate,
+  WindowStats,
 } from "../types";
 
 import styles from "./SettingsPage.module.css";
@@ -343,12 +346,19 @@ const METRIC_LABELS: Record<string, string> = {
   drift_precision: "Drift precision",
   feedback_coverage: "Feedback coverage",
   llm_cost_usd_per_min: "LLM cost, $ / min",
+  llm_tokens_per_min: "LLM tokens / min",
   llm_latency_p95_ms: "LLM latency p95, ms",
   llm_skip_rate: "LLM skip rate",
   enrichment_skipped_rate: "Enrichment skipped rate",
   episode_duration_mean: "Episode duration, mean",
   episode_duration_p95: "Episode duration p95",
   frames_processed_ratio: "Frames processed ratio",
+  actual_fps_p50: "Actual fps, p50",
+  actual_fps_p95: "Actual fps, p95",
+  frames_dropped_ratio_p95: "Frames dropped p95",
+  cpu_p50: "CPU %, p50",
+  cpu_p95: "CPU %, p95",
+  memory_p95: "Memory %, p95",
 };
 
 function metricLabel(key: string): string {
@@ -854,6 +864,8 @@ function ImpactCard(props: {
             <span></span>
           </div>
 
+          <OpsDeltas baseline={r.baseline} after={r.after_window} deltas={r.deltas} />
+
           <SeverityBars label="Severity (after-change)" counts={r.after_window.severity_counts} />
         </>
       )}
@@ -875,6 +887,79 @@ function ImpactCard(props: {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * OpsDeltas — operational-metric before/after rows for the Impact card.
+ *
+ * Lower-is-better and higher-is-better are colored separately: CPU,
+ * latency, cost and skip-rate going UP is bad (red); fps going DOWN is
+ * bad (red). A missing before/after pair renders "—" so the operator
+ * knows the ops sampler has no data yet rather than assuming zero.
+ */
+function OpsDeltas(props: {
+  baseline: WindowStats;
+  after: WindowStats;
+  deltas: Record<string, number>;
+}) {
+  const { baseline, after, deltas } = props;
+  type Row = { key: keyof WindowStats; label: string; goodWhen: "up" | "down"; digits?: number };
+  const rows: Row[] = [
+    { key: "actual_fps_p50", label: "Actual fps p50", goodWhen: "up", digits: 2 },
+    { key: "cpu_p95", label: "CPU %, p95", goodWhen: "down", digits: 1 },
+    { key: "memory_p95", label: "Memory %, p95", goodWhen: "down", digits: 1 },
+    { key: "llm_cost_usd_per_min", label: "LLM $ / min", goodWhen: "down", digits: 4 },
+    { key: "llm_tokens_per_min", label: "LLM tokens / min", goodWhen: "down", digits: 0 },
+    { key: "llm_latency_p95_ms", label: "LLM latency p95 ms", goodWhen: "down", digits: 0 },
+    { key: "llm_skip_rate", label: "LLM skip rate", goodWhen: "down", digits: 3 },
+    { key: "frames_dropped_ratio_p95", label: "Frames dropped p95", goodWhen: "down", digits: 3 },
+  ];
+  // Only render rows that have at least one side populated — otherwise
+  // the card bloats with "— → —" lines on a fresh install before the
+  // sampler has any data.
+  const visible = rows.filter(
+    (r) => baseline[r.key] != null || after[r.key] != null,
+  );
+  if (!visible.length) return null;
+  return (
+    <>
+      <div className={styles.subtle} style={{ fontSize: 11, marginTop: 6 }}>
+        Operational
+      </div>
+      <div className={styles.deltaList}>
+        {visible.map((r) => {
+          const b = baseline[r.key] as number | null | undefined;
+          const a = after[r.key] as number | null | undefined;
+          const d = deltas[r.key];
+          const isUp = (d ?? 0) > 0;
+          const good =
+            d == null || d === 0
+              ? null
+              : r.goodWhen === "up"
+                ? !isUp ? false : true
+                : isUp ? false : true;
+          const deltaClass =
+            good == null ? "" : good ? styles.deltaPos : styles.deltaNeg;
+          return (
+            <Fragment key={String(r.key)}>
+              <span>{r.label}</span>
+              <span>
+                {fmt(b ?? null, r.digits ?? 2)} → {fmt(a ?? null, r.digits ?? 2)}
+              </span>
+              <span className={deltaClass}>
+                {d != null ? `${fmt(d, 1)}%` : ""}
+              </span>
+            </Fragment>
+          );
+        })}
+      </div>
+      {after.ops_samples === 0 && (
+        <div className={styles.subtle} style={{ fontSize: 10 }}>
+          Waiting for operational samples (first CPU / fps window after apply).
+        </div>
+      )}
+    </>
   );
 }
 
@@ -930,7 +1015,34 @@ export function SettingsPage() {
   const templates = useSettingsTemplates(token);
   const impact = useImpact(token);
   const { data: live, error: liveError } = useLiveStatus(5000);
+  const liveSources = useLiveSources(5000);
   const dialog = useDialog();
+
+  // Preview source selection. Defaults to the "focused" stream the operator
+  // last picked on the Admin page (persisted to localStorage), falling back
+  // to the primary source. A local <select> lets the operator override.
+  const [previewSourceId, setPreviewSourceId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem("road_admin_focused_id");
+  });
+  // Pick up focus changes made on the Admin tab without needing a refresh.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onChange = () => {
+      setPreviewSourceId(window.localStorage.getItem("road_admin_focused_id"));
+    };
+    window.addEventListener("admin-focused-id-changed", onChange);
+    window.addEventListener("storage", onChange);
+    return () => {
+      window.removeEventListener("admin-focused-id-changed", onChange);
+      window.removeEventListener("storage", onChange);
+    };
+  }, []);
+  const previewSource =
+    liveSources.sources.find((s) => s.id === previewSourceId) ??
+    liveSources.sources.find((s) => s.id === liveSources.primaryId) ??
+    liveSources.sources[0] ??
+    null;
 
   const connected: boolean | undefined =
     live ? !!live.running : liveError ? false : undefined;
@@ -1263,6 +1375,62 @@ export function SettingsPage() {
               {warnings.map((w) => <div key={w}>{w}</div>)}
             </div>
           )}
+          {applyResult && (
+            <div className={styles.successBanner} role="status">
+              <div>
+                <strong>
+                  {applyResult.kind === "rollback"
+                    ? "Rolled back to last-known-good."
+                    : applyResult.kind === "template"
+                      ? "Template applied."
+                      : `Applied ${Object.keys(applyResult.diff).length} change${Object.keys(applyResult.diff).length === 1 ? "" : "s"}.`}
+                </strong>
+                {applyResult.applied_now.length > 0 && (
+                  <>
+                    {" "}Live now:{" "}
+                    {applyResult.applied_now.map((k, i) => (
+                      <span key={k}>
+                        {i > 0 ? ", " : ""}<code>{humanize(k)}</code>
+                      </span>
+                    ))}
+                    .
+                  </>
+                )}
+                {applyResult.pending_restart.length > 0 && (
+                  <>
+                    {" "}<strong>Needs restart to take effect:</strong>{" "}
+                    {applyResult.pending_restart.map((k, i) => (
+                      <span key={k}>
+                        {i > 0 ? ", " : ""}<code>{humanize(k)}</code>
+                      </span>
+                    ))}
+                    .
+                  </>
+                )}
+                {applyResult.audit_id && (
+                  <>
+                    {" "}Impact session <code>{applyResult.audit_id.slice(0, 18)}</code> started — watch the card on the right.
+                  </>
+                )}
+              </div>
+              {applyResult.kind === "apply" && Object.keys(applyResult.diff).length > 0 && (
+                <div className={styles.subtle} style={{ fontSize: 11 }}>
+                  {Object.entries(applyResult.diff).map(([k, ba]) => (
+                    <div key={k}>
+                      <code>{humanize(k)}</code>: {String(ba.before)} → {String(ba.after)}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className={styles.dismiss}
+                onClick={() => setApplyResult(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
           {/* Load error — surfaced in the main view too, otherwise a 500 /
               network failure leaves the page stuck on "Loading settings…"
@@ -1337,12 +1505,39 @@ export function SettingsPage() {
             onRefresh={() => impact.refresh()}
           />
 
-          {/* Optional video preview — collapsed by default to save space. */}
+          {/* Optional video preview — collapsed by default to save space.
+              Defaults to the stream focused on the Admin page, but the
+              <select> lets the operator preview any active source. */}
           <details className={`${styles.card} ${styles.videoCard}`}>
             <summary className={styles.cardTitle}>Live preview</summary>
-            <img src="/admin/video_feed" alt="Live preview" />
+            {liveSources.sources.length > 1 && (
+              <select
+                value={previewSource?.id ?? ""}
+                onChange={(e) => setPreviewSourceId(e.target.value || null)}
+                aria-label="Preview source"
+                style={{ marginBottom: 8, width: "100%" }}
+              >
+                {liveSources.sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.id === liveSources.primaryId ? " (primary)" : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            {previewSource ? (
+              <StreamImage
+                source={previewSource}
+                onError={() => {
+                  /* swallow — next poll / reconnect will recover */
+                }}
+              />
+            ) : (
+              <span className={styles.subtle}>No active source.</span>
+            )}
             <span className={styles.subtle}>
-              source: {sourceName}{live?.target_fps ? ` @ ${live.target_fps}fps` : ""}
+              source: {previewSource?.name ?? sourceName}
+              {live?.target_fps ? ` @ ${live.target_fps}fps` : ""}
             </span>
           </details>
         </aside>

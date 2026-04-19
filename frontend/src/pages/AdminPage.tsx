@@ -106,7 +106,17 @@ export function AdminPage() {
   // grid) can share the same poll cycle and focus state. Polling once here
   // also means there's no duplicate /api/live/sources fetch.
   const liveSources = useLiveSources(5000);
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem("road_admin_focused_id");
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (focusedId) window.localStorage.setItem("road_admin_focused_id", focusedId);
+    else window.localStorage.removeItem("road_admin_focused_id");
+    window.dispatchEvent(new CustomEvent("admin-focused-id-changed"));
+  }, [focusedId]);
 
   // If the focused source disappears (operator removed it, backend dropped
   // the slot) clear focus so headers don't get stuck on a ghost stream.
