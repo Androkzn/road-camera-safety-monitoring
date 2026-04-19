@@ -474,11 +474,24 @@ class StreamSlot:
         # When zero, ``_on_frame`` skips ``_render_annotated_frame`` /
         # ``cv2.imencode`` — the biggest per-frame cost after YOLO itself.
         self._mjpeg_subscribers: int = 0
+        # Monotonic timestamp of the most recent poll to ``/admin/frame/{id}``.
+        # The admin grid uses short-lived polls instead of a persistent MJPEG
+        # connection (to dodge the browser's 6-conn-per-host cap), so viewer
+        # presence has to be inferred from recent polls with a TTL.
+        self._last_poll_monotonic: float = 0.0
 
     def has_viewers(self) -> bool:
         # Int read is atomic in CPython; a one-frame stale value is harmless
         # (at worst we skip one encode the frame a viewer connects on).
-        return self._mjpeg_subscribers > 0
+        if self._mjpeg_subscribers > 0:
+            return True
+        # Poll-based viewer: any /admin/frame hit in the last 2s counts. The
+        # grid polls at ~400ms, so 2s = 5 polls of slack before we let the
+        # encode path go idle (which matters on multi-stream hosts).
+        return (time.monotonic() - self._last_poll_monotonic) < 2.0
+
+    def mark_polled(self) -> None:
+        self._last_poll_monotonic = time.monotonic()
 
     def _acquire_viewer(self) -> None:
         with self._frame_lock:
@@ -2803,6 +2816,10 @@ def admin_frame_for(source_id: str):
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
+    # Signal to ``_on_frame`` that this slot has a viewer, so the encode path
+    # actually runs. Without this the cached jpeg stays ``None`` and every
+    # poll would serve the warming-up placeholder forever.
+    slot.mark_polled()
     with slot._frame_lock:
         jpeg = slot._annotated_jpeg
     if jpeg is None:
