@@ -30,6 +30,7 @@
  */
 import { usePolling } from "./usePolling";
 import { api } from "../lib/api";
+import { adminFetch } from "../lib/adminApi";
 import type { WatchdogStatus, WatchdogFinding } from "../types";
 
 export function useWatchdog() {
@@ -55,13 +56,23 @@ export function useWatchdog() {
     refreshFindings();
   };
 
+  // Destructive endpoints require admin Bearer (Settings Console S0 prereq
+  // hardening), so they go through `adminFetch`, not the public `api`.
+  // Errors propagate to the caller — see WatchdogContext.tsx for the
+  // recommended user-facing handler (alert directing to Settings).
   const deleteFindings = async (keys: string[]) => {
-    await api.deleteWatchdogFindings(keys);
+    await adminFetch<{ deleted: number }>("/api/watchdog/findings/delete", {
+      method: "POST",
+      body: JSON.stringify({ keys }),
+    });
     refresh();
   };
 
   const clearAll = async () => {
-    await api.clearWatchdogFindings();
+    await adminFetch<{ deleted: number }>(
+      "/api/watchdog/findings?clear_all=true",
+      { method: "DELETE" },
+    );
     refresh();
   };
 

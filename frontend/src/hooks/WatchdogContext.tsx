@@ -41,6 +41,11 @@
 import { createContext, useContext, useCallback, type ReactNode } from "react";
 import { usePolling } from "./usePolling";
 import { api } from "../lib/api";
+import {
+  type AdminApiError,
+  MissingAdminTokenError,
+  adminFetch,
+} from "../lib/adminApi";
 import type { WatchdogStatus, WatchdogFinding } from "../types";
 
 interface WatchdogData {
@@ -78,6 +83,53 @@ async function fetchBoth(): Promise<WatchdogData> {
   return { status, findings };
 }
 
+// --- Destructive endpoints (admin Bearer required) ---
+// Backend gates `POST /api/watchdog/findings/delete` and
+// `DELETE /api/watchdog/findings` behind `require_bearer_token` (Settings
+// Console S0 prereq). The public-tier `lib/api.ts` therefore can't call
+// them — we go through `adminFetch` directly here.
+
+async function deleteWatchdogFindingsRequest(keys: string[]) {
+  return adminFetch<{ deleted: number }>("/api/watchdog/findings/delete", {
+    method: "POST",
+    body: JSON.stringify({ keys }),
+  });
+}
+
+async function clearWatchdogFindingsRequest() {
+  return adminFetch<{ deleted: number }>(
+    "/api/watchdog/findings?clear_all=true",
+    { method: "DELETE" },
+  );
+}
+
+/**
+ * Surface auth failures to the operator. Watchdog destructive actions are
+ * triggered from buttons that don't render their own error UI, so the
+ * Context wrapper centralises the message: 401 / missing-token both lead
+ * to the same fix (paste `ROAD_ADMIN_TOKEN` on the Settings page).
+ */
+function handleWatchdogAdminError(exc: unknown, action: string): void {
+  if (exc instanceof MissingAdminTokenError) {
+    alert(
+      `${action} requires the admin token.\n\n` +
+        "Open the Settings page and paste your ROAD_ADMIN_TOKEN, then try again.",
+    );
+    return;
+  }
+  const status = (exc as AdminApiError | undefined)?.status;
+  if (status === 401 || status === 403) {
+    alert(
+      `${action} was rejected (HTTP ${status}).\n\n` +
+        "Your ROAD_ADMIN_TOKEN is missing or invalid. Open the Settings page " +
+        "and paste a valid token, then try again.",
+    );
+    return;
+  }
+  console.error(exc);
+  alert(`${action} failed: ${(exc as Error)?.message ?? "unknown error"}`);
+}
+
 // --- Provider: owns the poll, exposes the value ---
 export function WatchdogProvider({ children }: { children: ReactNode }) {
   // Single shared poll — runs once regardless of how many consumers mount.
@@ -96,12 +148,22 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(() => { refetch(); }, [refetch]);
 
   const deleteFindings = useCallback(async (keys: string[]) => {
-    await api.deleteWatchdogFindings(keys);
+    try {
+      await deleteWatchdogFindingsRequest(keys);
+    } catch (exc) {
+      handleWatchdogAdminError(exc, "Delete findings");
+      return;
+    }
     refetch();
   }, [refetch]);
 
   const clearAll = useCallback(async () => {
-    await api.clearWatchdogFindings();
+    try {
+      await clearWatchdogFindingsRequest();
+    } catch (exc) {
+      handleWatchdogAdminError(exc, "Clear all findings");
+      return;
+    }
     refetch();
   }, [refetch]);
 

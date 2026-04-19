@@ -37,7 +37,7 @@
 }
 
 .center {
-  padding: 16px 20px 80px;     /* extra bottom padding leaves room for the sticky apply bar */
+  padding: 16px 20px 24px;
   overflow-y: auto;
   min-height: 0;
   position: relative;
@@ -188,6 +188,107 @@
   margin-top: 4px;
   line-height: 1.35;
 }
+
+/* Inline "i" info button next to the label.
+ * The .helpAnchor wrapper gives the floating popover a positioning context. */
+.helpAnchor {
+  position: relative;
+  display: inline-block;
+  margin-left: 6px;
+}
+.infoBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: serif;
+  font-style: italic;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.infoBtn:hover,
+.infoBtn[aria-expanded="true"] {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+
+/* Floating help popover. ``position: fixed`` so the scrolling .center
+ * column never clips it. Coordinates are set inline by JS based on the
+ * trigger button's getBoundingClientRect(). */
+.helpPopover {
+  position: fixed;
+  z-index: 1000;
+  width: 340px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  background: #15171c;
+  color: var(--fg);
+  border: 1px solid #2c2c33;
+  border-left: 3px solid #60a5fa;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  animation: helpPopFadeIn 0.12s ease-out;
+}
+
+@keyframes helpPopFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.helpTitle {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  padding-right: 18px;       /* leave room for the close button */
+  color: var(--fg);
+}
+.helpPopover p { margin: 0 0 6px; }
+.helpPopover p:last-child { margin-bottom: 0; }
+.helpPopover strong { color: #93c5fd; font-weight: 600; }
+
+.helpClose {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.helpClose:hover { background: rgba(255, 255, 255, 0.06); color: var(--fg); }
+
+.helpOptions {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.helpOptions code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
 .keyError {
   display: block;
   color: #fca5a5;
@@ -215,13 +316,34 @@
 .metaCol {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  align-items: flex-end;
+  gap: 4px;
   font-size: 10px;
   color: var(--muted);
   text-align: right;
   white-space: nowrap;
 }
-.defaultLabel { font-family: monospace; }
+
+.resetBtn {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: monospace;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.resetBtn:hover:not(:disabled) {
+  background: var(--surface-3, #25252b);
+  color: var(--fg);
+  border-color: #2563eb;
+}
+.resetBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 .badge {
   display: inline-block;
@@ -258,21 +380,11 @@
   margin-bottom: 12px;
 }
 
-/* ----- Sticky apply bar ----- */
-.applyBar {
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: linear-gradient(180deg, transparent 0%, var(--surface, #0c0c10) 30%);
-  padding: 14px 0 4px;
-  margin-top: 16px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  z-index: 5;
+.dirtyCount {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 4px;
 }
-.dirtyCount { font-size: 12px; color: var(--muted); flex: 1; }
 
 /* ----- Right-rail cards ----- */
 .card {

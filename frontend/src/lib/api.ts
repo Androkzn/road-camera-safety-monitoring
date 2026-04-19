@@ -179,27 +179,16 @@ export const api = {
     }),
 
   // --- Watchdog endpoints (incident queue, see CLAUDE.md) ---
+  //
+  // NOTE: Only the *read* watchdog endpoints live here. The two destructive
+  // routes (`POST /api/watchdog/findings/delete` and `DELETE
+  // /api/watchdog/findings`) require admin Bearer auth (see Settings Console
+  // S0 prereq hardening) and are therefore wired directly through
+  // `lib/adminApi.ts` from the consumer hooks (see hooks/WatchdogContext.tsx).
 
   // Summary status for the watchdog incident queue.
   getWatchdogStatus: () => fetchJson<WatchdogStatus>("/api/watchdog"),
   // TEACH: Default parameter value `n = 50`. If the caller invokes
   // `api.getWatchdogRecent()` with no argument, `n` is 50.
   getWatchdogRecent: (n = 50) => fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`),
-
-  // TEACH: POST-with-body pattern again, but the response shape is
-  // `{ deleted: number }` — just how many findings the backend removed.
-  deleteWatchdogFindings: (keys: string[]) =>
-    fetchJson<{ deleted: number }>("/api/watchdog/findings/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keys }),
-    }),
-
-  // TEACH: A DELETE with no body — the semantic "wipe everything" call.
-  // The querystring `?clear_all=true` gates the destructive action on
-  // the backend side so an accidental empty DELETE doesn't nuke data.
-  clearWatchdogFindings: () =>
-    fetchJson<{ deleted: number }>("/api/watchdog/findings?clear_all=true", {
-      method: "DELETE",
-    }),
 };

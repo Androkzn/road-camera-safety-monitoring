@@ -15,7 +15,7 @@
  * get horizontal overflow or a hidden settings panel.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { TopBar } from "../components/layout/TopBar";
 import { useAdminToken } from "../hooks/useAdminToken";
@@ -99,30 +99,274 @@ function stepFor(spec: SettingSpec, min: number, max: number): number {
   return 0.01;
 }
 
-/** Acronyms we want to keep uppercase when humanizing SCREAMING_SNAKE keys. */
-const ACRONYMS = new Set([
-  "TTC", "ALPR", "LLM", "FPS", "BBOX", "CB", "CONF",
-  "MIN", "MAX", "SEC", "DIST", "ID", "PER",
-]);
+/**
+ * Per-token rewrite map for humanizing SCREAMING_SNAKE keys. Covers
+ * industry acronyms operators recognise (kept uppercase) and truncated
+ * words we expand into English. Unit suffixes (M, SEC, FPS, …) are
+ * handled separately by :func:`unitFromTail` so the label reads
+ * "Distance High, m" instead of "Distance High M".
+ */
+/**
+ * Per-token rewrite map. Operator preference is to spell every abbreviation
+ * out fully — labels read like English, not config keys.
+ */
+const TOKEN_REWRITES: Record<string, string> = {
+  // Domain expansions
+  TTC: "Time to Collision",
+  ALPR: "License Plate Recognition",
+  LLM: "LLM",
+  CB: "Circuit Breaker",
+  BBOX: "Bounding Box",
+  CONF: "Confidence",
+  DIST: "Distance",
+  LUM: "Luminance",
+  LEN: "Length",
+  MED: "Medium",
+  // Common short words — fully spelled out
+  MIN: "Minimum",
+  MAX: "Maximum",
+  // Industry-pronounced acronym kept as-is; "Identifier" sounds clinical.
+  ID: "ID",
+};
 
 /**
- * Convert ``SOME_KEY_NAME`` (or ``some-thing``) to a human label, preserving
- * the acronyms in :data:`ACRONYMS`. E.g.
- *   ``MIN_BBOX_AREA``           → "MIN BBOX Area"
- *   ``VEHICLE_PAIR_CONF_FLOOR`` → "Vehicle Pair CONF Floor"
- *   ``risk-tier``               → "Risk Tier"
+ * Unit suffix tokens. When a key ends with one (optionally preceded by
+ * ``PER``), the unit is split off and appended after a comma — e.g.
+ * ``DIST_HIGH_M`` → "Distance High, meters",
+ * ``LLM_BUCKET_REFILL_PER_MIN`` → "Large Language Model Bucket Refill, per minute".
+ */
+const UNIT_TOKENS: Record<string, string> = {
+  M: "meters",
+  SEC: "seconds",
+  FPS: "frames per second",
+  MS: "milliseconds",
+  HZ: "Hertz",
+  PCT: "percent",
+};
+
+function unitFromTail(tokens: string[]): { unit: string | null; consume: number } {
+  if (tokens.length === 0) return { unit: null, consume: 0 };
+  const last = (tokens[tokens.length - 1] ?? "").toUpperCase();
+  // ``PER`` + time unit composes into "per <unit>"
+  if (tokens.length >= 2 && (tokens[tokens.length - 2] ?? "").toUpperCase() === "PER") {
+    if (last === "MIN") return { unit: "per minute", consume: 2 };
+    if (last === "SEC") return { unit: "per second", consume: 2 };
+    if (last === "HOUR") return { unit: "per hour", consume: 2 };
+  }
+  if (UNIT_TOKENS[last]) return { unit: UNIT_TOKENS[last]!, consume: 1 };
+  return { unit: null, consume: 0 };
+}
+
+/**
+ * Convert ``SOME_KEY_NAME`` (or ``some-thing``) to a human label.
+ * E.g.
+ *   ``DIST_HIGH_M``                 → "Distance High, m"
+ *   ``TTC_HIGH_SEC``                → "TTC High, s"
+ *   ``LLM_BUCKET_REFILL_PER_MIN``   → "LLM Bucket Refill, per min"
+ *   ``MIN_BBOX_AREA``               → "Min BBox Area"
+ *   ``VEHICLE_PAIR_CONF_FLOOR``     → "Vehicle Pair Confidence Floor"
+ *   ``risk-tier``                   → "Risk Tier"
  */
 function humanize(raw: string): string {
-  return raw
-    .split(/[_\-\s]+/)
-    .filter(Boolean)
+  const tokens = raw.split(/[_\-\s]+/).filter(Boolean);
+  const { unit, consume } = unitFromTail(tokens);
+  const head = consume > 0 ? tokens.slice(0, tokens.length - consume) : tokens;
+  const headLabel = head
     .map((word) => {
       const upper = word.toUpperCase();
-      if (ACRONYMS.has(upper)) return upper;
+      if (TOKEN_REWRITES[upper] !== undefined) return TOKEN_REWRITES[upper];
       const lower = word.toLowerCase();
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(" ");
+  return unit ? `${headLabel}, ${unit}` : headLabel;
+}
+
+// ---------------------------------------------------------------------------
+// Per-tunable help text — operator-facing explanations beyond the one-line
+// description carried in the spec. Keyed by the raw setting name.
+// ---------------------------------------------------------------------------
+interface TunableHelp {
+  what: string;
+  affects: string;
+  increase?: string;
+  decrease?: string;
+  options?: Record<string, string>;
+}
+
+const TUNABLE_HELP: Record<string, TunableHelp> = {
+  CONF_THRESHOLD: {
+    what: "Minimum YOLO confidence required for a vehicle detection to enter the pipeline.",
+    affects: "Detection ingest funnel — applied per-frame before any TTC, distance or pair gate.",
+    increase: "Fewer detections; reduces false positives from billboards / shadows / odd-shaped trash. May miss distant or low-contrast vehicles.",
+    decrease: "More detections including marginal ones. Adds load to LLM enrichment and downstream gates; may admit noise that scene-context can't fully suppress.",
+  },
+  PERSON_CONF_THRESHOLD: {
+    what: "Minimum YOLO confidence for the person class.",
+    affects: "Pedestrian detection only — vehicles use CONF_THRESHOLD.",
+    increase: "Fewer false-positive 'person' boxes from occlusion bleed. Risks missing distant or partially-occluded pedestrians (which legitimately score lower).",
+    decrease: "Catches more distant / partially-visible people. Below ~0.25 with YOLOv8n it lets occasional noise through; pair with a larger model variant if you go aggressive.",
+  },
+  VEHICLE_PAIR_CONF_FLOOR: {
+    what: "Mean of two detection confidences required before a vehicle-vehicle pair becomes an event candidate.",
+    affects: "Vehicle ↔ vehicle close-interaction events (pedestrian pairs are unaffected).",
+    increase: "Fewer car-on-car alerts; kills the 'two low-confidence blobs that happen to overlap' false positive — historically the largest alert-fatigue source.",
+    decrease: "More vehicle-pair alerts. Use only if your camera reliably yields high-confidence vehicle bboxes.",
+  },
+  MIN_BBOX_AREA: {
+    what: "Minimum bounding-box area in square pixels for a vehicle detection to count.",
+    affects: "Vehicle ingest filter — pedestrians have their own (smaller) PERSON_MIN_BBOX_AREA constant.",
+    increase: "Rejects far-field tiny vehicles. Lower compute load, less far-field reach.",
+    decrease: "Catches more distant vehicles but admits jitter / noise blobs that the geometry gates have to clean up.",
+  },
+  TTC_HIGH_SEC: {
+    what: "Time-to-collision threshold (in seconds) at or below which an interaction is classified HIGH risk.",
+    affects: "Risk tier of every emitted event; high-tier events trigger Slack pings.",
+    increase: "More events classified HIGH. At 1.0s anything within one second of contact is high; at 0.5s it's essentially 'already colliding'.",
+    decrease: "Stricter HIGH classification. Fewer Slack high-tier alerts; only the most imminent collisions fire.",
+  },
+  TTC_MED_SEC: {
+    what: "Time-to-collision threshold at or below which an interaction is classified MEDIUM (above HIGH).",
+    affects: "Dashboard highlight tier; medium events accumulate into the hourly Slack digest, not real-time pings.",
+    increase: "More events promoted to MEDIUM rather than logged silently as LOW.",
+    decrease: "Tighter MEDIUM band; more events demoted to LOW.",
+  },
+  DIST_HIGH_M: {
+    what: "Inter-object 3D distance (in metres) at or below which an interaction is classified HIGH risk.",
+    affects: "Same risk-tier cascade as TTC_HIGH_SEC, but using the depth-prior distance estimate.",
+    increase: "More events classified HIGH purely on proximity. At 5m nearly any two vehicles in the same frame trip the gate.",
+    decrease: "Only very close interactions (within arm's reach) trigger HIGH on distance alone.",
+  },
+  DIST_MED_M: {
+    what: "Inter-object distance threshold for MEDIUM risk (above DIST_HIGH_M).",
+    affects: "Medium-tier dashboard signal; combined with TTC_MED_SEC by worst-signal-wins.",
+    increase: "More events in the MEDIUM band on proximity.",
+    decrease: "Tighter MEDIUM proximity threshold.",
+  },
+  MIN_SCALE_GROWTH: {
+    what: "Minimum bounding-box scale-expansion ratio over the trailing window before TTC will publish a value.",
+    affects: "TTC computation — the 'is this object actually approaching' gate.",
+    increase: "Stricter approach evidence; kills 'jittery stationary box' false TTC alerts. Risks missing slow approaches.",
+    decrease: "TTC fires for smaller scale changes; more sensitivity, more jitter-driven false alerts. Below 1.05 you start emitting TTC for bbox noise alone.",
+  },
+  TRACK_HISTORY_LEN: {
+    what: "Number of trailing samples kept per tracked object for TTC math.",
+    affects: "TTC stability and responsiveness; longer history smooths estimates and is required for sustained-growth detection.",
+    increase: "More stable TTC estimates and longer lookback for sustained-growth checks. Slightly more memory per active track and slower adaptation to new fast-moving objects.",
+    decrease: "Faster reaction to brand-new tracks. Risks falling below the multi-gate sustained-growth sample-count requirement, which silently disables TTC for short-lived tracks.",
+  },
+  QUALITY_BLUR_SHARP: {
+    what: "Laplacian-variance value below which the camera is classified as blurred (dirty lens / motion blur / fog).",
+    affects: "QualityMonitor state machine — degraded states suppress event emission and widen TTC thresholds.",
+    increase: "Stricter sharpness requirement; pipeline degrades into 'blurred' more often, suppressing events. Use when the lens is reliably clean and you want extra safety on borderline frames.",
+    decrease: "More permissive — runs through more frames without suppression but admits blurry false positives.",
+  },
+  QUALITY_LOW_LIGHT_LUM: {
+    what: "Mean grayscale luminance below which the scene is classified as low-light.",
+    affects: "QualityMonitor degradation; below the threshold YOLO recall drops sharply on COCO classes.",
+    increase: "Stricter light requirement; degrades into low-light suppression earlier (more events suppressed at dusk / under bridges).",
+    decrease: "Tolerates darker scenes; risks acting on noisy detections from a dim sensor.",
+  },
+  LLM_BUCKET_CAPACITY: {
+    what: "Burst capacity (whole tokens) of the shared LLM rate-limit bucket. Each enrichment costs 2 tokens, each narration costs 1.",
+    affects: "How many LLM calls can fire back-to-back during an event burst before throttling kicks in.",
+    increase: "Larger LLM bursts during event clusters. Higher peak cost and risk of 429s if you exceed the provider's rate limit.",
+    decrease: "More aggressive throttling — non-essential narration / enrichment skipped during bursts. Lower cost, more 'rate budget exhausted' skip records in /api/llm/stats.",
+  },
+  LLM_BUCKET_REFILL_PER_MIN: {
+    what: "Sustained refill rate of the LLM bucket in tokens per minute.",
+    affects: "Long-run LLM call rate and cost.",
+    increase: "Higher sustained LLM call rate, higher cost. Stay below the provider's rate limit (Anthropic Haiku low-tier ≈ 5 req/min).",
+    decrease: "Lower sustained call rate; more events get the deterministic narration fallback rather than an LLM-generated one.",
+  },
+  SLACK_HIGH_MIN_CONFIDENCE: {
+    what: "Peak event confidence required before a HIGH-risk event becomes a Slack high-tier ping.",
+    affects: "Slack #high channel — operator paging tier. Medium / low events go to digests instead.",
+    increase: "Fewer real-time Slack pings; only the most confident HIGH events page operators.",
+    decrease: "More real-time pings. If your model has been drifting noisy, lowering this risks alert fatigue on the responder team.",
+  },
+  ALPR_MODE: {
+    what: "Posture for the external license-plate-recognition service.",
+    affects: "Privacy footprint, LLM cost, and what data leaves the edge.",
+    options: {
+      off: "No external ALPR calls. Plate text never leaves the edge. Safest privacy posture; the default.",
+      on: "Every event triggers an ALPR call. Maximum recall, maximum cost, plate text crosses to the provider for every event.",
+      on_demand: "ALPR only fires when an event is explicitly flagged for review. Balanced posture; cost scales with operator review rate, not event rate.",
+    },
+  },
+  PAIR_COOLDOWN_SEC: {
+    what: "After emitting an event for a (track A, track B) pair, suppress further events from the same pair for this many seconds.",
+    affects: "Event-stream noise — without this a single sustained near-miss would emit ~20 events.",
+    increase: "Fewer duplicate events; cleaner stream during sustained interactions. Risks coalescing two genuinely separate close-calls between the same pair into one report.",
+    decrease: "More granular reporting on evolving incidents. Risks spamming the SSE stream and Slack on long sustained near-misses.",
+  },
+  MAX_RECENT_EVENTS: {
+    what: "Capacity of the in-memory ring buffer of recent events.",
+    affects: "How much history the dashboard, agents and impact engine can see without going to disk.",
+    increase: "Longer event history available to UI and impact comparisons. More RAM (linearly).",
+    decrease: "Smaller footprint. Less history for the impact engine, agents and the SSE replay-on-connect.",
+  },
+  TARGET_FPS: {
+    what: "Perception-loop tick rate. Drives how often YOLO runs per stream second.",
+    affects: "Latency to detect short-lived collisions versus CPU / GPU / LLM cost.",
+    increase: "Faster reaction to motorbike cut-ins and other short TTC windows. Higher CPU and LLM budget burn.",
+    decrease: "Lower compute load and LLM headroom. Risks missing sub-second TTC events. Below 1 fps the multi-gate sustained-growth requirement starts struggling for sample volume.",
+  },
+};
+
+/**
+ * Pretty labels for impact-engine metric keys (e.g. ``event_rate_per_min``).
+ * Falls back to title-cased :func:`humanize` for any key not in the map.
+ */
+const METRIC_LABELS: Record<string, string> = {
+  event_rate_per_min: "Events / min",
+  confidence_p50: "Confidence p50",
+  confidence_p95: "Confidence p95",
+  ttc_p50: "TTC p50",
+  ttc_p95: "TTC p95",
+  distance_p50_m: "Distance p50, m",
+  distance_p95_m: "Distance p95, m",
+  sample_size: "Sample size",
+  fp_rate: "False-positive rate",
+  drift_precision: "Drift precision",
+  feedback_coverage: "Feedback coverage",
+  llm_cost_usd_per_min: "LLM cost, $ / min",
+  llm_latency_p95_ms: "LLM latency p95, ms",
+  llm_skip_rate: "LLM skip rate",
+  enrichment_skipped_rate: "Enrichment skipped rate",
+  episode_duration_mean: "Episode duration, mean",
+  episode_duration_p95: "Episode duration p95",
+  frames_processed_ratio: "Frames processed ratio",
+};
+
+function metricLabel(key: string): string {
+  return METRIC_LABELS[key] ?? humanize(key);
+}
+
+/**
+ * Reason codes returned by the comparability gate (e.g.
+ * ``insufficient_events``, ``scene_mix_drift``). Renders as plain English.
+ */
+const REASON_LABELS: Record<string, string> = {
+  insufficient_events: "Insufficient events",
+  scene_mix_drift: "Scene mix drifted",
+  quality_drift: "Quality drifted",
+  no_baseline_or_after: "No baseline or after-window yet",
+};
+
+function reasonLabel(key: string): string {
+  return REASON_LABELS[key] ?? humanize(key);
+}
+
+const SEVERITY_LABELS: Record<string, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  unknown: "Unknown",
+};
+
+function severityLabel(key: string): string {
+  return SEVERITY_LABELS[key] ?? humanize(key);
 }
 
 function shortSource(src: string): string {
@@ -147,6 +391,68 @@ function TunableControl(props: {
 }) {
   const { spec, effective, draft, errorReason, onChange } = props;
   const dirty = draft !== effective;
+  const [helpOpen, setHelpOpen] = useState(false);
+  const help = TUNABLE_HELP[spec.key];
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // Viewport coords for the floating popover. We use ``position: fixed`` so
+  // the popover escapes the scrolling .center column's clipping context.
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Close on outside click / Escape — standard popover UX.
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const tgt = e.target as Node | null;
+      if (
+        tgt &&
+        !popoverRef.current?.contains(tgt) &&
+        !triggerRef.current?.contains(tgt)
+      ) {
+        setHelpOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHelpOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [helpOpen]);
+
+  // Recompute the popover anchor whenever it opens, the user scrolls, or
+  // the window is resized. Right/bottom edges flip the popover so it stays
+  // on screen without going off the viewport.
+  useLayoutEffect(() => {
+    if (!helpOpen) {
+      setPopoverPos(null);
+      return;
+    }
+    const POPOVER_W = 340;
+    const POPOVER_H_EST = 220;        // best-effort guess for edge clamping
+    const update = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const r = trigger.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let top = r.bottom + 10;
+      let left = r.left - 10;
+      if (left + POPOVER_W > vw - 8) left = Math.max(8, vw - POPOVER_W - 8);
+      if (top + POPOVER_H_EST > vh - 8) top = Math.max(8, r.top - POPOVER_H_EST - 10);
+      setPopoverPos({ top, left });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [helpOpen]);
   const cls = [
     styles.tunable,
     dirty ? styles.dirty : "",
@@ -157,7 +463,9 @@ function TunableControl(props: {
   if (spec.type === "enum" && spec.enum) {
     control = (
       <select value={String(draft)} onChange={(e) => onChange(e.target.value)}>
-        {spec.enum.map((v) => <option key={v} value={v}>{v}</option>)}
+        {spec.enum.map((v) => (
+          <option key={v} value={v}>{humanize(v)}</option>
+        ))}
       </select>
     );
   } else if (spec.type === "bool") {
@@ -205,14 +513,72 @@ function TunableControl(props: {
   return (
     <div className={cls}>
       <div className={styles.keyCol}>
-        <span className={styles.keyLabel}>{humanize(spec.key)}</span>
-        <span className={styles.keyName}>{spec.key}</span>
+        <span className={styles.keyLabel} title={spec.key}>
+          {humanize(spec.key)}
+          {help && (
+            <span className={styles.helpAnchor}>
+              <button
+                ref={triggerRef}
+                type="button"
+                className={styles.infoBtn}
+                aria-label={`More info about ${humanize(spec.key)}`}
+                aria-expanded={helpOpen}
+                onClick={() => setHelpOpen((o) => !o)}
+              >
+                i
+              </button>
+              {helpOpen && popoverPos && (
+                <div
+                  ref={popoverRef}
+                  className={styles.helpPopover}
+                  role="dialog"
+                  style={{ top: popoverPos.top, left: popoverPos.left }}
+                >
+                  <button
+                    type="button"
+                    className={styles.helpClose}
+                    aria-label="Close"
+                    onClick={() => setHelpOpen(false)}
+                  >
+                    ×
+                  </button>
+                  <h4 className={styles.helpTitle}>{humanize(spec.key)}</h4>
+                  <p><strong>What it is.</strong> {help.what}</p>
+                  <p><strong>Affects.</strong> {help.affects}</p>
+                  {help.increase && (
+                    <p><strong>↑ Increasing.</strong> {help.increase}</p>
+                  )}
+                  {help.decrease && (
+                    <p><strong>↓ Decreasing.</strong> {help.decrease}</p>
+                  )}
+                  {help.options && (
+                    <ul className={styles.helpOptions}>
+                      {Object.entries(help.options).map(([opt, txt]) => (
+                        <li key={opt}>
+                          <code>{opt}</code> — {txt}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </span>
+          )}
+        </span>
         <span className={styles.keyDesc}>{spec.description}</span>
         {errorReason && <span className={styles.keyError}>{errorReason}</span>}
       </div>
       <div className={styles.controlCol}>{control}</div>
       <div className={styles.metaCol}>
-        <span className={styles.defaultLabel}>def: {String(spec.default)}</span>
+        <button
+          type="button"
+          className={styles.resetBtn}
+          disabled={draft === spec.default}
+          onClick={() => onChange(spec.default as DraftValue)}
+          title={`Reset to spec default (${String(spec.default)})`}
+        >
+          Reset to {String(spec.default)}
+        </button>
         {spec.mutability === "warm_reload" && <span className={`${styles.badge} ${styles.badgeWarm}`}>warm</span>}
         {spec.mutability === "restart_required" && <span className={`${styles.badge} ${styles.badgeRestart}`}>restart</span>}
         {spec.mutability === "read_only" && <span className={`${styles.badge} ${styles.badgeReadonly}`}>read-only</span>}
@@ -317,6 +683,17 @@ function TemplatesCard(props: {
 // ---------------------------------------------------------------------------
 function BaselineCard({ onCaptured }: { onCaptured: () => void }) {
   const [busy, setBusy] = useState(false);
+  // Inline status string surfaced beneath the button. Null = idle. Without
+  // this the operator clicks "Capture baseline now", the request returns
+  // (success or 401), and nothing visible changes — the impact card on its
+  // own can stay empty if the event buffer is small, so the user can't tell
+  // whether the click did anything. We always show an explicit result.
+  const [status, setStatus] = useState<
+    | { kind: "ok"; auditId: string }
+    | { kind: "err"; message: string }
+    | null
+  >(null);
+
   return (
     <div className={styles.card}>
       <div className={styles.cardHeader}>
@@ -331,9 +708,38 @@ function BaselineCard({ onCaptured }: { onCaptured: () => void }) {
         disabled={busy}
         onClick={async () => {
           setBusy(true);
+          setStatus(null);
           try {
-            await adminFetch("/api/settings/baseline/capture", { method: "POST" });
+            const res = await adminFetch<{ ok: boolean; audit_id: string }>(
+              "/api/settings/baseline/capture",
+              { method: "POST" },
+            );
+            setStatus({ kind: "ok", auditId: res.audit_id });
             onCaptured();
+          } catch (exc) {
+            if (exc instanceof MissingAdminTokenError) {
+              setStatus({
+                kind: "err",
+                message:
+                  "Admin token missing. Reload the page and paste your ROAD_ADMIN_TOKEN.",
+              });
+              return;
+            }
+            const status = (exc as AdminApiError).status;
+            if (status === 401 || status === 403) {
+              setStatus({
+                kind: "err",
+                message: `HTTP ${status} — token rejected. Re-paste your ROAD_ADMIN_TOKEN and try again.`,
+              });
+              return;
+            }
+            const body = (exc as AdminApiError).body as
+              | { detail?: string; error?: string }
+              | null;
+            const detail =
+              body?.detail || body?.error || (exc as Error).message || "unknown error";
+            setStatus({ kind: "err", message: `Capture failed: ${detail}` });
+            console.error("baseline capture failed", exc);
           } finally {
             setBusy(false);
           }
@@ -341,6 +747,17 @@ function BaselineCard({ onCaptured }: { onCaptured: () => void }) {
       >
         {busy ? "Capturing…" : "Capture baseline now"}
       </button>
+      {status?.kind === "ok" && (
+        <div className={styles.warnings} style={{ marginBottom: 0 }}>
+          Baseline captured — session <code>{status.auditId.slice(0, 18)}</code>.
+          The Impact card will populate as new events arrive.
+        </div>
+      )}
+      {status?.kind === "err" && (
+        <div className={styles.errorList} style={{ marginBottom: 0 }}>
+          {status.message}
+        </div>
+      )}
     </div>
   );
 }
@@ -368,20 +785,26 @@ function ImpactCard(props: {
   return (
     <div className={styles.card}>
       <div className={styles.cardHeader}>
-        <h3 className={styles.cardTitle}>Impact ({r.state})</h3>
+        <h3 className={styles.cardTitle}>Impact ({humanize(r.state)})</h3>
         <span className={`${styles.confidenceTier} ${tierClass(r.confidence_tier)}`}>
-          {r.confidence_tier}
+          {humanize(r.confidence_tier)}
         </span>
       </div>
 
-      <div className={styles.subtle} style={{ fontSize: 11 }}>
-        Audit <code>{r.audit_id.slice(0, 18)}</code>{r.changed_keys.length > 0 && ` • ${r.changed_keys.length} key(s): ${r.changed_keys.slice(0, 2).join(", ")}${r.changed_keys.length > 2 ? "…" : ""}`}
-      </div>
+      {r.changed_keys.length > 0 && (
+        <div className={styles.subtle} style={{ fontSize: 11 }}>
+          {r.changed_keys.length} key{r.changed_keys.length === 1 ? "" : "s"} changed:{" "}
+          {r.changed_keys.slice(0, 2).map(humanize).join(", ")}
+          {r.changed_keys.length > 2 ? "…" : ""}
+        </div>
+      )}
 
       {r.confidence_reasons.length > 0 && (
         <div className={styles.reasonList}>
           {r.confidence_reasons.map((reason) => (
-            <span key={reason} className={styles.reasonChip}>{reason}</span>
+            <span key={reason} className={styles.reasonChip} title={reason}>
+              {reasonLabel(reason)}
+            </span>
           ))}
         </div>
       )}
@@ -389,30 +812,30 @@ function ImpactCard(props: {
       {r.baseline && r.after_window && (
         <>
           <div className={styles.deltaList}>
-            <span>event_rate / min</span>
+            <span>{metricLabel("event_rate_per_min")}</span>
             <span>{fmt(r.baseline.event_rate_per_min)} → {fmt(r.after_window.event_rate_per_min)}</span>
             <span className={(r.deltas.event_rate_per_min ?? 0) > 0 ? styles.deltaNeg : styles.deltaPos}>
               {fmt(r.deltas.event_rate_per_min, 1)}%
             </span>
 
-            <span>conf p50</span>
+            <span>{metricLabel("confidence_p50")}</span>
             <span>{fmt(r.baseline.confidence_p50)} → {fmt(r.after_window.confidence_p50)}</span>
             <span className={(r.deltas.confidence_p50 ?? 0) > 0 ? styles.deltaPos : styles.deltaNeg}>
               {fmt(r.deltas.confidence_p50, 1)}%
             </span>
 
-            <span>ttc p95</span>
+            <span>{metricLabel("ttc_p95")}</span>
             <span>{fmt(r.baseline.ttc_p95)} → {fmt(r.after_window.ttc_p95)}</span>
             <span className={(r.deltas.ttc_p95 ?? 0) > 0 ? styles.deltaPos : styles.deltaNeg}>
               {fmt(r.deltas.ttc_p95, 1)}%
             </span>
 
-            <span>sample_size</span>
+            <span>{metricLabel("sample_size")}</span>
             <span>{r.baseline.sample_size} → {r.after_window.sample_size}</span>
             <span></span>
           </div>
 
-          <SeverityBars label="severity (after)" counts={r.after_window.severity_counts} />
+          <SeverityBars label="Severity (after-change)" counts={r.after_window.severity_counts} />
         </>
       )}
 
@@ -426,9 +849,12 @@ function ImpactCard(props: {
         {props.refreshing ? "Refreshing…" : "Refresh"}
       </button>
 
-      <div className={styles.subtle} style={{ fontSize: 10 }}>
-        Lagging metrics ({r.lagging_metrics.join(", ")}) need operator feedback.
-      </div>
+      {r.lagging_metrics.length > 0 && (
+        <div className={styles.subtle} style={{ fontSize: 10 }}>
+          Lagging metrics ({r.lagging_metrics.map(metricLabel).join(", ")}) need operator
+          feedback before they populate.
+        </div>
+      )}
     </div>
   );
 }
@@ -449,7 +875,7 @@ function SeverityBars({ label, counts }: { label: string; counts: Record<string,
             return (
               <div className={styles.barRow} key={k}>
                 <div>
-                  <div style={{ fontSize: 10, color: "var(--muted)" }}>{k}</div>
+                  <div style={{ fontSize: 10, color: "var(--muted)" }}>{severityLabel(k)}</div>
                   <div className={styles.bar}>
                     <div className={styles.barFill} style={{ width: `${(v / total) * 100}%` }} />
                   </div>
@@ -463,7 +889,7 @@ function SeverityBars({ label, counts }: { label: string; counts: Record<string,
           .map(([k, v]) => (
             <div className={styles.barRow} key={k}>
               <div>
-                <div style={{ fontSize: 10, color: "var(--muted)" }}>{k}</div>
+                <div style={{ fontSize: 10, color: "var(--muted)" }}>{severityLabel(k)}</div>
                 <div className={styles.bar}>
                   <div className={styles.barFill} style={{ width: `${(v / total) * 100}%` }} />
                 </div>
@@ -480,7 +906,7 @@ function SeverityBars({ label, counts }: { label: string; counts: Record<string,
 // SettingsPage
 // ---------------------------------------------------------------------------
 export function SettingsPage() {
-  const { token, setToken, clear } = useAdminToken();
+  const { token, setToken } = useAdminToken();
   const settings = useSettings(token);
   const templates = useSettingsTemplates(token);
   const impact = useImpact(token);
@@ -651,18 +1077,31 @@ export function SettingsPage() {
           <div className={styles.pageHeader}>
             <div className={styles.pageTitleGroup}>
               <h1 className={styles.pageTitle}>Settings</h1>
-              <span className={styles.pageSub}>
-                schema v{settings.schema?.schema_version ?? 0} • rev #
-                {settings.effective?.revision_no ?? 0} •{" "}
-                {settings.effective?.revision_hash ?? "—"}
-              </span>
             </div>
             <div className={styles.headerActions}>
-              <button className={styles.btn} onClick={() => settings.refresh()}>
-                Refresh
+              <span className={styles.dirtyCount}>
+                {dirtyKeys.length} pending change{dirtyKeys.length === 1 ? "" : "s"}
+              </span>
+              <button
+                className={styles.btn}
+                disabled={!dirtyKeys.length}
+                onClick={() => setDraft({})}
+              >
+                Discard
               </button>
-              <button className={`${styles.btn} ${styles.btnGhost}`} onClick={clear}>
-                Forget token
+              <button
+                className={`${styles.btn} ${styles.btnDanger}`}
+                disabled={submitting}
+                onClick={doRollback}
+              >
+                Rollback to last-good
+              </button>
+              <button
+                className={`${styles.btn} ${styles.btnPrimary}`}
+                disabled={!dirtyKeys.length || submitting}
+                onClick={() => doApply()}
+              >
+                {submitting ? "Applying…" : `Apply${dirtyKeys.length ? ` (${dirtyKeys.length})` : ""}`}
               </button>
             </div>
           </div>
@@ -709,34 +1148,6 @@ export function SettingsPage() {
           {settings.loading && !settings.schema && (
             <p className={styles.subtle}>Loading settings…</p>
           )}
-
-          {/* Sticky apply bar */}
-          <div className={styles.applyBar}>
-            <span className={styles.dirtyCount}>
-              {dirtyKeys.length} pending change{dirtyKeys.length === 1 ? "" : "s"}
-            </span>
-            <button
-              className={styles.btn}
-              disabled={!dirtyKeys.length}
-              onClick={() => setDraft({})}
-            >
-              Discard
-            </button>
-            <button
-              className={`${styles.btn} ${styles.btnDanger}`}
-              disabled={submitting}
-              onClick={doRollback}
-            >
-              Rollback to last-good
-            </button>
-            <button
-              className={`${styles.btn} ${styles.btnPrimary}`}
-              disabled={!dirtyKeys.length || submitting}
-              onClick={() => doApply()}
-            >
-              {submitting ? "Applying…" : `Apply${dirtyKeys.length ? ` (${dirtyKeys.length})` : ""}`}
-            </button>
-          </div>
         </section>
 
         <aside className={styles.right}>
