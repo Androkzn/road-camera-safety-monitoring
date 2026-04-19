@@ -2364,6 +2364,17 @@ def monitoring_page():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/settings")
+def settings_page():
+    """Serve the Settings Console SPA shell.
+
+    HTTP: GET /settings
+    AUTH: public (page shell only; every ``/api/settings/*`` data endpoint
+                  is admin-bearer gated and the SPA prompts for the token).
+    """
+    return FileResponse(STATIC_DIR / "index.html")
+
+
 @app.get("/admin/video_feed")
 def admin_video_feed():
     """MJPEG stream of annotated frames (bounding boxes + interaction lines).
