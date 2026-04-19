@@ -12,6 +12,11 @@ import { dialog } from "../components/ui/Dialog";
 import { api } from "../lib/api";
 import type { LiveSourceStatus, LiveSourcesResponse } from "../types";
 
+/** What action a slot is currently performing — drives the in-flight
+ *  button label so e.g. clicking Start always shows "Starting…" even
+ *  after the optimistic UI flip swaps the button for the Pause one. */
+export type BusyAction = "starting" | "pausing" | "removing";
+
 export interface UseLiveSourcesResult {
   sources: LiveSourceStatus[];
   primaryId: string | null;
@@ -23,14 +28,14 @@ export interface UseLiveSourcesResult {
   setDetection: (id: string, enabled: boolean) => Promise<void>;
   add: (input: { url: string; name?: string }) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string) => Promise<void>;
-  busyById: Record<string, boolean>;
+  busyById: Record<string, BusyAction | null>;
 }
 
 export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
   const [data, setData] = useState<LiveSourcesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyById, setBusyById] = useState<Record<string, boolean>>({});
+  const [busyById, setBusyById] = useState<Record<string, BusyAction | null>>({});
   const mountedRef = useRef(true);
 
   const refresh = useCallback(async () => {
