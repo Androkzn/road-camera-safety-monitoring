@@ -941,6 +941,20 @@ export function SettingsPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  // ``applyResult`` drives the success banner + structured console log after
+  // every successful apply / rollback. We keep ``diff`` on it so the banner
+  // can show exactly which keys changed without re-reading draft state after
+  // setDraft({}) has cleared it.
+  const [applyResult, setApplyResult] = useState<
+    | {
+        kind: "apply" | "rollback" | "template";
+        diff: Record<string, { before: DraftValue; after: DraftValue }>;
+        applied_now: string[];
+        pending_restart: string[];
+        audit_id?: string | null;
+      }
+    | null
+  >(null);
 
   // Re-seed the draft from effective values whenever they appear AND the operator
   // hasn't started editing.
@@ -971,10 +985,29 @@ export function SettingsPage() {
   async function doApply(opts: { confirmPrivacy?: boolean } = {}) {
     if (!dirtyKeys.length || !settings.effective) return;
     const diff: Record<string, DraftValue> = {};
+    const beforeAfter: Record<string, { before: DraftValue; after: DraftValue }> = {};
     for (const k of dirtyKeys) {
       const v = draft[k];
-      if (v !== undefined) diff[k] = v;
+      if (v !== undefined) {
+        diff[k] = v;
+        beforeAfter[k] = {
+          before: settings.effective.values[k] as DraftValue,
+          after: v,
+        };
+      }
     }
+    // Structured console log so operators tuning from DevTools can trace
+    // every apply without pulling server logs. ``console.group`` keeps
+    // the whole thing collapsible; the entries survive the StrictMode
+    // double-render because we only log on successful apply.
+    // eslint-disable-next-line no-console
+    console.groupCollapsed(
+      `[settings] apply → ${Object.keys(diff).length} key(s)`,
+    );
+    // eslint-disable-next-line no-console
+    console.table(beforeAfter);
+    // eslint-disable-next-line no-console
+    console.groupEnd();
     setSubmitting(true);
     setValidationErrors([]);
     setWarnings([]);
@@ -983,8 +1016,27 @@ export function SettingsPage() {
         confirm_privacy_change: !!opts.confirmPrivacy,
       });
       setWarnings(res.warnings || []);
+      setApplyResult({
+        kind: "apply",
+        diff: beforeAfter,
+        applied_now: res.applied_now || [],
+        pending_restart: res.pending_restart || [],
+        audit_id: res.audit_id ?? null,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[settings] apply ok", {
+        applied_now: res.applied_now,
+        pending_restart: res.pending_restart,
+        audit_id: res.audit_id,
+        warnings: res.warnings,
+      });
       setDraft({});
+      // Pull the new Impact session so the card starts showing deltas
+      // without waiting for the 15 s poller.
+      void impact.refresh();
     } catch (exc) {
+      // eslint-disable-next-line no-console
+      console.warn("[settings] apply failed", exc);
       const errors = extractValidationErrors(exc);
       if (errors) { setValidationErrors(errors); return; }
       if (isPrivacyConfirmRequired(exc)) {
@@ -1046,6 +1098,18 @@ export function SettingsPage() {
     try {
       const res = await settings.rollback();
       setWarnings(res.warnings || []);
+      setApplyResult({
+        kind: "rollback",
+        diff: {},
+        applied_now: res.applied_now || [],
+        pending_restart: res.pending_restart || [],
+        audit_id: res.audit_id ?? null,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[settings] rollback ok", {
+        applied_now: res.applied_now,
+        pending_restart: res.pending_restart,
+      });
       setDraft({});
       await impact.refresh();
     } catch (exc) {
@@ -1064,6 +1128,19 @@ export function SettingsPage() {
     try {
       const res = await templates.applyTemplate(id);
       setWarnings(res.warnings || []);
+      setApplyResult({
+        kind: "template",
+        diff: {},
+        applied_now: res.applied_now || [],
+        pending_restart: res.pending_restart || [],
+        audit_id: res.audit_id ?? null,
+      });
+      // eslint-disable-next-line no-console
+      console.info("[settings] template apply ok", {
+        template_id: id,
+        applied_now: res.applied_now,
+        pending_restart: res.pending_restart,
+      });
       setDraft({});
       await impact.refresh();
     } catch (exc) {

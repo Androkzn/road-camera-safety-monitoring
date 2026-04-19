@@ -467,6 +467,18 @@ export interface WindowStats {
   quality_distribution: Record<string, number>;
   fp_rate: number | null;
   fp_rate_source: "feedback" | "proxy" | "insufficient";
+  actual_fps_p50: number | null;
+  actual_fps_p95: number | null;
+  frames_dropped_ratio_p95: number | null;
+  cpu_p50: number | null;
+  cpu_p95: number | null;
+  memory_p95: number | null;
+  llm_cost_usd_per_min: number | null;
+  llm_tokens_per_min: number | null;
+  llm_latency_p95_ms: number | null;
+  llm_skip_rate: number | null;
+  llm_calls: number;
+  ops_samples: number;
 }
 
 export type ConfidenceTier = "high" | "medium" | "low" | "insufficient";
