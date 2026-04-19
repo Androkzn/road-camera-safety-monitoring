@@ -16,6 +16,7 @@
 4. **`Last-Event-ID` resumption + heartbeat-stall watchdog.** A laptop wake / proxy idle today produces an "alive but frozen" dashboard — the worst kind of demo failure.
 5. **Sanitize copilot chat output through DOMPurify.** Pre-emptive XSS guard for LLM-generated text.
 6. **Vitest + React Testing Library + MSW.** Zero FE tests today. Five strategic tests beat fifty snapshot tests.
+7. **Cap concurrent MJPEG decoders + pause minimized/off-screen tiles** (R21). 6-tile Admin grid pinned the renderer at ~76 % CPU during the 2026-04-19 perf incident; the new `focusedId` + `tileMini` state in `MultiSourceGrid` is the priority signal — wire it to a single-shot snapshot endpoint and `IntersectionObserver`.
 
 The codebase is small and clean: [useSSE.ts](../../frontend/src/hooks/useSSE.ts) already does the right basics (ref-pinned callback, exponential backoff capped at 30s, bounded buffers). [tsconfig.app.json](../../frontend/tsconfig.app.json) already has `strict: true` and `noUncheckedIndexedAccess: true`. The recommendations below are ordered by ROI for a *demo / showcase* whose audience is technical reviewers.
 
@@ -395,6 +396,24 @@ echo 'npx lint-staged' > .husky/pre-commit
 **Trade-off.** WebCodecs is Chromium-first (Safari 17+). Don't migrate until you need overlays.
 
 **Citation.** https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API.
+
+### R21 `[M]` Cap simultaneous MJPEG decoders; pause minimized + off-screen tiles
+
+**Context — 2026-04-19 perf incident.** With 6 stream tiles mounted on the Admin grid, six `<img>` elements held a `multipart/x-mixed-replace` connection open simultaneously. Each one decodes a JPEG every ~500 ms in the renderer process; we measured Cursor Helper (Renderer) at ~76 % CPU during the saturation event. The new tap-to-focus layout (`MultiSourceGrid` + `SelectedStreamHeader`) gives us the priority signal — we just don't act on it yet.
+
+**Pattern.** Treat MJPEG `<img>` mounts as a scarce resource: only the focused tile (or the visible window of a virtualized strip) decodes at full rate; the rest fall back to a paused snapshot.
+
+**Adoption.**
+- In `MultiSourceGrid`, when `focusedId !== null` and a tile is in `tileMini`, swap `<img src="/admin/video_feed/{id}">` for `<img src="/admin/video_feed/{id}/snapshot?t=…">` (single-shot JPEG endpoint, refresh on a 2-5 s timer). Backend snapshot route is a one-line read of the slot's last `_annotated_jpeg` buffer.
+- Use `IntersectionObserver` on the mini strip so tiles scrolled out of view don't decode at all.
+- Cap any concurrent live MJPEG mounts at `navigator.hardwareConcurrency / 2` — anything beyond gets snapshots until something is paused.
+- `document.visibilityState === "hidden"` should pause every live decoder (re-uses the R12 visibility hook).
+
+**Why this project.** Pairs directly with [backend.md R-PERF](./backend.md#r-perf-h-multi-source-load-governance-per-slot-detection-toggle--runtime-cpu-guard) — server-side shared encoder + client-side decoder budget together turn N-stream cost into ~constant-cost. The focus state lifted into `AdminPage` (alongside the new `useLiveSources`-once pattern) is the natural priority input.
+
+**Trade-off.** Snapshots lose the live "moving" affordance for minimized tiles; mitigate with a low (1 fps) refresh and a "paused" badge so the operator isn't surprised.
+
+**Citations.** MJPEG `multipart/x-mixed-replace` — https://datatracker.ietf.org/doc/html/rfc2046#section-5.1 · IntersectionObserver — https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API · Page Visibility API — https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API.
 
 ---
 

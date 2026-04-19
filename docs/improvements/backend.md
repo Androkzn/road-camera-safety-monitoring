@@ -16,6 +16,7 @@
 4. **OpenTelemetry traces + Prometheus metrics.** Replace the ad-hoc in-memory `LLMObserver` ring with OTel spans + a `/metrics` exporter. EU AI Act traceability obligation aligns with this.
 5. **Pydantic-settings + fail-fast config.** Refuse to boot in `ENV=prod` without `THUMB_SIGNING_SECRET`, `ROAD_ADMIN_TOKEN`, etc. Today's silent defaults attribute events to `unidentified_vehicle_<host>`.
 6. **EU AI Act risk register and model card.** This system is borderline high-risk under Annex III §6(d); ship the docs before pilots.
+7. **YOLO accelerator selection + multi-source load governance** (R4 + R-PERF). The 2026-04-19 perf incident showed `yolov8s.pt` × 6 stream slots × CPU-only inference saturated uvicorn at ~205 % CPU; auto-device selection (CUDA → MPS → CPU) and the per-slot `detection_enabled` toggle are shipped, but auto-shedding, a detecting-slot cap, shared MJPEG fan-out, and a `perf.cpu_saturated` watchdog rule remain.
 
 ---
 
@@ -129,18 +130,45 @@ Wrap perception stages with `tracer.start_as_current_span("detect"|"track"|"ttc"
 
 **Citations.** OTel Python — https://opentelemetry.io/docs/languages/python/automatic/ · OpenInference (LLM semantic conventions) — https://github.com/Arize-ai/openinference · Langfuse + OTel — https://langfuse.com/docs/integrations/opentelemetry/example-python · prometheus-fastapi-instrumentator — https://github.com/trallnag/prometheus-fastapi-instrumentator.
 
-### R4 `[H]` YOLOv8 export + half precision for the deployment target
+### R4 `[H]` YOLOv8 accelerator selection + export + half precision for the deployment target
 
-[core/detection.py](../../road_safety/core/detection.py) loads `yolov8s.pt` — PyTorch eager mode. At 2 fps a Jetson Orin Nano runs `yolov8s` PyTorch FP32 at ~25-30 ms/frame; TensorRT FP16 brings it under 10 ms, freeing CPU/GPU headroom for the Farneback ego-motion pass and reducing the chance of a queued frame backlog when Anthropic is slow.
+`load_model()` in [core/detection.py](../../road_safety/core/detection.py) historically called `YOLO(path)` with no `.to(device)`, which silently pinned inference to **CPU on every host** — including dev Macs and any deployment without explicit cuda env. Combined with N concurrent stream slots (each running YOLO at `ROAD_TARGET_FPS`), this was the dominant cause of perceived UI lag during multi-source demos.
 
-**Adoption.**
+**P0 perf incident (2026-04-19).** With `ROAD_STREAM_SOURCES` set to 6 YouTube live URLs and detection enabled on all, `uvicorn` saturated at **~205 % CPU** (≈ two full M-series cores), starving the asyncio event loop and making SSE / MJPEG / page navigation feel laggy. Root cause: 6 streams × 2 fps × `yolov8s.pt` on CPU = 12 inferences/sec single-process. **Fix that landed:** auto-select the best available accelerator in `load_model()` (CUDA → MPS → CPU) with a `ROAD_YOLO_DEVICE` override and a defensive fallback. Post-fix: same 6 streams, same model — uvicorn drops to **~54 % CPU** (≈ 4× faster) on Apple Silicon via MPS. See `road_safety/core/detection.py::load_model`.
+
+**Why this still matters even with auto-device.** At 2 fps a Jetson Orin Nano runs `yolov8s` PyTorch FP32 at ~25-30 ms/frame; TensorRT FP16 brings it under 10 ms, freeing CPU/GPU headroom for the Farneback ego-motion pass and reducing the chance of a queued frame backlog when Anthropic is slow. MPS / CUDA in PyTorch eager mode is a floor, not a ceiling.
+
+**Adoption (remaining work).**
 - Add `tools/export_model.py`: `--target {jetson, intel-cpu, mac-coreml, x86-onnx}` runs `model.export(format=...)`. Pin Ultralytics version in `pyproject.toml`.
 - Ultralytics `YOLO()` already handles `.engine` / `.onnx` / `.pt` / `.openvino` / `.mlpackage` from the file extension — branch is automatic.
 - Per-target: TensorRT (Jetson), OpenVINO (Intel CPU), CoreML (Mac demos), ONNX (portable).
+- Surface the resolved device in `/api/admin/health` and `/api/live/status` so operators (and the watchdog) can detect a silent CPU-fallback regression.
+- Add a startup smoke check: if `device == "cpu"` AND `len(state.slots) > 2`, log a `WARNING` recommending MPS/CUDA or `detection_enabled=false` on N-2 slots (cross-references R-PERF below).
 
-**Trade-off.** Per-target export becomes a build artifact. TensorRT engines are tied to the exact GPU + driver — cannot ship one binary across mixed Jetson generations.
+**Trade-off.** Per-target export becomes a build artifact. TensorRT engines are tied to the exact GPU + driver — cannot ship one binary across mixed Jetson generations. MPS occasionally has op-coverage gaps in newer Ultralytics releases; the `ROAD_YOLO_DEVICE=cpu` escape hatch covers the regression case.
 
-**Citations.** Ultralytics export — https://docs.ultralytics.com/modes/export/ · TensorRT — https://docs.ultralytics.com/integrations/tensorrt/ · OpenVINO — https://docs.ultralytics.com/integrations/openvino/.
+**Citations.** Ultralytics export — https://docs.ultralytics.com/modes/export/ · TensorRT — https://docs.ultralytics.com/integrations/tensorrt/ · OpenVINO — https://docs.ultralytics.com/integrations/openvino/ · PyTorch MPS — https://pytorch.org/docs/stable/notes/mps.html.
+
+### R-PERF `[H]` Multi-source load governance: per-slot detection toggle + runtime CPU guard
+
+The same incident exposed a structural gap: the multi-source slot manager ([core/stream.py](../../road_safety/core/stream.py) + the `StreamSlot` lifecycle in [server.py](../../road_safety/server.py)) had no operator-controlled way to keep watching a camera *without* paying YOLO cost on it, and no runtime brake when N slots × FPS × per-frame cost exceeded available compute. The system would just degrade everything (UI included) until the operator manually paused tiles.
+
+**What landed.** A per-slot `detection_enabled: bool` flag on `StreamSlot` plus `POST /api/live/sources/{id}/detection?enabled=...`. When false, `_on_frame` still encodes the raw JPEG into the MJPEG buffer (preview keeps working) but short-circuits before YOLO / quality / scene / episode logic. Frontend gets a per-tile checkbox and bulk Select/Clear-all controls (`MultiSourceGrid.tsx`). This is the operator-facing escape valve.
+
+**What's still recommended.**
+
+1. **Auto-shedding policy.** Sample uvicorn process CPU + per-slot `frames_processed / wall_seconds` over a rolling 30 s window. When CPU > 85 % AND the slowest slot's effective FPS drops below `0.5 * ROAD_TARGET_FPS`, automatically toggle `detection_enabled=false` on the **least-recently-focused** slot (the new `focusedId` plumbed through `MultiSourceGrid` → `AdminPage` is the natural priority signal — see [frontend.md](./frontend.md)). Emit an audit event so the operator sees what was shed and why.
+2. **Cap on simultaneous detection slots.** A `ROAD_MAX_DETECTING_SLOTS` env (default ≈ N-1 where N = available perf cores) refuses new `detection_enabled=true` requests once the cap is reached, with a 409 carrying the suggested slot to disable. Prevents the operator from re-saturating the box after a shed.
+3. **MJPEG fan-out cost.** Each tile in the browser opens its own `/admin/video_feed/{id}` MJPEG connection; six concurrent multipart streams pin the renderer process too (we saw Cursor's renderer at ~76 % during the incident). Add a server-side **shared encoder** per slot (encode the JPEG once, broadcast bytes to all subscribers via an `asyncio.Queue` per consumer) and downscale + drop-to-keyframe for the minimized tiles. The new "focused vs minimized" tile state from the frontend (`tileMini` class) is the right hint: minimized tiles can be served at e.g. 160 px wide / 1 fps with no perception cost.
+4. **Watchdog rule.** Add a finding category `perf.cpu_saturated` triggered when uvicorn CPU > 90 % for > 60 s, surfacing the offending slot list and quoting the auto-shed action (or the manual one if shedding is disabled).
+
+**Why this project.** Multi-source perception is now first-class (see `ROAD_STREAM_SOURCES` parsing in [config.py](../../road_safety/config.py) and the `StreamSlot` registry in `server.py`), so "operator added a sixth stream and the box melted" is a foreseeable failure mode, not an exotic one. The detection toggle is the manual fix; (1)–(4) above keep the system useful when the operator forgets.
+
+**Effort.** ~1 day for auto-shed + cap + watchdog rule. Shared MJPEG encoder is ~2 days but pays back as soon as more than 4 slots are configured.
+
+**Trade-off.** Auto-shedding is opinionated — some operators will want to be told, not auto-corrected. Make it opt-in via `ROAD_AUTOSHED=true`, default off; surface the suggestion in the watchdog regardless.
+
+**Citations.** psutil per-process CPU — https://psutil.readthedocs.io/en/latest/#psutil.Process.cpu_percent · Starlette / FastAPI streaming responses (basis for shared MJPEG fan-out) — https://www.starlette.io/responses/#streamingresponse · MJPEG `multipart/x-mixed-replace` — https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.
 
 ### R5 `[H]` `pydantic-settings` + fail-fast config
 
@@ -393,15 +421,15 @@ See [integration.md R12.1](./integration.md#r121-h-split-healthz-liveness-from-r
 
 | File | Recommendations |
 |------|-----------------|
-| [server.py](../../road_safety/server.py) | B3 · R2 · R3 |
+| [server.py](../../road_safety/server.py) | B3 · R2 · R3 · R-PERF (auto-shed, slot cap, watchdog rule, shared MJPEG) |
 | [services/llm.py](../../road_safety/services/llm.py) | B2 · R1 · R6 · R7 · R12 |
 | [services/llm_obs.py](../../road_safety/services/llm_obs.py) | R1 (cache token telemetry) · R3 |
 | [services/agents.py](../../road_safety/services/agents.py) | R9 · R12 |
 | [services/drift.py](../../road_safety/services/drift.py) | R10 (Art. 15) · R11 |
 | [services/registry.py](../../road_safety/services/registry.py) | R11 (MLflow integration) |
-| [core/stream.py](../../road_safety/core/stream.py) | B2 · R7 |
-| [core/detection.py](../../road_safety/core/detection.py) | R4 · R16 (golden frames, hypothesis) |
-| [config.py](../../road_safety/config.py) | R5 |
+| [core/stream.py](../../road_safety/core/stream.py) | B2 · R7 · R-PERF |
+| [core/detection.py](../../road_safety/core/detection.py) | R4 (auto-device shipped; export work pending) · R16 (golden frames, hypothesis) |
+| [config.py](../../road_safety/config.py) | R5 · R-PERF (`ROAD_YOLO_DEVICE`, `ROAD_MAX_DETECTING_SLOTS`, `ROAD_AUTOSHED`) |
 | [integrations/edge_publisher.py](../../road_safety/integrations/edge_publisher.py) | R15 (and see [integration.md §8](./integration.md#8--hmac-hardening)) |
 | [Dockerfile](../../Dockerfile) | R19 |
 | [pyproject.toml](../../pyproject.toml) | R14 (ruff + pyright deps) |

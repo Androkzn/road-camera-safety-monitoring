@@ -55,6 +55,16 @@ Every recommendation follows the same template:
 
 These are independent of the strategic improvements and should be fixed before any of the larger refactors land.
 
+## Recently shipped (perf — 2026-04-19)
+
+| Change | File | Effect |
+|--------|------|--------|
+| Auto-select YOLO accelerator (CUDA → MPS → CPU) with `ROAD_YOLO_DEVICE` override | [core/detection.py](../../road_safety/core/detection.py) `load_model()` | Multi-source demo on Apple Silicon: uvicorn CPU **205 % → 54 %** with 6 streams + detection (yolov8s, 2 fps). Closes the silent-CPU-fallback footgun for Mac dev / demo hosts. |
+| Per-slot `detection_enabled` toggle + `POST /api/live/sources/{id}/detection` | [server.py](../../road_safety/server.py) (`StreamSlot`, `_on_frame`) | Operator can keep watching N cameras while running YOLO on a subset. Manual escape valve for compute saturation. |
+| Focus-aware Admin grid (tap-to-maximize, mini strip, `SelectedStreamHeader`) | `frontend/src/components/admin/{MultiSourceGrid,SelectedStreamHeader}.tsx` | Single source of truth for `focusedId`; `useLiveSources` polled once at the page level. Foundation for the auto-shed priority signal in R-PERF. |
+
+See [backend.md §R4 + R-PERF](./backend.md#r4--h-yolov8-accelerator-selection--export--half-precision-for-the-deployment-target) for the remaining work (auto-shedding, detecting-slot cap, shared MJPEG fan-out, `perf.cpu_saturated` watchdog rule, device surfacing in `/api/admin/health`).
+
 ## Reading order for reviewers
 
 1. This README (you are here).

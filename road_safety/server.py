@@ -2631,14 +2631,69 @@ def settings_page():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+def _make_placeholder_jpeg() -> bytes:
+    """Build a small dark-grey 'Warming up…' placeholder JPEG once at import.
+
+    The MJPEG generator emits this placeholder to slots that have not yet
+    published their first annotated frame. Without it, browsers loading the
+    multi-source admin page during boot see a connection with no data,
+    time out, and render a black tile that never recovers — even after the
+    slot starts producing frames a few seconds later.
+    """
+    import numpy as np  # local import: avoid pulling numpy on bare module load
+
+    # 320x180 dark-grey canvas with a centred "WARMING UP" caption.
+    img = np.full((180, 320, 3), 28, dtype=np.uint8)
+    cv2.putText(
+        img,
+        "WARMING UP…",
+        (50, 100),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.9,
+        (180, 180, 180),
+        2,
+        cv2.LINE_AA,
+    )
+    ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    if not ok:
+        # Defensive fallback: minimal valid JPEG if encoding fails for any reason.
+        return (
+            b"\xff\xd8\xff\xdb\x00\x43\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07"
+            b"\x07\x09\x09\x08\x0a\x0c\x14\x0d\x0c\x0b\x0b\x0c\x19\x12\x13\x0f"
+            b"\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c\x20\x24\x2e\x27\x20\x22\x2c"
+            b"\x23\x1c\x1c\x28\x37\x29\x2c\x30\x31\x34\x34\x34\x1f\x27\x39\x3d"
+            b"\x38\x32\x3c\x2e\x33\x34\x32\xff\xd9"
+        )
+    return buf.tobytes()
+
+
+# Build once; reused by every slot's MJPEG generator while it warms up.
+_WARMING_UP_JPEG: bytes = _make_placeholder_jpeg()
+
+
 def _mjpeg_response(slot: StreamSlot) -> StreamingResponse:
     """Build an MJPEG ``StreamingResponse`` reading from ``slot``'s buffer.
 
     Shared by the legacy primary-only ``/admin/video_feed`` endpoint and
     the new per-source ``/admin/video_feed/{source_id}`` endpoint.
+
+    Behaviour: while the slot has not yet published its first annotated
+    frame, we send a "Warming up…" placeholder JPEG instead of nothing.
+    That keeps the browser's MJPEG connection alive so the very next real
+    frame swaps in cleanly — without it, slots that finish booting after
+    the page loads strand the browser on a stalled stream that renders as
+    a black tile for the rest of the session.
     """
 
     def generate():
+        # Emit the placeholder ONCE up front so the <img> tag receives data
+        # immediately — even browsers that time out on a 4 s no-data stream
+        # stay connected.
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n" + _WARMING_UP_JPEG + b"\r\n"
+        )
+        sent_real = False
         while True:
             with slot._frame_lock:
                 jpeg = slot._annotated_jpeg
@@ -2646,6 +2701,14 @@ def _mjpeg_response(slot: StreamSlot) -> StreamingResponse:
                 yield (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+                )
+                sent_real = True
+            elif not sent_real:
+                # Still warming up — keep the placeholder visible (and the
+                # connection alive) instead of yielding nothing.
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + _WARMING_UP_JPEG + b"\r\n"
                 )
             # ~0.4s matches the 2fps perception tick; faster would resend
             # identical frames.
