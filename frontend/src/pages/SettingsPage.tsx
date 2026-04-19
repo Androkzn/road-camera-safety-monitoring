@@ -612,6 +612,7 @@ function TemplatesCard(props: {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const dialog = useDialog();
 
   return (
     <div className={styles.card}>
@@ -641,8 +642,14 @@ function TemplatesCard(props: {
                 <button
                   className={`${styles.btn} ${styles.btnDanger}`}
                   disabled={props.busy}
-                  onClick={() => {
-                    if (confirm(`Delete template "${t.name}"?`)) props.onDelete(t.id);
+                  onClick={async () => {
+                    const ok = await dialog.confirm({
+                      title: "Delete template",
+                      message: `Soft-delete template "${t.name}"? Existing impact sessions that reference it stay intact.`,
+                      okLabel: "Delete",
+                      variant: "danger",
+                    });
+                    if (ok) props.onDelete(t.id);
                   }}
                 >
                   Delete
@@ -922,6 +929,7 @@ export function SettingsPage() {
   const templates = useSettingsTemplates(token);
   const impact = useImpact(token);
   const { data: live, error: liveError } = useLiveStatus(5000);
+  const dialog = useDialog();
 
   const connected: boolean | undefined =
     live ? !!live.running : liveError ? false : undefined;

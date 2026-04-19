@@ -29,3 +29,4 @@ export { DetectionsPanel } from "./DetectionsPanel";
 export { HistoryPanel } from "./HistoryPanel";
 export { TabBar } from "./TabBar";
 export { MultiSourceGrid } from "./MultiSourceGrid";
+export { SelectedStreamHeader } from "./SelectedStreamHeader";

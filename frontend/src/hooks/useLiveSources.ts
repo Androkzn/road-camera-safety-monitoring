@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { LiveSourceStatus, LiveSourcesResponse } from "../types";
 
-interface UseLiveSourcesResult {
+export interface UseLiveSourcesResult {
   sources: LiveSourceStatus[];
   primaryId: string | null;
   loading: boolean;
@@ -19,6 +19,9 @@ interface UseLiveSourcesResult {
   refresh: () => Promise<void>;
   start: (id: string) => Promise<void>;
   pause: (id: string) => Promise<void>;
+  setDetection: (id: string, enabled: boolean) => Promise<void>;
+  add: (input: { url: string; name?: string }) => Promise<{ ok: boolean; error?: string }>;
+  remove: (id: string) => Promise<void>;
   busyById: Record<string, boolean>;
 }
 
@@ -83,6 +86,60 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
     [mark, refresh],
   );
 
+  const setDetection = useCallback(
+    async (id: string, enabled: boolean) => {
+      // Optimistic update so the checkbox flips immediately while the
+      // POST is in flight; the next refresh reconciles authoritative state.
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              sources: prev.sources.map((s) =>
+                s.id === id ? { ...s, detection_enabled: enabled } : s,
+              ),
+            }
+          : prev,
+      );
+      try {
+        await api.setLiveSourceDetection(id, enabled);
+      } finally {
+        await refresh();
+      }
+    },
+    [refresh],
+  );
+
+  const add = useCallback(
+    async (input: { url: string; name?: string }) => {
+      try {
+        const res = await api.addLiveSource({ ...input, autostart: true });
+        await refresh();
+        return { ok: !!res.ok, error: res.error };
+      } catch (exc) {
+        await refresh();
+        return { ok: false, error: (exc as Error).message };
+      }
+    },
+    [refresh],
+  );
+
+  const remove = useCallback(
+    async (id: string) => {
+      mark(id, true);
+      // Optimistic removal so the tile vanishes immediately.
+      setData((prev) =>
+        prev ? { ...prev, sources: prev.sources.filter((s) => s.id !== id) } : prev,
+      );
+      try {
+        await api.removeLiveSource(id);
+      } finally {
+        mark(id, false);
+        await refresh();
+      }
+    },
+    [mark, refresh],
+  );
+
   return {
     sources: data?.sources ?? [],
     primaryId: data?.primary_id ?? null,
@@ -91,6 +148,9 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
     refresh,
     start,
     pause,
+    setDetection,
+    add,
+    remove,
     busyById,
   };
 }

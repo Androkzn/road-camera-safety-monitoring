@@ -446,6 +446,13 @@ class StreamSlot:
         # failure). Cleared on successful start. Surfaced over the API so
         # operators see *why* a stream is offline.
         self.last_error: str | None = None
+        # Operator-controlled detection toggle. When False, ``_on_frame``
+        # still renders the raw frame to the slot's MJPEG buffer (so the
+        # operator can keep watching the camera) but skips YOLO,
+        # quality / scene / ego updates, and event emission entirely. The
+        # CPU saving is large; the trade-off is no boxes / no alerts from
+        # this slot until re-enabled.
+        self.detection_enabled: bool = True
         # Per-source perception estimators — fresh state machine per camera.
         self.track_history = TrackHistory()
         self.episodes: dict[tuple[int, int], Episode] = {}
@@ -479,6 +486,7 @@ class StreamSlot:
             "name": self.name,
             "url": self.original_source,
             "running": self.is_running(),
+            "detection_enabled": self.detection_enabled,
             "last_error": self.last_error,
             "frames_read": r.frames_read if r else 0,
             "frames_processed": r.frames_processed if r else 0,
@@ -540,7 +548,18 @@ class LiveState:
     # property returns the live dict reference.
     @property
     def primary_slot(self) -> StreamSlot:
-        return self.slots.get(self.PRIMARY_ID) or next(iter(self.slots.values()))
+        slot = self.slots.get(self.PRIMARY_ID)
+        if slot is not None:
+            return slot
+        if self.slots:
+            # ``primary`` was removed but other slots remain — pick any so
+            # legacy ``state.X`` access has a target.
+            return next(iter(self.slots.values()))
+        # Registry is empty (operator removed every slot). Re-create an
+        # empty placeholder so legacy property accesses keep working.
+        placeholder = StreamSlot(self.PRIMARY_ID, "Primary", DEFAULT_SOURCE)
+        self.slots[self.PRIMARY_ID] = placeholder
+        return placeholder
 
     @property
     def reader(self) -> StreamReader | None:
@@ -1025,6 +1044,23 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # Guard against callbacks firing before ``lifespan`` finished wiring
     # the model / loop. Skipping early is harmless — next frame retries.
     if state.model is None or state.loop is None:
+        return
+
+    # ----- Detection-disabled bypass -----
+    # Operator unchecked the "detection" toggle for this slot. We still
+    # write the raw (un-annotated) JPEG to the MJPEG buffer so the
+    # operator can keep watching the camera live, then return without
+    # running YOLO, quality / scene / ego, or any event emission.
+    if not slot.detection_enabled:
+        try:
+            ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                with slot._frame_lock:
+                    slot._annotated_jpeg = jpeg.tobytes()
+                    slot._frame_detections = []
+                    slot._frame_ts = wall_ts
+        except Exception as exc:
+            log.warning("raw frame encode failed (%s): %s", slot.source_id, exc)
         return
 
     # ----- Gate 1: tracked detection (YOLO + ByteTrack) -----
@@ -2702,6 +2738,130 @@ def live_source_pause(source_id: str):
         raise HTTPException(404, f"unknown source: {source_id}")
     _stop_slot(slot)
     audit.log("stream_pause", source_id)
+    return {"ok": True, **slot.status_dict()}
+
+
+def _slugify_id(seed: str) -> str:
+    """Build a short, URL-safe id from a seed string (e.g. a YouTube URL).
+
+    Used when the operator adds a stream without supplying an explicit id.
+    Output is alphanumeric only, max 24 chars, prefixed ``user_`` so it
+    can't collide with the env-configured ``primary`` / ``srcN`` ids.
+    """
+    keep = "".join(c for c in seed if c.isalnum())
+    if not keep:
+        keep = "stream"
+    return f"user_{keep[-12:].lower()}"
+
+
+def _unique_slot_id(seed: str) -> str:
+    """Return ``_slugify_id(seed)`` adjusted with a numeric suffix if needed."""
+    base = _slugify_id(seed)
+    if base not in state.slots:
+        return base
+    for n in range(2, 100):
+        cand = f"{base}_{n}"
+        if cand not in state.slots:
+            return cand
+    # Fallback — ms-since-epoch suffix; effectively guaranteed unique.
+    return f"{base}_{int(time.time() * 1000)}"
+
+
+@app.post("/api/live/sources")
+async def live_source_add(request: Request):
+    """Register a new perception source from a URL the operator pastes.
+
+    HTTP: POST /api/live/sources
+    Body (JSON): ``{"url": "<stream url>", "name"?: "<display name>",
+                   "id"?: "<explicit slot id>", "autostart"?: bool}``
+    AUTH: public (operator network)
+
+    The slot is held in-memory only — it survives until the next process
+    restart. To make it permanent, add the URL to ``ROAD_STREAM_SOURCES``
+    in ``.env``.
+
+    Returns the slot's status dict on success, or ``{ok: false, error}``
+    when ``autostart`` is true and the resolver fails (slot is still
+    created so the operator can retry from the Start button).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "expected JSON body")
+    url = (body.get("url") or "").strip()
+    if not url:
+        raise HTTPException(400, "missing 'url'")
+    # Permissive prefix check — yt-dlp / OpenCV reject the rest. Catches
+    # accidental "youtube.com/..." paste without a scheme.
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(400, "url must start with http:// or https://")
+
+    requested_id = (body.get("id") or "").strip()
+    if requested_id:
+        if requested_id in state.slots:
+            raise HTTPException(409, f"id already in use: {requested_id}")
+        sid = requested_id
+    else:
+        sid = _unique_slot_id(url)
+
+    name = (body.get("name") or "").strip() or f"Custom ({sid})"
+    autostart = bool(body.get("autostart", True))
+
+    slot = StreamSlot(sid, name, url)
+    state.slots[sid] = slot
+    audit.log("stream_add", sid, detail={"url": url[:200], "name": name})
+
+    if autostart:
+        try:
+            _start_slot(slot)
+        except Exception as exc:
+            slot.last_error = str(exc)
+            log.warning("autostart of %s failed: %s", sid, exc)
+            return {"ok": False, "error": str(exc), **slot.status_dict()}
+
+    return {"ok": True, **slot.status_dict()}
+
+
+@app.delete("/api/live/sources/{source_id}")
+def live_source_remove(source_id: str):
+    """Stop the slot and drop it from the registry.
+
+    HTTP: DELETE /api/live/sources/{source_id}
+    AUTH: public (operator network)
+    Removing the primary slot is allowed — the legacy ``state.X``
+    properties will simply delegate to whichever slot remains. Removing
+    the *last* slot leaves the registry empty; the proxy then returns
+    None for ``state.reader`` etc., which existing code already tolerates.
+    """
+    slot = state.slots.get(source_id)
+    if slot is None:
+        raise HTTPException(404, f"unknown source: {source_id}")
+    _stop_slot(slot)
+    state.slots.pop(source_id, None)
+    audit.log("stream_remove", source_id)
+    return {"ok": True, "removed": source_id}
+
+
+@app.post("/api/live/sources/{source_id}/detection")
+def live_source_set_detection(source_id: str, enabled: bool = True):
+    """Toggle whether YOLO + event emission runs for a source.
+
+    HTTP: POST /api/live/sources/{source_id}/detection?enabled=true|false
+    AUTH: public (operator network)
+    Effect: when ``enabled=false`` the slot keeps reading frames (so the
+        live preview stays up) but ``_on_frame`` short-circuits before
+        running YOLO / quality / scene / episode logic. Toggling back to
+        true picks up on the next frame; per-source perception state is
+        preserved (not reset) across the toggle.
+    """
+    slot = state.slots.get(source_id)
+    if slot is None:
+        raise HTTPException(404, f"unknown source: {source_id}")
+    slot.detection_enabled = bool(enabled)
+    audit.log(
+        "stream_detection_enabled" if slot.detection_enabled else "stream_detection_disabled",
+        source_id,
+    )
     return {"ok": True, **slot.status_dict()}
 
 

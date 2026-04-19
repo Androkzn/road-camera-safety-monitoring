@@ -141,6 +141,7 @@ export interface LiveSourceStatus {
   name: string;
   url: string;
   running: boolean;
+  detection_enabled: boolean;
   last_error: string | null;
   frames_read: number;
   frames_processed: number;

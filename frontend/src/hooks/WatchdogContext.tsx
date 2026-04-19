@@ -47,6 +47,7 @@ import {
   adminFetch,
 } from "../lib/adminApi";
 import type { WatchdogStatus, WatchdogFinding } from "../types";
+import { dialog } from "../components/ui/Dialog";
 
 interface WatchdogData {
   status: WatchdogStatus;
@@ -111,23 +112,31 @@ async function clearWatchdogFindingsRequest() {
  */
 function handleWatchdogAdminError(exc: unknown, action: string): void {
   if (exc instanceof MissingAdminTokenError) {
-    alert(
-      `${action} requires the admin token.\n\n` +
+    void dialog.alert({
+      title: `${action} requires admin token`,
+      message:
         "Open the Settings page and paste your ROAD_ADMIN_TOKEN, then try again.",
-    );
+      variant: "warning",
+    });
     return;
   }
   const status = (exc as AdminApiError | undefined)?.status;
   if (status === 401 || status === 403) {
-    alert(
-      `${action} was rejected (HTTP ${status}).\n\n` +
+    void dialog.alert({
+      title: `${action} rejected (HTTP ${status})`,
+      message:
         "Your ROAD_ADMIN_TOKEN is missing or invalid. Open the Settings page " +
         "and paste a valid token, then try again.",
-    );
+      variant: "warning",
+    });
     return;
   }
   console.error(exc);
-  alert(`${action} failed: ${(exc as Error)?.message ?? "unknown error"}`);
+  void dialog.alert({
+    title: `${action} failed`,
+    message: (exc as Error)?.message ?? "unknown error",
+    variant: "danger",
+  });
 }
 
 // --- Provider: owns the poll, exposes the value ---

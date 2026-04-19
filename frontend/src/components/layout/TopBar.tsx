@@ -43,6 +43,9 @@ import styles from "./TopBar.module.css";
 
 // --- Types ---
 interface TopBarProps {
+  // Kept for backwards compat with callers but no longer rendered in the
+  // header pill — with multi-source perception there's no single "source"
+  // worth singling out. Per-stream status lives on the Admin grid tiles.
   sourceName?: string;
   connected?: boolean;
   // TEACH: `children?: ReactNode` means the component can be used as
@@ -51,9 +54,7 @@ interface TopBarProps {
 }
 
 // --- Render ---
-// TEACH: Default value on a destructured prop — `sourceName = "—"`. If
-// the parent omits the prop, `sourceName` is "—" rather than undefined.
-export function TopBar({ sourceName = "—", connected, children }: TopBarProps) {
+export function TopBar({ connected, children }: TopBarProps) {
   // --- State / context ---
   // TEACH: `useLocation()` returns the router's current location. We pull
   // `pathname` via destructuring (`"/"`, `"/dashboard"`, etc.) and use it
@@ -72,11 +73,7 @@ export function TopBar({ sourceName = "—", connected, children }: TopBarProps)
   // we map three cases to a "variant" string the Dot component understands.
   const statusVariant = connected === true ? "ok" : connected === false ? "bad" : "wait";
   const statusLabel =
-    connected === true
-      ? `${sourceName} • live`
-      : connected === false
-        ? `${sourceName} • disconnected`
-        : `${sourceName} • connecting…`;
+    connected === true ? "live" : connected === false ? "disconnected" : "connecting…";
 
   return (
     <header className={styles.topbar}>

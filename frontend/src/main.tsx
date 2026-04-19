@@ -50,6 +50,7 @@ import { BrowserRouter } from "react-router-dom";
 // badge AND the MonitoringPage read the same data without re-fetching.
 // Defined in hooks/WatchdogContext.tsx.
 import { WatchdogProvider } from "./hooks/WatchdogContext";
+import { DialogProvider } from "./components/ui/Dialog";
 
 // Our root component. It owns the route table. Defined in App.tsx.
 import { App } from "./App";
@@ -75,10 +76,15 @@ createRoot(document.getElementById("root")!).render(
       {/* WatchdogProvider polls the watchdog status once and exposes it to any
           child via `useWatchdog()`. Placed above <App /> so every page sees it. */}
       <WatchdogProvider>
-        {/* <App /> is JSX shorthand for `React.createElement(App)`. React
-            instantiates the App component here — this is the real start of
-            the UI tree. */}
-        <App />
+        {/* DialogProvider exposes themed alert/confirm dialogs to every
+            component (via useDialog) and to non-component code paths
+            (via the `dialog` singleton). Replaces window.alert/confirm. */}
+        <DialogProvider>
+          {/* <App /> is JSX shorthand for `React.createElement(App)`. React
+              instantiates the App component here — this is the real start of
+              the UI tree. */}
+          <App />
+        </DialogProvider>
       </WatchdogProvider>
     </BrowserRouter>
   </StrictMode>,

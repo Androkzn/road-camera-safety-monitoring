@@ -207,4 +207,25 @@ export const api = {
     fetchJson<LiveSourceStatus>(`/api/live/sources/${encodeURIComponent(id)}/pause`, {
       method: "POST",
     }),
+  // Toggle whether YOLO + event emission runs for a source. The stream
+  // keeps capturing frames either way; only the detection pipeline is
+  // bypassed when enabled=false.
+  setLiveSourceDetection: (id: string, enabled: boolean) =>
+    fetchJson<LiveSourceStatus>(
+      `/api/live/sources/${encodeURIComponent(id)}/detection?enabled=${enabled}`,
+      { method: "POST" },
+    ),
+  // Add a new perception source (in-memory; survives until next restart).
+  addLiveSource: (body: { url: string; name?: string; id?: string; autostart?: boolean }) =>
+    fetchJson<LiveSourceStatus & { ok: boolean; error?: string }>("/api/live/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  // Stop the slot and drop it from the registry.
+  removeLiveSource: (id: string) =>
+    fetchJson<{ ok: boolean; removed: string }>(
+      `/api/live/sources/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
 };

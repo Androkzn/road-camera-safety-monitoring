@@ -66,14 +66,22 @@
 // state, `useEffect` schedules side effects after render. Both MUST be called at
 // the top level of the function component, in the same order, every render —
 // this is the "Rules of Hooks" — React tracks them by call index, not name.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import { Pill } from "../components/ui";
-import { HealthStrip, MultiSourceGrid, DetectionsPanel, HistoryPanel, TabBar } from "../components/admin";
+import {
+  HealthStrip,
+  MultiSourceGrid,
+  SelectedStreamHeader,
+  DetectionsPanel,
+  HistoryPanel,
+  TabBar,
+} from "../components/admin";
 import { AdminEventCard } from "../components/events";
 import { useAdminHealth } from "../hooks/useAdminHealth";
 import { useDetections } from "../hooks/useDetections";
 import { useEventStream } from "../hooks/useEventStream";
+import { useLiveSources } from "../hooks/useLiveSources";
 import { formatUptime } from "../lib/format";
 // TEACH: CSS Modules — `import styles from './X.module.css'` gives a plain
 // object mapping source class names to generated hashed names. Using
@@ -94,6 +102,35 @@ export function AdminPage() {
   const { data: health } = useAdminHealth();
   const { frames } = useDetections();
   const { events: liveEvents, connected } = useEventStream();
+  // Lifted out of MultiSourceGrid so the SelectedStreamHeader (and the
+  // grid) can share the same poll cycle and focus state. Polling once here
+  // also means there's no duplicate /api/live/sources fetch.
+  const liveSources = useLiveSources(5000);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+
+  // If the focused source disappears (operator removed it, backend dropped
+  // the slot) clear focus so headers don't get stuck on a ghost stream.
+  useEffect(() => {
+    if (focusedId && !liveSources.sources.some((s) => s.id === focusedId)) {
+      setFocusedId(null);
+    }
+  }, [focusedId, liveSources.sources]);
+
+  // Resolve which source feeds the top header: explicit focus first, then
+  // the configured primary, then whatever's first in the list.
+  const selectedSource = useMemo(() => {
+    const list = liveSources.sources;
+    if (list.length === 0) return null;
+    if (focusedId) {
+      const hit = list.find((s) => s.id === focusedId);
+      if (hit) return hit;
+    }
+    if (liveSources.primaryId) {
+      const primary = list.find((s) => s.id === liveSources.primaryId);
+      if (primary) return primary;
+    }
+    return list[0] ?? null;
+  }, [focusedId, liveSources.primaryId, liveSources.sources]);
 
   // --- Derived state ---
   // TEACH: Nullish coalescing `??` returns the right operand when the left is
@@ -141,12 +178,33 @@ export function AdminPage() {
         </Pill>
       </TopBar>
 
-      {/* Edge-node health summary (cpu/mem/fps bars). */}
-      <HealthStrip health={health} />
+      {/* Selected-stream summary — reflects whichever tile the operator
+          has tapped to maximize, or falls back to the primary source. */}
+      <SelectedStreamHeader
+        source={selectedSource}
+        isFocused={!!focusedId && selectedSource?.id === focusedId}
+        totalSources={liveSources.sources.length}
+        onClear={() => setFocusedId(null)}
+      />
 
-      {/* Main split layout: video on the left, tabbed sidebar on the right. */}
+      {/* Edge-node health summary (cpu/mem/fps bars).
+          Only shown when the operator has explicitly focused a tile —
+          otherwise the strip's per-source numbers (Stream / Frames /
+          Events / Perception / Scene) reflect the primary slot only,
+          which is misleading in a multi-source deployment. */}
+      {focusedId && <HealthStrip health={health} />}
+
+      {/* Main split layout: multi-source video grid on the left,
+          tabbed sidebar on the right. The grid renders one tile per
+          configured source with its own MJPEG feed and start/pause
+          control; falls back gracefully to a single tile when only
+          the primary source is configured. */}
       <div className={styles.main}>
-        <VideoFeed stats={stats} />
+        <MultiSourceGrid
+          liveSources={liveSources}
+          focusedId={focusedId}
+          onFocusChange={setFocusedId}
+        />
 
         <div className={styles.sidebar}>
           {/* TEACH: `tabs` is a plain array of objects passed as a prop.

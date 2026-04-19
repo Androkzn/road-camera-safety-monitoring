@@ -124,8 +124,12 @@ def _parse_stream_sources() -> list[dict[str, str]]:
         if DEFAULT_STREAM_SOURCE:
             return [{"id": "primary", "name": "Primary", "url": DEFAULT_STREAM_SOURCE}]
         return []
+    # Prefer ``;`` as the entry separator when it's present (lets labelled
+    # entries carry commas in their display names, e.g. "Glenwood Springs,
+    # CO"). Fall back to ``,`` for the simpler legacy format.
+    sep = ";" if ";" in raw else ","
     out: list[dict[str, str]] = []
-    for i, entry in enumerate(raw.split(",")):
+    for i, entry in enumerate(raw.split(sep)):
         entry = entry.strip()
         if not entry:
             continue
