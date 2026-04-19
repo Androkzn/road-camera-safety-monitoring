@@ -137,6 +137,12 @@ from road_safety.config import (  # noqa: E402
     CAMERA_HORIZON_FRAC,
     MODEL_PATH,
 )
+# Settings Console: hot-path snapshot reads. The store seeds itself from the
+# same constants we define above, so a fresh boot is a no-op until the
+# operator changes something. Each gate function below reads ``STORE.snapshot()``
+# once and caches it for the duration of the call so all comparisons in one
+# frame see the same config.
+from road_safety.settings_store import STORE as _SETTINGS_STORE  # noqa: E402
 # Tracker config filename — ByteTrack parameters (Kalman filter, IoU thresholds,
 # track lost/retain timeouts). Ultralytics ships this file; we don't override it.
 TRACKER_CFG = "bytetrack.yaml"
@@ -338,17 +344,46 @@ class TrackHistory:
     ``prune()`` is called periodically to reclaim memory from dead tracks.
     """
 
-    def __init__(self, maxlen: int = TRACK_HISTORY_LEN):
+    def __init__(self, maxlen: int | None = None):
         """Create an empty track history with the given ring-buffer capacity.
 
         Args:
             maxlen: Number of samples to keep per track. At 2 fps and
-                maxlen=12 this is 6 seconds of history.
+                maxlen=12 this is 6 seconds of history. When ``None`` the
+                value is read from the settings store so warm_reload edits
+                of ``TRACK_HISTORY_LEN`` take effect on the next
+                :meth:`update` call.
         """
         # Type hint on the attribute: a dict from int to deque-of-TrackSample.
         # These hints are documentation; Python does not enforce them at runtime.
         self._tracks: dict[int, deque[TrackSample]] = {}
+        if maxlen is None:
+            maxlen = int(
+                _SETTINGS_STORE.snapshot().get("TRACK_HISTORY_LEN", TRACK_HISTORY_LEN)
+            )
         self._maxlen = maxlen
+        # Settings Console: register a warm_reload subscriber that resizes
+        # every per-track deque in place. ``deque.maxlen`` is read-only, so
+        # we rebuild each one preserving the most-recent ``new_max`` items.
+        try:
+            _SETTINGS_STORE.register_subscriber_for(
+                ["TRACK_HISTORY_LEN"],
+                self._on_track_history_len_change,
+                name=f"TrackHistory@{id(self):x}.resize",
+            )
+        except Exception:
+            # Subscriber is best-effort — not registering it just means the
+            # store change won't auto-resize this instance. Tests that swap
+            # the store out from under us hit this path.
+            pass
+
+    def _on_track_history_len_change(self, before, after) -> None:
+        new_max = int(after.get("TRACK_HISTORY_LEN", self._maxlen))
+        if new_max == self._maxlen:
+            return
+        self._maxlen = new_max
+        for tid, dq in list(self._tracks.items()):
+            self._tracks[tid] = deque(list(dq)[-new_max:], maxlen=new_max)
 
     def update(self, det: Detection, t: float) -> None:
         """Append a new sample for ``det.track_id`` (no-op if track_id is None).
@@ -656,7 +691,8 @@ def estimate_ttc_sec(history: list[TrackSample]) -> float | None:
     # Gate 5: scale ratio.
     # ``max(first.height, 1)`` guards divide-by-zero (bbox of zero height).
     scale = last.height / max(first.height, 1)
-    if scale <= MIN_SCALE_GROWTH:
+    _msg = float(_SETTINGS_STORE.snapshot().get("MIN_SCALE_GROWTH", MIN_SCALE_GROWTH))
+    if scale <= _msg:
         return None
 
     # The actual TTC formula. ``scale - 1.0`` is the fractional growth per
@@ -816,16 +852,21 @@ def classify_risk(ttc_sec: float | None, distance_m: float | None, fallback_px: 
     # Accumulate every tier this event qualifies for; then pick the worst.
     # Simpler than nested if/elif chains and handles the "TTC says medium,
     # distance says high" case correctly (worst-signal wins).
+    cfg = _SETTINGS_STORE.snapshot()
+    ttc_high = float(cfg.get("TTC_HIGH_SEC", TTC_HIGH_SEC))
+    ttc_med = float(cfg.get("TTC_MED_SEC", TTC_MED_SEC))
+    dist_high = float(cfg.get("DIST_HIGH_M", DIST_HIGH_M))
+    dist_med = float(cfg.get("DIST_MED_M", DIST_MED_M))
     levels = []
     if ttc_sec is not None:
-        if ttc_sec <= TTC_HIGH_SEC:
+        if ttc_sec <= ttc_high:
             levels.append("high")
-        elif ttc_sec <= TTC_MED_SEC:
+        elif ttc_sec <= ttc_med:
             levels.append("medium")
     if distance_m is not None:
-        if distance_m <= DIST_HIGH_M:
+        if distance_m <= dist_high:
             levels.append("high")
-        elif distance_m <= DIST_MED_M:
+        elif distance_m <= dist_med:
             levels.append("medium")
     # Pixel fallback: only consulted when *both* physical signals are absent
     # (e.g. brand-new track with no history, or camera calibration missing).
@@ -886,6 +927,11 @@ def detect_frame(model: YOLO, frame, persistent: bool = True) -> list[Detection]
     if boxes is None:
         return out
 
+    cfg = _SETTINGS_STORE.snapshot()
+    veh_conf_floor = float(cfg.get("CONF_THRESHOLD", CONF_THRESHOLD))
+    person_conf_floor = float(cfg.get("PERSON_CONF_THRESHOLD", PERSON_CONF_THRESHOLD))
+    veh_area_floor = int(cfg.get("MIN_BBOX_AREA", MIN_BBOX_AREA))
+
     # ByteTrack assigns IDs *after* a few confirmed sightings. On the first
     # frame(s) ids is None — we fall back to a list of Nones so the zip
     # below still pairs up correctly.
@@ -899,18 +945,14 @@ def detect_frame(model: YOLO, frame, persistent: bool = True) -> list[Detection]
         conf = float(box.conf)
         # Class-specific confidence floor: persons are smaller + harder for
         # YOLOv8n and legitimately score lower than vehicles.
-        conf_floor = PERSON_CONF_THRESHOLD if cls in PEDESTRIAN_CLASSES else CONF_THRESHOLD
+        conf_floor = person_conf_floor if cls in PEDESTRIAN_CLASSES else veh_conf_floor
         if conf < conf_floor:
             continue
-        # ``box.xyxy[0]`` is a tensor ``[x1, y1, x2, y2]`` in pixel space.
-        # ``.tolist()`` converts to a Python list; the generator expression
-        # ``(int(v) for v in ...)`` rounds each to an int. The 4-tuple unpack
-        # assigns directly to x1/y1/x2/y2.
         x1, y1, x2, y2 = (int(v) for v in box.xyxy[0].tolist())
         w, h = x2 - x1, y2 - y1
         # Class-specific bbox-area floor: a distant pedestrian is legitimately
         # smaller on-screen than the smallest car we care about.
-        area_floor = PERSON_MIN_BBOX_AREA if cls in PEDESTRIAN_CLASSES else MIN_BBOX_AREA
+        area_floor = PERSON_MIN_BBOX_AREA if cls in PEDESTRIAN_CLASSES else veh_area_floor
         if w * h < area_floor:
             continue
         # GATE: person aspect ratio. A human standing upright is tall and
@@ -975,7 +1017,8 @@ def find_interactions(
             # Kills the false-positive class of "two low-conf vehicle
             # blobs that happen to overlap".
             mean_conf = (a.conf + b.conf) / 2.0
-            if mean_conf < VEHICLE_PAIR_CONF_FLOOR:
+            _floor = float(_SETTINGS_STORE.snapshot().get("VEHICLE_PAIR_CONF_FLOOR", VEHICLE_PAIR_CONF_FLOOR))
+            if mean_conf < _floor:
                 continue
             dist = bbox_edge_distance(a, b)
             # 30 px is tight because vehicle-vehicle actual collisions show

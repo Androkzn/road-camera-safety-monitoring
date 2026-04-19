@@ -123,6 +123,13 @@ export function TopBar({ sourceName = "—", connected, children }: TopBarProps)
             <span className={styles.errorBubble}>{errorCount}</span>
           )}
         </Link>
+        {/* Settings Console — admin-tier tuning + templates + baseline impact. */}
+        <Link
+          to="/settings"
+          className={pathname === "/settings" ? styles.active : ""}
+        >
+          Settings
+        </Link>
       </nav>
       {/* TEACH: Flex spacer — pushes the status pill + children to the
           right. Pure layout, lives in CSS. */}

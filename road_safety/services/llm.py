@@ -936,6 +936,124 @@ async def chat(query: str, recent_events: list[dict]) -> str:
         return f"Chat error: {e}"
 
 
+# ============================================================================
+# SETTINGS CONSOLE — advisory impact narrative
+# ----------------------------------------------------------------------------
+# This is the LLM tail of the Settings Console. It is *advisory only*; the
+# deterministic ImpactReport (services/impact.py) is the source of truth.
+# We bill 1 token from the shared bucket and route through ``_complete`` so
+# this call inherits failover, observability, and the circuit breaker.
+# ============================================================================
+SETTINGS_IMPACT_SYSTEM = (
+    "You are a road-safety configuration analyst. Given baseline vs after-change "
+    "metrics for a fleet detection pipeline, write 2-3 sentences (<=80 words) "
+    "summarising the IMPACT and recommend KEEP, REVERT, or MONITOR. Cite the "
+    "largest deltas. Reference scene mix or quality drift if comparability is "
+    "limited. Return STRICT JSON only, no markdown: "
+    '{"narrative": str, "recommendation": "keep"|"revert"|"monitor", '
+    '"confidence": "low"|"medium"|"high"}. '
+    "Recommend REVERT only if a critical safety metric (high-severity event "
+    "rate, ttc_p95, fp_rate) degraded materially."
+)
+
+
+async def analyze_settings_impact(
+    change_summary: dict,
+    baseline: dict,
+    after: dict,
+    *,
+    operator_hint: str | None = None,
+) -> dict | None:
+    """Generate an advisory narrative for a settings impact report.
+
+    Args:
+        change_summary: ``{"changed_keys": [...], "before": {...}, "after": {...}}``.
+        baseline: Serialised :class:`WindowStats` for the baseline window.
+        after: Serialised :class:`WindowStats` for the after window.
+        operator_hint: Optional free-text hint to bias the recommendation
+            (e.g. "we're tightening on false positives this week").
+
+    Returns:
+        A dict ``{narrative, recommendation, confidence}`` on success;
+        ``None`` when the LLM is disabled, the rate budget is exhausted,
+        the circuit breaker is open, or the response failed to parse.
+        Callers MUST tolerate ``None`` and render the deterministic
+        numbers without an AI summary.
+    """
+    if not llm_configured():
+        return None
+    if _circuit_open():
+        llm_observer.record_skip("settings_impact", MODEL_NARRATION, "circuit_open")
+        return None
+    if not await _HAIKU_BUCKET.try_acquire(1.0):
+        llm_observer.record_skip("settings_impact", MODEL_NARRATION, "rate_budget_exhausted")
+        return None
+    payload = {
+        "change": change_summary,
+        "baseline": baseline,
+        "after": after,
+        "operator_hint": operator_hint or "",
+    }
+    t0 = time.monotonic()
+    try:
+        text = await _complete(SETTINGS_IMPACT_SYSTEM, json.dumps(payload), MODEL_NARRATION, 200)
+        llm_observer.record(
+            call_type="settings_impact", model=MODEL_NARRATION,
+            latency_ms=(time.monotonic() - t0) * 1000, success=True,
+        )
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            # Tolerate a stray "```json" wrapper.
+            cleaned = text.strip().strip("`")
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:].strip()
+            parsed = json.loads(cleaned)
+        if not isinstance(parsed, dict):
+            return None
+        rec = str(parsed.get("recommendation", "monitor")).lower()
+        if rec not in ("keep", "revert", "monitor"):
+            rec = "monitor"
+        return {
+            "narrative": str(parsed.get("narrative", "")).strip(),
+            "recommendation": rec,
+            "confidence": str(parsed.get("confidence", "low")).lower(),
+        }
+    except Exception as exc:  # noqa: BLE001 — advisory; never propagate.
+        llm_observer.record(
+            call_type="settings_impact", model=MODEL_NARRATION,
+            latency_ms=(time.monotonic() - t0) * 1000, success=False, error=str(exc),
+        )
+        return None
+
+
+# ============================================================================
+# SETTINGS CONSOLE — wire the LLM-bucket subscriber so warm_reload picks up
+# new capacity / refill values without a restart.
+# ============================================================================
+def _rebuild_haiku_bucket(before, after) -> None:
+    """Subscriber for ``LLM_BUCKET_*`` keys. Rebuilds the shared bucket in place.
+
+    The store guarantees this only fires on actual value change, so we
+    don't churn the bucket unnecessarily.
+    """
+    global _HAIKU_BUCKET
+    capacity = float(after.get("LLM_BUCKET_CAPACITY", _HAIKU_BUCKET.capacity))
+    per_min = float(after.get("LLM_BUCKET_REFILL_PER_MIN", _HAIKU_BUCKET.refill_per_sec * 60.0))
+    _HAIKU_BUCKET = _TokenBucket(capacity=capacity, refill_per_sec=per_min / 60.0)
+
+
+try:
+    from road_safety.settings_store import STORE as _SETTINGS_STORE
+    _SETTINGS_STORE.register_subscriber_for(
+        ["LLM_BUCKET_CAPACITY", "LLM_BUCKET_REFILL_PER_MIN"],
+        _rebuild_haiku_bucket,
+        name="rebuild_haiku_bucket",
+    )
+except Exception as _exc:  # noqa: BLE001 — circular-import safety.
+    print(f"[llm] settings store subscriber not registered: {_exc}")
+
+
 # Boot-time diagnostic so ``start.py`` logs make it obvious whether the
 # LLM layer is live and which backend is primary.
 print(f"[llm] configured: {llm_configured()}  backend: {BACKEND}")

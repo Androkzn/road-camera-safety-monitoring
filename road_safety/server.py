@@ -170,6 +170,8 @@ from road_safety.services.digest import start_schedulers as start_digest_schedul
 from road_safety.integrations.slack import notify_event as slack_notify, slack_configured
 from road_safety.integrations.edge_publisher import EdgePublisher
 from road_safety.api.feedback import mount as mount_feedback_routes
+from road_safety.api.settings import mount as mount_settings_routes
+from road_safety.services.impact import ImpactMonitor as SettingsImpactMonitor
 from road_safety.compliance import audit
 from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
 from road_safety.services.test_runner import run_state as test_run_state, start_test_run
@@ -1633,6 +1635,24 @@ async def _on_feedback(record: dict, matched: dict | None) -> None:
 mount_feedback_routes(app, on_feedback=_on_feedback, event_lookup=_find_event)
 
 
+# ===== SECTION: SETTINGS CONSOLE ROUTES =====
+# The Settings Console (see docs/improvements/settings-console-plan.md) lets
+# operators tune backend parameters at runtime, save templates, and inspect
+# baseline-vs-after impact with deterministic comparability gates and an
+# optional advisory LLM narrative. The router is admin-bearer only; the
+# impact SSE stream uses a single-use ticket exchange to avoid leaking the
+# long-lived bearer through query strings / access logs.
+state.settings_impact = SettingsImpactMonitor(
+    events_source=lambda: list(state.recent_events),
+)
+state.settings_impact_subscribers: list[asyncio.Queue] = []
+mount_settings_routes(
+    app,
+    impact_monitor=state.settings_impact,
+    impact_subscribers=state.settings_impact_subscribers,
+)
+
+
 # ===== SECTION: ROUTE HANDLERS — STATIC + ROOT =====
 
 
@@ -2273,15 +2293,16 @@ def watchdog_recent(n: int = 50):
 
 
 @app.delete("/api/watchdog/findings")
-def watchdog_delete_findings(clear_all: bool = False):
+def watchdog_delete_findings(request: Request, clear_all: bool = False):
     """Delete specific findings by composite key or clear all.
 
     HTTP: DELETE /api/watchdog/findings
-    AUTH: public (dashboard action)
+    AUTH: admin Bearer (Settings Console S0 prereq hardening)
     Query params:
         clear_all: If true, wipe every finding.
     Returns: ``{"deleted": <count>}``.
     """
+    require_bearer_token(request, ADMIN_TOKEN, realm="watchdog", env_var="ROAD_ADMIN_TOKEN")
     if clear_all:
         removed = watchdog_delete(indices=None)
         return {"deleted": removed}
@@ -2293,10 +2314,11 @@ async def watchdog_delete_selected(request: Request):
     """Delete selected findings by snapshot_id + ts composite keys.
 
     HTTP: POST /api/watchdog/findings/delete
-    AUTH: public (dashboard action)
+    AUTH: admin Bearer (Settings Console S0 prereq hardening)
     Request body: ``{"keys": ["<snapshot_id>:<ts>", ...]}``.
     Returns: ``{"deleted": <count>}``.
     """
+    require_bearer_token(request, ADMIN_TOKEN, realm="watchdog", env_var="ROAD_ADMIN_TOKEN")
     body = await request.json()
     keys: list[str] = body.get("keys", [])
     if not keys:

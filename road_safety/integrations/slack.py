@@ -139,6 +139,9 @@ SLACK_HIGH_MIN_DURATION_SEC = float(os.getenv("SLACK_HIGH_MIN_DURATION_SEC", "1.
 SLACK_HIGH_MIN_FRAMES = int(os.getenv("SLACK_HIGH_MIN_FRAMES", "2"))
 SLACK_HIGH_MIN_CONFIDENCE = float(os.getenv("SLACK_HIGH_MIN_CONFIDENCE", "0.55"))
 
+# Settings Console: confidence floor is operator-tunable at runtime.
+from road_safety.settings_store import STORE as _SETTINGS_STORE  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Tiered buffers — drained by digest.py schedulers.
 # NOTE: unbounded in-memory. See module docstring.
@@ -616,8 +619,11 @@ def _passes_high_quality_gate(event: dict) -> tuple[bool, str | None]:
         return False, f"only {high_frames} high-risk frame(s) < min {SLACK_HIGH_MIN_FRAMES}"
 
     confidence = float(event.get("confidence") or 0.0)
-    if confidence < SLACK_HIGH_MIN_CONFIDENCE:
-        return False, f"confidence {confidence:.2f} < min {SLACK_HIGH_MIN_CONFIDENCE:.2f}"
+    _conf_floor = float(
+        _SETTINGS_STORE.snapshot().get("SLACK_HIGH_MIN_CONFIDENCE", SLACK_HIGH_MIN_CONFIDENCE)
+    )
+    if confidence < _conf_floor:
+        return False, f"confidence {confidence:.2f} < min {_conf_floor:.2f}"
 
     return True, None
 

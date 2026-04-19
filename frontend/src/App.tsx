@@ -48,6 +48,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { DashboardPage } from "./pages/DashboardPage";
 import { AdminPage } from "./pages/AdminPage";
 import { MonitoringPage } from "./pages/MonitoringPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 // --- Root component ---
 
@@ -73,6 +74,9 @@ export function App() {
 
       {/* "/monitoring" — watchdog incident queue (errors/warnings/info). */}
       <Route path="/monitoring" element={<MonitoringPage />} />
+
+      {/* "/settings" — Settings Console: live tuning + templates + impact. */}
+      <Route path="/settings" element={<SettingsPage />} />
 
       {/* "*" — wildcard. Anything else (typos, stale links) bounces home. */}
       <Route path="*" element={<Navigate to="/" replace />} />

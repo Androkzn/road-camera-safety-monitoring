@@ -393,10 +393,16 @@ def _cross_field_errors(merged: dict[str, Any]) -> list[ValidationError]:
             errs.append({"key": "MIN_SCALE_GROWTH", "reason": "must be > 1.0"})
         if merged["LLM_BUCKET_CAPACITY"] < 1:
             errs.append({"key": "LLM_BUCKET_CAPACITY", "reason": "must be >= 1"})
-        if merged["SLACK_HIGH_MIN_CONFIDENCE"] < merged["VEHICLE_PAIR_CONF_FLOOR"]:
+        # Slack high-tier confidence floor must be at least the per-detection
+        # confidence floor — anything below CONF_THRESHOLD has already been
+        # filtered out by detection, so a lower Slack floor would be moot.
+        # (We deliberately do NOT compare against VEHICLE_PAIR_CONF_FLOOR
+        # here because that is a *pair-mean* gate while Slack reads the
+        # *peak-event* confidence — different metrics.)
+        if merged["SLACK_HIGH_MIN_CONFIDENCE"] < merged["CONF_THRESHOLD"]:
             errs.append({
                 "key": "SLACK_HIGH_MIN_CONFIDENCE",
-                "reason": "must be >= VEHICLE_PAIR_CONF_FLOOR (otherwise Slack never fires)",
+                "reason": "must be >= CONF_THRESHOLD (otherwise the floor is moot)",
             })
     except KeyError as exc:
         errs.append({"key": str(exc).strip("'"), "reason": "missing for cross-field check"})

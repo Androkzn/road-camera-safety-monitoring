@@ -48,6 +48,12 @@ import time
 import cv2
 import numpy as np
 
+# Settings Console: hot-path snapshot reads. The store is the single source
+# of truth for the two thresholds we care about here at runtime; the
+# ``_THRESH`` dict still holds the seed defaults for unit tests that
+# instantiate :class:`QualityMonitor` without booting the store.
+from road_safety.settings_store import STORE as _SETTINGS_STORE
+
 # ---------------------------------------------------------------------------
 # State vocabulary
 # ---------------------------------------------------------------------------
@@ -308,6 +314,12 @@ class QualityMonitor:
         conf = self._conf
         samples = self._samples
         cur = self._state
+        # Settings Console: read the two operator-tunable thresholds from the
+        # live snapshot, falling back to the module defaults when the store
+        # has not been populated (test paths).
+        _cfg = _SETTINGS_STORE.snapshot()
+        blur_sharp = float(_cfg.get("QUALITY_BLUR_SHARP", _THRESH["blur_sharp"]))
+        low_light_lum = float(_cfg.get("QUALITY_LOW_LIGHT_LUM", _THRESH["low_light_lum"]))
 
         def trip(metric, thresh, direction, hyst):
             """Return True if ``metric`` is past ``thresh`` in ``direction``.
@@ -354,10 +366,10 @@ class QualityMonitor:
         if over_trip(hyst=(cur == "degraded_overexposed")):
             new_state = "degraded_overexposed"
             reason = f"overexposed (sat={sat:.2f}, lum={lum:.1f})"
-        elif trip(lum, _THRESH["low_light_lum"], "below", hyst=(cur == "degraded_low_light")):
+        elif trip(lum, low_light_lum, "below", hyst=(cur == "degraded_low_light")):
             new_state = "degraded_low_light"
             reason = f"low light (luminance={lum:.1f})"
-        elif trip(sharp, _THRESH["blur_sharp"], "below", hyst=(cur == "degraded_blur")):
+        elif trip(sharp, blur_sharp, "below", hyst=(cur == "degraded_blur")):
             new_state = "degraded_blur"
             reason = f"blurred / dirty lens (sharpness={sharp:.1f})"
         elif low_conf_trip(hyst=(cur == "degraded_low_confidence")):
