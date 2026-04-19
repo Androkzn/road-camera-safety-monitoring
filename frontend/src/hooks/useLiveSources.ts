@@ -107,7 +107,7 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
 
   const start = useCallback(
     async (id: string) => {
-      mark(id, true);
+      mark(id, "starting");
       setRunningOptimistic(id, true);
       try {
         await api.startLiveSource(id);
@@ -120,7 +120,7 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
           variant: "danger",
         });
       } finally {
-        mark(id, false);
+        mark(id, null);
         await refresh();
       }
     },
@@ -129,7 +129,7 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
 
   const pause = useCallback(
     async (id: string) => {
-      mark(id, true);
+      mark(id, "pausing");
       setRunningOptimistic(id, false);
       try {
         await api.pauseLiveSource(id);
@@ -141,7 +141,7 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
           variant: "danger",
         });
       } finally {
-        mark(id, false);
+        mark(id, null);
         await refresh();
       }
     },
@@ -187,7 +187,7 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
 
   const remove = useCallback(
     async (id: string) => {
-      mark(id, true);
+      mark(id, "removing");
       // Optimistic removal so the tile vanishes immediately.
       setData((prev) =>
         prev ? { ...prev, sources: prev.sources.filter((s) => s.id !== id) } : prev,
@@ -195,7 +195,7 @@ export function useLiveSources(intervalMs = 5000): UseLiveSourcesResult {
       try {
         await api.removeLiveSource(id);
       } finally {
-        mark(id, false);
+        mark(id, null);
         await refresh();
       }
     },

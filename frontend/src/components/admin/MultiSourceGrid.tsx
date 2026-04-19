@@ -11,7 +11,10 @@
  */
 import { useEffect, useState } from "react";
 
-import type { UseLiveSourcesResult } from "../../hooks/useLiveSources";
+import type {
+  BusyAction,
+  UseLiveSourcesResult,
+} from "../../hooks/useLiveSources";
 import type { LiveSourceStatus } from "../../types";
 import { useDialog } from "../ui/Dialog";
 

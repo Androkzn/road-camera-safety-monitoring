@@ -925,7 +925,7 @@ function SeverityBars({ label, counts }: { label: string; counts: Record<string,
 // SettingsPage
 // ---------------------------------------------------------------------------
 export function SettingsPage() {
-  const { token, setToken } = useAdminToken();
+  const { token, setToken, clear: clearToken } = useAdminToken();
   const settings = useSettings(token);
   const templates = useSettingsTemplates(token);
   const impact = useImpact(token);
@@ -1184,6 +1184,31 @@ export function SettingsPage() {
           {warnings.length > 0 && (
             <div className={styles.warnings}>
               {warnings.map((w) => <div key={w}>{w}</div>)}
+            </div>
+          )}
+
+          {/* Load error — surfaced in the main view too, otherwise a 500 /
+              network failure leaves the page stuck on "Loading settings…"
+              with no indication of what went wrong. */}
+          {settings.error && !settings.schema && (
+            <div className={styles.errorList}>
+              <div><strong>Failed to load settings.</strong> {settings.error}</div>
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                <button
+                  className={styles.btn}
+                  onClick={() => void settings.refresh()}
+                  disabled={settings.loading}
+                >
+                  {settings.loading ? "Retrying…" : "Retry"}
+                </button>
+                <button
+                  className={styles.btn}
+                  onClick={() => clearToken()}
+                  title="Clear the cached admin token and re-prompt"
+                >
+                  Forget token
+                </button>
+              </div>
             </div>
           )}
 
