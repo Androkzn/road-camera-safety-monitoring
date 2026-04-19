@@ -83,11 +83,44 @@ function withAdminAuth(init?: RequestInit): RequestInit {
  * Typed structured error returned by the Settings API.
  * The Python side returns 422 with `{errors: [{key, reason}]}` for validation,
  * 409 with `{error: "revision_conflict", expected, actual}` for ETag misses,
- * 429 for the apply cooldown, and 401/403/503 for auth failures.
+ * 429 for the apply cooldown (with a `Retry-After` header), and 401/403/503
+ * for auth failures.
  */
 export interface AdminApiError extends Error {
   status: number;
   body: unknown;
+  /** Seconds the server asked us to wait, parsed from `Retry-After`. */
+  retryAfterSec?: number;
+}
+
+/**
+ * Build a human-readable error message from a non-OK response. The order
+ * of preference is:
+ *   1. server-supplied `detail` string (FastAPI's HTTPException default)
+ *   2. server-supplied `error` string (custom error envelopes)
+ *   3. fallback to `HTTP <status>`
+ * For 429 we prepend a "Too many attempts — retry in Ns" prefix using the
+ * `Retry-After` header so the user sees an actionable message in the UI
+ * rather than the raw "HTTP 429".
+ */
+function buildErrorMessage(
+  status: number,
+  body: unknown,
+  retryAfterSec: number | undefined,
+): string {
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? String((body as { detail: unknown }).detail)
+      : null;
+  const errorField =
+    body && typeof body === "object" && "error" in body
+      ? String((body as { error: unknown }).error)
+      : null;
+  const base = detail ?? errorField ?? `HTTP ${status}`;
+  if (status === 429 && retryAfterSec != null && retryAfterSec > 0) {
+    return `Too many apply attempts. Retry in ${retryAfterSec}s. (${base})`;
+  }
+  return base;
 }
 
 export async function adminFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -101,8 +134,17 @@ export async function adminFetch<T>(url: string, init?: RequestInit): Promise<T>
   } catch {
     body = null;
   }
-  const err = new Error(`HTTP ${res.status}`) as AdminApiError;
+  // Retry-After is sent as integer seconds by the settings router. The
+  // RFC also allows an HTTP-date but we don't emit that, so a parseInt
+  // is sufficient and degrades cleanly (NaN → undefined) for other shapes.
+  const retryHeader = res.headers.get("Retry-After");
+  const retryAfterSec =
+    retryHeader != null && /^\d+$/.test(retryHeader.trim())
+      ? parseInt(retryHeader, 10)
+      : undefined;
+  const err = new Error(buildErrorMessage(res.status, body, retryAfterSec)) as AdminApiError;
   err.status = res.status;
   err.body = body;
+  err.retryAfterSec = retryAfterSec;
   throw err;
 }

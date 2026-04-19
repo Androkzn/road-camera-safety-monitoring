@@ -59,6 +59,17 @@ function StreamTile({
   useEffect(() => {
     setImgError(false);
   }, [source.id, running]);
+  // Auto-recover from transient image-load failures. A single failed JPEG
+  // poll (e.g. server briefly overloaded by 6 streams sharing one YOLO model)
+  // would otherwise flip ``imgError`` permanently, unmount <StreamImage>,
+  // and stop polling — meaning the tile never recovers until the operator
+  // restarts the source. Retrying after 1.5s lets the next poll succeed and
+  // restores the live feed without operator action.
+  useEffect(() => {
+    if (!imgError || !running) return;
+    const id = window.setTimeout(() => setImgError(false), 1500);
+    return () => window.clearTimeout(id);
+  }, [imgError, running]);
   // We render Start vs Pause based on the *action in flight* whenever busy
   // is set — otherwise the button would flip mid-action because we
   // optimistically swap ``running`` as soon as the user clicks. Without

@@ -175,7 +175,17 @@ def _result_payload(result: AppliedResult) -> dict[str, Any]:
     }
 
 
-def _enforce_apply_cooldown(actor: str) -> None:
+def _check_apply_cooldown(actor: str) -> None:
+    """Reject if this actor's last *successful* apply was within the cooldown.
+
+    The cooldown clock is stamped by ``_record_apply_attempt`` only when an
+    apply actually mutates state. Failed attempts (validation errors,
+    revision conflicts, privacy-confirm-required, no-op diffs) deliberately
+    do **not** burn the budget — punishing a typo with a 5 s lockout is a
+    hostile UX and offers no protection (no state changed, no subscriber
+    storm). DoS protection against rapid invalid attempts is left to the
+    upstream proxy / WAF, where it belongs.
+    """
     now = time.monotonic()
     last = _last_apply_at.get(actor, 0.0)
     if now - last < MIN_CHANGE_INTERVAL_SEC:
@@ -185,7 +195,19 @@ def _enforce_apply_cooldown(actor: str) -> None:
             detail=f"apply rate limited; retry after {wait:.1f}s",
             headers={"Retry-After": str(int(wait) + 1)},
         )
-    _last_apply_at[actor] = now
+
+
+def _record_apply_attempt(actor: str) -> None:
+    """Stamp the cooldown clock — call only after a state-changing apply."""
+    _last_apply_at[actor] = time.monotonic()
+
+
+# Back-compat alias so external callers that imported the old eager helper
+# still see the previous "check + stamp on attempt" semantics. Internal
+# callers use the split pair above instead.
+def _enforce_apply_cooldown(actor: str) -> None:
+    _check_apply_cooldown(actor)
+    _record_apply_attempt(actor)
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +327,8 @@ def mount(
     async def apply(body: ApplyBody, request: Request):
         _bearer(request)
         actor = _actor(request, body.operator_label)
-        _enforce_apply_cooldown(actor)
+        # Check-only: failed attempts below do not stamp the cooldown clock.
+        _check_apply_cooldown(actor)
         before_snap = dict(STORE.snapshot())
         try:
             result = STORE.apply_diff(
@@ -343,6 +366,11 @@ def mount(
             audit_id = impact_monitor.on_settings_change(
                 before_snap, after_snap, actor_label=actor, changed_keys=changed_keys
             )
+        # Stamp the cooldown clock only when state actually moved. A no-op
+        # apply (empty diff, or diff that resolves to the current values)
+        # produces no subscriber storm and shouldn't lock the operator out.
+        if result.applied_now or result.pending_restart:
+            _record_apply_attempt(actor)
         log_id = settings_db.insert_apply_log(
             actor_label=actor,
             revision_hash_before=result.revision_hash_before,
@@ -376,7 +404,10 @@ def mount(
     async def rollback(request: Request):
         _bearer(request)
         actor = _actor(request)
-        _enforce_apply_cooldown(actor)
+        # Check-only; stamp the cooldown only if the rollback actually
+        # mutated state (a no-op rollback against an unchanged store
+        # shouldn't count toward the budget).
+        _check_apply_cooldown(actor)
         before = dict(STORE.snapshot())
         result = STORE.rollback_to_last_good(actor=actor)
         after = dict(STORE.snapshot())
@@ -385,6 +416,7 @@ def mount(
             audit_id = impact_monitor.on_settings_change(
                 before, after, actor_label=actor, changed_keys=sorted(after.keys())
             )
+            _record_apply_attempt(actor)
         else:
             audit_id = None
         settings_db.insert_apply_log(
@@ -480,7 +512,11 @@ def mount(
     async def apply_template(template_id: str, body: TemplateApplyBody, request: Request):
         _bearer(request)
         actor = _actor(request, body.operator_label)
-        _enforce_apply_cooldown(actor)
+        # Check-only; the cooldown clock is stamped only after a real
+        # state change below (so a missing template, validation failure,
+        # privacy-confirm-required, or revision conflict don't lock the
+        # operator out of fixing the request).
+        _check_apply_cooldown(actor)
         try:
             plan = template_svc.prepare_template_apply(
                 template_id, current_snapshot=dict(STORE.snapshot())
@@ -529,6 +565,8 @@ def mount(
             audit_id = impact_monitor.on_settings_change(
                 before_snap, after_snap, actor_label=actor, changed_keys=changed_keys
             )
+        if result.applied_now or result.pending_restart:
+            _record_apply_attempt(actor)
         settings_db.insert_apply_log(
             actor_label=actor,
             revision_hash_before=result.revision_hash_before,

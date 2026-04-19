@@ -173,6 +173,8 @@ from road_safety.integrations.edge_publisher import EdgePublisher
 from road_safety.api.feedback import mount as mount_feedback_routes
 from road_safety.api.settings import mount as mount_settings_routes
 from road_safety.services.impact import ImpactMonitor as SettingsImpactMonitor
+from road_safety.services.ops_sampler import OpsSampler
+from road_safety.settings_store import STORE as SETTINGS_STORE
 from road_safety.compliance import audit
 from road_safety.compliance.retention import retention_loop, run_sweep as retention_sweep
 from road_safety.services.test_runner import run_state as test_run_state, start_test_run
@@ -469,6 +471,12 @@ class StreamSlot:
         self._annotated_jpeg: bytes | None = None
         self._frame_detections: list[dict] = []
         self._frame_ts: float = 0.0
+        # Most-recent raw frame (BGR ndarray) captured for this slot. Used by
+        # the polling endpoint as a fallback when ``_annotated_jpeg`` hasn't
+        # been populated yet (e.g. first poll after stream start, or first
+        # frame after a viewer-cycle). Storing the reference is O(1); we copy
+        # only when we actually need to encode.
+        self._latest_raw_frame = None
         # Active MJPEG viewer count. Incremented by ``_mjpeg_response`` on
         # connect and decremented in its ``finally`` block on disconnect.
         # When zero, ``_on_frame`` skips ``_render_annotated_frame`` /
@@ -500,11 +508,17 @@ class StreamSlot:
     def _release_viewer(self) -> None:
         with self._frame_lock:
             self._mjpeg_subscribers = max(0, self._mjpeg_subscribers - 1)
-            if self._mjpeg_subscribers == 0:
-                # Drop the last encoded frame so the next subscriber sees the
-                # warming-up placeholder until a fresh encode lands, instead
-                # of a potentially-stale frozen image from an old session.
-                self._annotated_jpeg = None
+            # Intentionally do NOT reset ``_annotated_jpeg`` here. Two reasons:
+            #   1. The polling endpoint (``/admin/frame/{id}``) is a separate
+            #      viewer path that doesn't increment ``_mjpeg_subscribers``;
+            #      dropping the cached frame here strands every poll-based
+            #      tile on the "WARMING UP" placeholder until the next
+            #      perception tick (~0.5s) produces a fresh encode. With 6
+            #      streams contending for the shared YOLO model the actual
+            #      encode rate is closer to 0.5fps per slot, so the gap is
+            #      visibly long.
+            #   2. A stale-but-recent frame is strictly better UX than the
+            #      placeholder JPEG. The next encode overwrites it anyway.
 
     def is_running(self) -> bool:
         return (
@@ -987,11 +1001,17 @@ def _start_slot(slot: StreamSlot) -> None:
     if not slot.original_source:
         raise RuntimeError(f"slot {slot.source_id} has no source URL")
     hls = resolve_hls(slot.original_source)
-    reader = StreamReader(hls, target_fps=TARGET_FPS, original_source=slot.original_source)
+    live_fps = float(SETTINGS_STORE.snapshot().get("TARGET_FPS", TARGET_FPS))
+    reader = StreamReader(hls, target_fps=live_fps, original_source=slot.original_source)
     reader.start(_make_on_frame(slot))
     slot.reader = reader
     slot.last_error = None
-    log.info("slot %s started (source=%s)", slot.source_id, slot.original_source[:80])
+    log.info(
+        "slot %s started (source=%s, target_fps=%.1f)",
+        slot.source_id,
+        slot.original_source[:80],
+        live_fps,
+    )
 
 
 def _stop_slot(slot: StreamSlot) -> None:
@@ -1081,6 +1101,14 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # the model / loop. Skipping early is harmless — next frame retries.
     if state.model is None or state.loop is None:
         return
+
+    # Stash the raw frame reference so the polling endpoint can encode it
+    # on demand if no annotated JPEG is cached yet (e.g. very first poll
+    # after stream start, or any time the encode path was skipped because
+    # ``has_viewers()`` returned False). Cheap O(1) reference assignment;
+    # we never copy on the hot path. The polling endpoint copies only when
+    # it actually needs to encode.
+    slot._latest_raw_frame = frame
 
     # ----- Detection-disabled bypass -----
     # Operator unchecked the "detection" toggle for this slot. We still
@@ -1717,6 +1745,43 @@ async def lifespan(app: FastAPI):
     else:
         log.warning("no live streams started (no sources or all failed)")
 
+    # Settings Console: warm-reload for TARGET_FPS. The StreamReader captures
+    # the fps value at construction time (and bakes it into an ffmpeg command
+    # on the yt-dlp path), so a live change only takes effect after the reader
+    # is recycled. We restart each active slot on a background thread so the
+    # settings-apply HTTP response is not delayed by the stop/join.
+    def _on_target_fps_change(before, after) -> None:
+        old = float(before.get("TARGET_FPS") or 0.0)
+        new = float(after.get("TARGET_FPS") or 0.0)
+        if old == new:
+            return
+        log.info("TARGET_FPS change %.1f -> %.1f — restarting active slots", old, new)
+
+        def _restart_slots() -> None:
+            for slot in list(state.slots.values()):
+                if slot.reader is None:
+                    continue
+                try:
+                    _stop_slot(slot)
+                    _start_slot(slot)
+                except Exception as exc:
+                    log.warning(
+                        "slot %s restart for TARGET_FPS failed: %s", slot.source_id, exc
+                    )
+
+        threading.Thread(
+            target=_restart_slots, daemon=True, name="target_fps_reload"
+        ).start()
+
+    SETTINGS_STORE.register_subscriber_for(
+        ["TARGET_FPS"], _on_target_fps_change, name="restart_slots_for_fps"
+    )
+
+    # Ops sampler: one periodic thread that records fps / CPU / LLM
+    # spend. Safe to start even when no slots are active yet — the
+    # sampler will just record zero-fps samples until a reader appears.
+    state.ops_sampler.start()
+
     # Digest schedulers (medium hourly, low daily). Idempotent.
     start_digest_schedulers(state.loop)
     log.info("digest schedulers started")
@@ -1848,6 +1913,10 @@ async def lifespan(app: FastAPI):
                 slot.reader.stop()
             except Exception as exc:
                 log.warning("slot %s stop failed: %s", slot.source_id, exc)
+    try:
+        state.ops_sampler.stop()
+    except Exception as exc:
+        log.warning("ops_sampler stop failed: %s", exc)
     if edge_task is not None:
         edge_task.cancel()
     retention_task.cancel()
@@ -1949,8 +2018,36 @@ mount_feedback_routes(app, on_feedback=_on_feedback, event_lookup=_find_event)
 # optional advisory LLM narrative. The router is admin-bearer only; the
 # impact SSE stream uses a single-use ticket exchange to avoid leaking the
 # long-lived bearer through query strings / access logs.
+# Ops sampler: periodic snapshot of actual fps, CPU, memory, and LLM
+# cost/latency/tokens. The Settings Console uses its window_stats() to
+# populate the operational-metric deltas in the Impact report so an
+# operator can see whether a change made the pipeline cheaper / faster /
+# heavier, not just whether it shifted the event-rate distribution.
+def _aggregate_frames() -> tuple[int, int]:
+    """Sum ``frames_read`` / ``frames_processed`` across all active slots.
+
+    Returning a single pair keeps the sampler agnostic to the
+    multi-source slot model — it just sees "how many frames did the
+    pipeline ingest + process since start".
+    """
+    total_read = 0
+    total_proc = 0
+    for slot in state.slots.values():
+        r = slot.reader
+        if r is not None:
+            total_read += int(getattr(r, "frames_read", 0) or 0)
+            total_proc += int(getattr(r, "frames_processed", 0) or 0)
+    return total_read, total_proc
+
+
+state.ops_sampler = OpsSampler(
+    frames_source=_aggregate_frames,
+    llm_stats_fn=llm_observer.stats,
+)
+
 state.settings_impact = SettingsImpactMonitor(
     events_source=lambda: list(state.recent_events),
+    ops_stats_fn=state.ops_sampler.window_stats,
 )
 state.settings_impact_subscribers: list[asyncio.Queue] = []
 mount_settings_routes(
@@ -2821,11 +2918,30 @@ def admin_frame_for(source_id: str):
     slot.mark_polled()
     with slot._frame_lock:
         jpeg = slot._annotated_jpeg
+        # Capture a reference under the lock; only used if jpeg is missing.
+        raw = slot._latest_raw_frame if jpeg is None else None
+    # Encode-on-demand fallback. Covers two cases that previously made non-
+    # primary tiles look broken:
+    #   * First few polls after page-load arrive BEFORE the slot's first
+    #     ``_on_frame`` tick has produced an annotated JPEG.
+    #   * Under heavy contention (6 streams sharing one YOLO instance), the
+    #     annotated encode lags behind the poll cadence; without this we'd
+    #     return 503 and the <img> onError would mark the tile permanently
+    #     errored, hiding the live feed even after fresh frames arrived.
+    # Encoded without bbox overlays — operators still see the live video,
+    # detections appear as soon as the next annotated tick lands.
+    if jpeg is None and raw is not None:
+        try:
+            ok, buf = cv2.imencode(".jpg", raw, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                jpeg = buf.tobytes()
+        except Exception as exc:
+            log.warning("on-demand frame encode failed (%s): %s", source_id, exc)
     if jpeg is None:
-        # No frame encoded yet (stream is still warming up). Return 503 so
-        # the <img> ``onError`` handler flips the tile to its own CSS-based
-        # "Connecting…" placeholder instead of rendering a JPEG banner.
-        raise HTTPException(503, "no frame yet")
+        # Still nothing — stream truly hasn't produced its first frame. Send
+        # the warming-up placeholder so the <img> onError doesn't fire and
+        # poison the tile; the next poll will pick up a real frame.
+        jpeg = _WARMING_UP_JPEG
     return Response(
         content=jpeg,
         media_type="image/jpeg",

@@ -74,6 +74,23 @@ class WindowStats:
     quality_distribution: dict[str, float] = field(default_factory=dict)
     fp_rate: float | None = None
     fp_rate_source: str = "insufficient"  # "feedback" | "proxy" | "insufficient"
+    # --- operational metrics (from ops_sampler; None when unavailable) ----
+    # These describe how the pipeline is running — actual fps, CPU, LLM
+    # spend — as opposed to the event-derived fields above. They let an
+    # operator see whether a setting change made things cheaper / faster /
+    # heavier, not just whether it shifted the risk tier distribution.
+    actual_fps_p50: float | None = None
+    actual_fps_p95: float | None = None
+    frames_dropped_ratio_p95: float | None = None
+    cpu_p50: float | None = None
+    cpu_p95: float | None = None
+    memory_p95: float | None = None
+    llm_cost_usd_per_min: float | None = None
+    llm_tokens_per_min: float | None = None
+    llm_latency_p95_ms: float | None = None
+    llm_skip_rate: float | None = None
+    llm_calls: int = 0
+    ops_samples: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -162,6 +179,7 @@ def compute_window(
     *,
     start_ts: float,
     end_ts: float,
+    ops_stats: Mapping[str, Any] | None = None,
 ) -> WindowStats:
     """Roll a list of event dicts into a :class:`WindowStats`.
 
@@ -170,6 +188,11 @@ def compute_window(
     ``confidence``, ``ttc_sec``, ``distance_m``, ``scene_label`` /
     ``scene``, ``quality_state`` / ``perception_state``. Missing fields
     are tolerated — the corresponding stat is just ``None``.
+
+    ``ops_stats`` is the dict returned by
+    :meth:`OpsSampler.window_stats` (or ``None`` when the sampler is not
+    wired). Its fields are copied into the operational-metric slots on
+    the returned :class:`WindowStats`.
     """
     duration = max(0.001, end_ts - start_ts)
     severity_counts: Counter[str] = Counter()
@@ -203,6 +226,7 @@ def compute_window(
             quality[str(q)] += 1
 
     rate_per_min = (sample / duration) * 60.0 if duration > 0 else 0.0
+    ops = ops_stats or {}
     return WindowStats(
         window_start_ts=start_ts,
         window_end_ts=end_ts,
@@ -219,6 +243,18 @@ def compute_window(
         distance_p95_m=_percentile(dists, 95),
         scene_distribution=_normalize_dist(scenes),
         quality_distribution=_normalize_dist(quality),
+        actual_fps_p50=ops.get("actual_fps_p50"),
+        actual_fps_p95=ops.get("actual_fps_p95"),
+        frames_dropped_ratio_p95=ops.get("frames_dropped_ratio_p95"),
+        cpu_p50=ops.get("cpu_p50"),
+        cpu_p95=ops.get("cpu_p95"),
+        memory_p95=ops.get("memory_p95"),
+        llm_cost_usd_per_min=ops.get("llm_cost_usd_per_min"),
+        llm_tokens_per_min=ops.get("llm_tokens_per_min"),
+        llm_latency_p95_ms=ops.get("llm_latency_p95_ms"),
+        llm_skip_rate=ops.get("llm_skip_rate"),
+        llm_calls=int(ops.get("llm_calls", 0) or 0),
+        ops_samples=int(ops.get("samples", 0) or 0),
     )
 
 
@@ -269,6 +305,20 @@ _DELTA_FIELDS = (
     "ttc_p95",
     "distance_p50_m",
     "distance_p95_m",
+    # Operational metrics (from ops_sampler). Same percentage-delta logic
+    # as the event-derived fields; ``compute_deltas`` skips any field
+    # where either baseline or after is ``None``, so an unwired sampler
+    # simply produces no ops deltas.
+    "actual_fps_p50",
+    "actual_fps_p95",
+    "frames_dropped_ratio_p95",
+    "cpu_p50",
+    "cpu_p95",
+    "memory_p95",
+    "llm_cost_usd_per_min",
+    "llm_tokens_per_min",
+    "llm_latency_p95_ms",
+    "llm_skip_rate",
 )
 
 
@@ -299,9 +349,33 @@ class ImpactMonitor:
     on the *first* pre-change snapshot, not the latest).
     """
 
-    def __init__(self, events_source: Callable[[], list[dict[str, Any]]]):
+    def __init__(
+        self,
+        events_source: Callable[[], list[dict[str, Any]]],
+        *,
+        ops_stats_fn: Callable[[float, float], Mapping[str, Any]] | None = None,
+    ):
+        """Construct the monitor.
+
+        Args:
+            events_source: Callable returning the live event ring buffer.
+                Called once per window aggregation; must be cheap.
+            ops_stats_fn: Optional callable ``(start_ts, end_ts) -> ops_stats_dict``
+                as returned by :meth:`OpsSampler.window_stats`. When
+                ``None``, windows carry only event-derived fields —
+                operational metrics stay ``None`` and the UI renders "—".
+        """
         self._events_source = events_source
+        self._ops_stats_fn = ops_stats_fn
         self._session: dict[str, Any] | None = None
+
+    def _ops_for(self, start_ts: float, end_ts: float) -> Mapping[str, Any] | None:
+        if self._ops_stats_fn is None:
+            return None
+        try:
+            return self._ops_stats_fn(start_ts, end_ts)
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -353,12 +427,22 @@ class ImpactMonitor:
         events = self._events_source()
         for lookback in WINDOW_LOOKBACKS_SEC:
             start = end_ts - lookback
-            ws = compute_window(events, start_ts=start, end_ts=end_ts)
+            ws = compute_window(
+                events,
+                start_ts=start,
+                end_ts=end_ts,
+                ops_stats=self._ops_for(start, end_ts),
+            )
             if ws.sample_size >= MIN_BASELINE_EVENTS:
                 return ws
         # Last resort: widest lookback window even if under threshold.
         start = end_ts - WINDOW_LOOKBACKS_SEC[-1]
-        return compute_window(events, start_ts=start, end_ts=end_ts)
+        return compute_window(
+            events,
+            start_ts=start,
+            end_ts=end_ts,
+            ops_stats=self._ops_for(start, end_ts),
+        )
 
     # ------------------------------------------------------------------
     # Reporting
@@ -380,7 +464,12 @@ class ImpactMonitor:
         )
         events = self._events_source()
         now = time.time()
-        after = compute_window(events, start_ts=sess["change_ts"], end_ts=now)
+        after = compute_window(
+            events,
+            start_ts=sess["change_ts"],
+            end_ts=now,
+            ops_stats=self._ops_for(sess["change_ts"], now),
+        )
         return _assemble_report(sess, baseline, after)
 
     def _restore_from_db(self) -> ImpactReport | None:
@@ -415,7 +504,12 @@ class ImpactMonitor:
             sess["archived_at"] = now
             self._persist_session()
             self._session = None
-        after = compute_window(events, start_ts=sess["change_ts"], end_ts=now)
+        after = compute_window(
+            events,
+            start_ts=sess["change_ts"],
+            end_ts=now,
+            ops_stats=self._ops_for(sess["change_ts"], now),
+        )
         baseline = sess.get("baseline")
         report = _assemble_report(sess, baseline, after)
         sess["last_payload"] = report.to_dict()
@@ -476,6 +570,13 @@ def _assemble_report(
         "ttc_p95",
         "scene_distribution",
         "quality_distribution",
+        # Operational — populated whenever the ops_sampler is wired. The
+        # comparability gate treats these like any other immediate metric
+        # (it only checks sample size + scene/quality distributions).
+        "actual_fps_p95",
+        "cpu_p95",
+        "llm_cost_usd_per_min",
+        "llm_latency_p95_ms",
     ]
     lagging = ["fp_rate", "drift_precision", "feedback_coverage"]
     return ImpactReport(
