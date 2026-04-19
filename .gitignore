@@ -25,6 +25,9 @@ data/summary.json
 data/eval.json
 data/thumbnails/
 data/cloud.db
+data/settings.db
+data/settings.db-shm
+data/settings.db-wal
 data/feedback.jsonl
 data/outbound_queue.jsonl
 data/audit.jsonl

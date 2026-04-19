@@ -797,9 +797,20 @@ function BaselineCard({ onCaptured }: { onCaptured: () => void }) {
 function ImpactCard(props: {
   report: ImpactReport | null;
   refreshing: boolean;
+  lastUpdatedTs: number | null;
   onRefresh: () => void;
 }) {
   const r = props.report;
+  // Tick once a second so the "Xs ago" label stays live between polls.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const ago =
+    props.lastUpdatedTs === null
+      ? null
+      : Math.max(0, Math.round((Date.now() - props.lastUpdatedTs) / 1000));
   if (!r) {
     return (
       <div className={styles.card}>
@@ -876,9 +887,14 @@ function ImpactCard(props: {
         </div>
       )}
 
-      <button className={styles.btn} onClick={props.onRefresh} disabled={props.refreshing}>
-        {props.refreshing ? "Refreshing…" : "Refresh"}
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button className={styles.btn} onClick={props.onRefresh} disabled={props.refreshing}>
+          {props.refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+        <span className={styles.subtle} style={{ fontSize: 11 }}>
+          auto · every 5s{ago !== null ? ` · updated ${ago}s ago` : ""}
+        </span>
+      </div>
 
       {r.lagging_metrics.length > 0 && (
         <div className={styles.subtle} style={{ fontSize: 10 }}>
@@ -1502,6 +1518,7 @@ export function SettingsPage() {
           <ImpactCard
             report={impact.report}
             refreshing={impact.refreshing}
+            lastUpdatedTs={impact.lastUpdatedTs}
             onRefresh={() => impact.refresh()}
           />
 

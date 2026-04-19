@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { adminFetch, type AdminApiError, clearAdminToken } from "../lib/adminApi";
 import type { ImpactReport } from "../types";
 
-const POLL_MS = 15_000;
+const POLL_MS = 5_000;
 
 interface ImpactResponse {
   report: ImpactReport | null;
@@ -20,11 +20,13 @@ export function useImpact(token: string | null): {
   report: ImpactReport | null;
   refreshing: boolean;
   error: string | null;
+  lastUpdatedTs: number | null;
   refresh: () => Promise<void>;
 } {
   const [report, setReport] = useState<ImpactReport | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedTs, setLastUpdatedTs] = useState<number | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export function useImpact(token: string | null): {
       const data = await adminFetch<ImpactResponse>("/api/settings/impact");
       if (!mountedRef.current) return;
       setReport(data.report);
+      setLastUpdatedTs(Date.now());
       setError(null);
     } catch (exc) {
       const status = (exc as AdminApiError | undefined)?.status;
@@ -63,5 +66,5 @@ export function useImpact(token: string | null): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  return { report, refreshing, error, refresh };
+  return { report, refreshing, error, lastUpdatedTs, refresh };
 }
