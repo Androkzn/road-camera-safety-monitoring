@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { adminFetch, MissingAdminTokenError } from "../lib/adminApi";
+import { adminFetch, clearAdminToken, MissingAdminTokenError } from "../lib/adminApi";
 import type {
   ApplyResultPayload,
   EffectiveSettings,
@@ -78,7 +78,17 @@ export function useSettings(token: string | null): SettingsState {
       } else if (exc instanceof Error) {
         const status = (exc as { status?: number }).status;
         if (status === 401 || status === 403 || status === 503) {
+          // Cached token is bad / missing / server-disabled — drop it and
+          // surface the prompt instead of polling forever in the background.
+          clearAdminToken();
           setNeedsToken(true);
+          setError(
+            status === 403
+              ? "Admin token rejected (HTTP 403). Paste the correct ROAD_ADMIN_TOKEN."
+              : status === 503
+                ? "Server has no admin token configured (HTTP 503)."
+                : "Authentication required (HTTP 401).",
+          );
         } else {
           setError(exc.message);
         }

@@ -17,6 +17,7 @@ import { TopBar } from "../components/layout/TopBar";
 import { VideoFeed } from "../components/admin/VideoFeed";
 import { useAdminToken } from "../hooks/useAdminToken";
 import { useImpact } from "../hooks/useImpact";
+import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useSettings } from "../hooks/useSettings";
 import { useSettingsTemplates } from "../hooks/useSettingsTemplates";
 import {
@@ -76,6 +77,18 @@ function describeTier(tier: ConfidenceTier): string {
 function fmt(v: number | null | undefined, digits = 2): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return Number(v).toFixed(digits);
+}
+
+/** Compact display label for the current stream source. */
+function shortSource(src: string): string {
+  if (!src) return "—";
+  if (/youtube\.com|youtu\.be/.test(src)) return "youtube";
+  if (src.startsWith("http")) {
+    try { return new URL(src).hostname.replace(/^www\./, ""); } catch { return src.slice(0, 24); }
+  }
+  // Local file — show the basename.
+  const seg = src.split("/").filter(Boolean).pop();
+  return seg || src;
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +423,14 @@ export function SettingsPage() {
   const settings = useSettings(token);
   const templates = useSettingsTemplates(token);
   const impact = useImpact(token);
+  // Live-status feed for the TopBar pill — public route, no admin token needed.
+  const { data: live, error: liveError } = useLiveStatus(5000);
+  // Tri-state for the connection dot: undefined while we haven't heard back
+  // yet, true when the server reports the perception loop is running, false
+  // when the poll errored or the loop is down.
+  const connected: boolean | undefined =
+    live ? !!live.running : liveError ? false : undefined;
+  const sourceName = live?.source ? shortSource(live.source) : "—";
 
   const [draft, setDraft] = useState<Record<string, DraftValue>>({});
   const [validationErrors, setValidationErrors] = useState<Array<{ key: string; reason: string }>>([]);
@@ -551,13 +572,16 @@ export function SettingsPage() {
   }
 
   // Token-prompt empty state
-  if (!token) {
+  if (!token || settings.needsToken) {
     return (
       <>
-        <TopBar />
+        <TopBar sourceName={sourceName} connected={connected} />
         <main className={styles.main}>
           <div className={styles.left}>
             <h2 className={styles.title}>Settings Console</h2>
+            {settings.error && (
+              <div className={styles.errorList}>{settings.error}</div>
+            )}
             <p className={styles.subtle}>
               Settings is admin-tier. Paste your <code>ROAD_ADMIN_TOKEN</code>{" "}
               (kept in <code>sessionStorage</code>, cleared on tab close).
@@ -569,6 +593,11 @@ export function SettingsPage() {
                 placeholder="ROAD_ADMIN_TOKEN…"
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && tokenInput.trim()) {
+                    setToken(tokenInput.trim());
+                  }
+                }}
               />
               <button
                 className={`${styles.btn} ${styles.btnPrimary}`}
@@ -587,7 +616,7 @@ export function SettingsPage() {
 
   return (
     <>
-      <TopBar />
+      <TopBar sourceName={sourceName} connected={connected} />
       <main className={styles.main}>
         <aside className={styles.left}>
           <h2 className={styles.title}>Live</h2>

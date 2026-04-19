@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { adminFetch } from "../lib/adminApi";
+import { adminFetch, type AdminApiError, clearAdminToken } from "../lib/adminApi";
 import type { ImpactReport } from "../types";
 
 const POLL_MS = 15_000;
@@ -43,6 +43,12 @@ export function useImpact(token: string | null): {
       setReport(data.report);
       setError(null);
     } catch (exc) {
+      const status = (exc as AdminApiError | undefined)?.status;
+      if (status === 401 || status === 403 || status === 503) {
+        // Stop polling on auth failure; the SettingsPage will re-prompt
+        // for a token via useSettings.
+        clearAdminToken();
+      }
       if (exc instanceof Error) setError(exc.message);
     } finally {
       if (mountedRef.current) setRefreshing(false);

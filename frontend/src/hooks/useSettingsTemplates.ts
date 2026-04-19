@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { adminFetch } from "../lib/adminApi";
+import { adminFetch, type AdminApiError, clearAdminToken } from "../lib/adminApi";
 import type { ApplyResultPayload, SettingsTemplate } from "../types";
 
 interface ListResponse {
@@ -32,6 +32,10 @@ export function useSettingsTemplates(token: string | null): {
       const data = await adminFetch<ListResponse>("/api/settings/templates");
       setTemplates(data.templates);
     } catch (exc) {
+      const status = (exc as AdminApiError | undefined)?.status;
+      if (status === 401 || status === 403 || status === 503) {
+        clearAdminToken();
+      }
       if (exc instanceof Error) setError(exc.message);
     } finally {
       setLoading(false);
