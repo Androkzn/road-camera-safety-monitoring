@@ -2817,13 +2817,15 @@ def admin_frame_for(source_id: str):
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
     # Signal to ``_on_frame`` that this slot has a viewer, so the encode path
-    # actually runs. Without this the cached jpeg stays ``None`` and every
-    # poll would serve the warming-up placeholder forever.
+    # actually runs. Without this the cached jpeg stays ``None`` forever.
     slot.mark_polled()
     with slot._frame_lock:
         jpeg = slot._annotated_jpeg
     if jpeg is None:
-        jpeg = _WARMING_UP_JPEG
+        # No frame encoded yet (stream is still warming up). Return 503 so
+        # the <img> ``onError`` handler flips the tile to its own CSS-based
+        # "Connecting…" placeholder instead of rendering a JPEG banner.
+        raise HTTPException(503, "no frame yet")
     return Response(
         content=jpeg,
         media_type="image/jpeg",

@@ -19,6 +19,7 @@ import type { LiveSourceStatus } from "../../types";
 import { useDialog } from "../ui/Dialog";
 
 import styles from "./MultiSourceGrid.module.css";
+import { StreamImage } from "./StreamImage";
 
 function shortHost(url: string): string {
   if (!url) return "—";
@@ -51,18 +52,10 @@ function StreamTile({
   onRemove: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
-  // Polling tick. Rather than one persistent MJPEG connection per tile (which
-  // collides with the browser's 6-conn-per-host cap once you have >4 tiles +
-  // the SSE channel), we fetch a fresh JPEG every ~400ms. The tick doubles as
-  // a cache-busting query param so the <img> actually reloads.
-  const [tick, setTick] = useState(() => Date.now());
   const dialog = useDialog();
   const running = source.running;
-  useEffect(() => {
-    if (!running) return;
-    const id = window.setInterval(() => setTick(Date.now()), 400);
-    return () => window.clearInterval(id);
-  }, [running, source.id]);
+  // Reset the error flag when the source restarts or swaps identity, so a
+  // tile that briefly failed gets a chance to reconnect on the next start.
   useEffect(() => {
     setImgError(false);
   }, [source.id, running]);
@@ -108,10 +101,8 @@ function StreamTile({
         }}
       >
         {running && !imgError ? (
-          <img
-            key={`${source.id}-${source.started_at ?? "x"}`}
-            src={`/admin/frame/${source.id}?t=${tick}`}
-            alt={`Live feed: ${source.name}`}
+          <StreamImage
+            source={source}
             className={styles.video}
             onError={() => setImgError(true)}
           />

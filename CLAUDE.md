@@ -75,6 +75,33 @@ When adding endpoints that read sensitive state, pick the right tier and audit-l
 
 Every event carries `vehicle_id`, `road_id`, `driver_id` sourced from env (`ROAD_VEHICLE_ID` / `ROAD_ID` / `ROAD_DRIVER_ID`). On startup without these, the server logs a warning and falls back to `unidentified_*_<hostname>` — events will not attribute to a real fleet. The driver safety-score model (`services/registry.py`) decays on a schedule controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (set `0` to disable).
 
+### Live video transport (admin grid)
+
+The multi-source admin grid (`frontend/src/components/admin/MultiSourceGrid.tsx`)
+renders one live tile per perception source via `StreamImage`
+(`frontend/src/components/admin/StreamImage.tsx`). It picks one of two server
+endpoints based on the page protocol:
+
+- **HTTPS → MJPEG** (`GET /admin/video_feed/{id}`, `multipart/x-mixed-replace`).
+  One persistent connection per tile; the server pushes each freshly-encoded
+  JPEG with no polling latency floor.
+- **HTTP → polling** (`GET /admin/frame/{id}`, single JPEG every ~400 ms).
+  Used in local dev where uvicorn speaks HTTP/1.1 directly and the browser's
+  6-concurrent-connections-per-host cap would deadlock MJPEG once you have
+  more than ~4 tiles open alongside SSE.
+
+**Deploy implication**: any production deployment with ≥6 streams **must**
+front uvicorn with an HTTP/2 reverse proxy (nginx, Caddy, Cloudflare, ALB).
+HTTP/2 multiplexes all streams over one TCP connection, dissolving the
+6-conn cap. TLS termination at the proxy is what flips the frontend into
+MJPEG mode automatically — no client config needed.
+
+Operators can override the auto-detection at build time via the Vite env
+var `VITE_ROAD_VIDEO_TRANSPORT=mjpeg|poll` (useful for h2c-cleartext
+deployments or for forcing polling during transport debugging). The
+server keeps both endpoints live regardless, so `/admin/frame/{id}` is
+also available for one-shot snapshots and tests.
+
 ### Watchdog
 
 `services/watchdog.py` groups repeated errors into fingerprinted incidents with impact + likely cause + owner + evidence + debug commands. The design goal is an **incident queue**, not a log-tail wall of red; preserve this when extending it.
