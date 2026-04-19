@@ -1,20 +1,23 @@
 /**
  * SettingsPage — operator-facing tuning console.
  *
- * Three columns on desktop:
- *   left   — live MJPEG stream (reuses VideoFeed) + admin token controls.
- *   center — grouped tunables with apply/rollback bar at the bottom.
- *   right  — templates list + baseline/impact panel + AI advisory.
+ * Layout (works at any width):
+ *   [TopBar]
+ *   ┌─────────────────────────────┬──────────────────┐
+ *   │ Page header                 │ Templates        │
+ *   │ Validation errors / warns   │ Baseline         │
+ *   │ <details> per category      │ Impact           │
+ *   │   tunable rows…             │ (Live preview,   │
+ *   │ [sticky apply bar]          │  collapsed)      │
+ *   └─────────────────────────────┴──────────────────┘
  *
- * The intentional simplicity here is to keep the v1 self-contained: no
- * recharts dep, no fancy state machine, no SSE wiring. Pollers + small
- * hooks are enough to exercise the entire backend surface end-to-end.
+ * Below 1100px the right rail wraps under the tunables column so we never
+ * get horizontal overflow or a hidden settings panel.
  */
 
 import { useEffect, useMemo, useState } from "react";
 
 import { TopBar } from "../components/layout/TopBar";
-import { VideoFeed } from "../components/admin/VideoFeed";
 import { useAdminToken } from "../hooks/useAdminToken";
 import { useImpact } from "../hooks/useImpact";
 import { useLiveStatus } from "../hooks/useLiveStatus";
@@ -65,7 +68,7 @@ function extractValidationErrors(exc: unknown): Array<{ key: string; reason: str
   return null;
 }
 
-function describeTier(tier: ConfidenceTier): string {
+function tierClass(tier: ConfidenceTier): string {
   switch (tier) {
     case "high": return styles.tierHigh ?? "";
     case "medium": return styles.tierMedium ?? "";
@@ -79,14 +82,55 @@ function fmt(v: number | null | undefined, digits = 2): string {
   return Number(v).toFixed(digits);
 }
 
-/** Compact display label for the current stream source. */
+/**
+ * Pick a clean step for a numeric tunable. Honours an explicit ``spec.step``
+ * when set; otherwise picks the largest "nice" increment (1, 0.5, 0.1,
+ * 0.05, 0.01, …) that yields at least 20 slider stops over the range. This
+ * keeps the slider responsive without producing values like ``5.0125``.
+ */
+function stepFor(spec: SettingSpec, min: number, max: number): number {
+  if (spec.step != null && spec.step > 0) return spec.step;
+  if (spec.type === "int") return 1;
+  const range = Math.max(max - min, 0.0001);
+  const candidates = [10, 5, 2, 1, 0.5, 0.25, 0.1, 0.05, 0.025, 0.01];
+  for (const c of candidates) {
+    if (range / c >= 20) return c;
+  }
+  return 0.01;
+}
+
+/** Acronyms we want to keep uppercase when humanizing SCREAMING_SNAKE keys. */
+const ACRONYMS = new Set([
+  "TTC", "ALPR", "LLM", "FPS", "BBOX", "CB", "CONF",
+  "MIN", "MAX", "SEC", "DIST", "ID", "PER",
+]);
+
+/**
+ * Convert ``SOME_KEY_NAME`` (or ``some-thing``) to a human label, preserving
+ * the acronyms in :data:`ACRONYMS`. E.g.
+ *   ``MIN_BBOX_AREA``           → "MIN BBOX Area"
+ *   ``VEHICLE_PAIR_CONF_FLOOR`` → "Vehicle Pair CONF Floor"
+ *   ``risk-tier``               → "Risk Tier"
+ */
+function humanize(raw: string): string {
+  return raw
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((word) => {
+      const upper = word.toUpperCase();
+      if (ACRONYMS.has(upper)) return upper;
+      const lower = word.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
 function shortSource(src: string): string {
   if (!src) return "—";
   if (/youtube\.com|youtu\.be/.test(src)) return "youtube";
   if (src.startsWith("http")) {
     try { return new URL(src).hostname.replace(/^www\./, ""); } catch { return src.slice(0, 24); }
   }
-  // Local file — show the basename.
   const seg = src.split("/").filter(Boolean).pop();
   return seg || src;
 }
@@ -103,31 +147,37 @@ function TunableControl(props: {
 }) {
   const { spec, effective, draft, errorReason, onChange } = props;
   const dirty = draft !== effective;
-  const cls = `${styles.tunable} ${dirty ? styles.dirty : ""} ${errorReason ? styles.error : ""}`;
+  const cls = [
+    styles.tunable,
+    dirty ? styles.dirty : "",
+    errorReason ? styles.error : "",
+  ].filter(Boolean).join(" ");
 
   let control: React.ReactNode;
   if (spec.type === "enum" && spec.enum) {
     control = (
       <select value={String(draft)} onChange={(e) => onChange(e.target.value)}>
-        {spec.enum.map((v) => (
-          <option key={v} value={v}>
-            {v}
-          </option>
-        ))}
+        {spec.enum.map((v) => <option key={v} value={v}>{v}</option>)}
       </select>
     );
   } else if (spec.type === "bool") {
     control = (
-      <input
-        type="checkbox"
-        checked={!!draft}
-        onChange={(e) => onChange(e.target.checked)}
-      />
+      <input type="checkbox" checked={!!draft} onChange={(e) => onChange(e.target.checked)} />
     );
   } else if (spec.type === "int" || spec.type === "float") {
     const min = spec.min ?? 0;
     const max = spec.max ?? 100;
-    const step = spec.type === "int" ? 1 : Math.max((max - min) / 200, 0.01);
+    const step = stepFor(spec, min, max);
+    const parse = (s: string) => {
+      const n = spec.type === "int" ? parseInt(s, 10) : parseFloat(s);
+      if (!Number.isFinite(n)) return spec.type === "int" ? 0 : 0;
+      // Quantise to the chosen step so the displayed value never inherits
+      // floating-point noise from the slider widget (e.g. 5.0125).
+      const snapped = Math.round((n - min) / step) * step + min;
+      // Round to the step's significant digits so we don't print 5.000000001.
+      const digits = step >= 1 ? 0 : Math.min(6, Math.max(0, -Math.floor(Math.log10(step))));
+      return Number(snapped.toFixed(digits));
+    };
     control = (
       <>
         <input
@@ -136,9 +186,7 @@ function TunableControl(props: {
           max={max}
           step={step}
           value={Number(draft)}
-          onChange={(e) =>
-            onChange(spec.type === "int" ? parseInt(e.target.value, 10) : parseFloat(e.target.value))
-          }
+          onChange={(e) => onChange(parse(e.target.value))}
         />
         <input
           type="number"
@@ -146,88 +194,78 @@ function TunableControl(props: {
           max={max}
           step={step}
           value={Number(draft)}
-          onChange={(e) =>
-            onChange(spec.type === "int" ? parseInt(e.target.value, 10) : parseFloat(e.target.value))
-          }
+          onChange={(e) => onChange(parse(e.target.value))}
         />
       </>
     );
   } else {
-    control = (
-      <input type="text" value={String(draft)} onChange={(e) => onChange(e.target.value)} />
-    );
+    control = <input type="text" value={String(draft)} onChange={(e) => onChange(e.target.value)} />;
   }
 
   return (
     <div className={cls}>
-      <div>
+      <div className={styles.keyCol}>
+        <span className={styles.keyLabel}>{humanize(spec.key)}</span>
         <span className={styles.keyName}>{spec.key}</span>
         <span className={styles.keyDesc}>{spec.description}</span>
-        {errorReason && <span className={styles.keyDesc} style={{ color: "#fca5a5" }}>{errorReason}</span>}
+        {errorReason && <span className={styles.keyError}>{errorReason}</span>}
       </div>
       <div className={styles.controlCol}>{control}</div>
       <div className={styles.metaCol}>
-        <span>default: {String(spec.default)}</span>
-        {spec.mutability === "warm_reload" && <span className={`${styles.badge} ${styles.badgeWarm}`}>warm reload</span>}
+        <span className={styles.defaultLabel}>def: {String(spec.default)}</span>
+        {spec.mutability === "warm_reload" && <span className={`${styles.badge} ${styles.badgeWarm}`}>warm</span>}
         {spec.mutability === "restart_required" && <span className={`${styles.badge} ${styles.badgeRestart}`}>restart</span>}
-        {spec.requires_privacy_confirm && <span className={`${styles.badge} ${styles.badgeWarm}`}>privacy</span>}
+        {spec.mutability === "read_only" && <span className={`${styles.badge} ${styles.badgeReadonly}`}>read-only</span>}
+        {spec.requires_privacy_confirm && <span className={`${styles.badge} ${styles.badgePrivacy}`}>privacy</span>}
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// TemplateManager
+// TemplatesCard
 // ---------------------------------------------------------------------------
-function TemplateManager(props: {
+function TemplatesCard(props: {
   templates: SettingsTemplate[];
-  loading: boolean;
+  busy: boolean;
   onApply: (id: string) => Promise<void>;
   onCreate: (name: string, description: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   return (
-    <div>
-      <div className={styles.headerRow}>
-        <h3 className={styles.title}>Templates</h3>
-        <span className={styles.subtle}>{props.templates.length} total</span>
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h3 className={styles.cardTitle}>Templates ({props.templates.length})</h3>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className={styles.templateList}>
         {props.templates.map((t) => (
-          <div key={t.id} className={styles.templateCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <h4>
-                {t.name}{" "}
-                {t.system && (
-                  <span className={`${styles.badge} ${styles.badgeReadonly}`}>system</span>
-                )}
-              </h4>
+          <div key={t.id} className={styles.templateItem}>
+            <div className={styles.templateRow}>
+              <div>
+                <span className={styles.templateName}>{t.name}</span>
+                {t.system && <span className={`${styles.badge} ${styles.badgeReadonly}`} style={{ marginLeft: 6 }}>system</span>}
+              </div>
               <span className={styles.subtle}>r{t.latest_revision_no}</span>
             </div>
-            {t.description && <p>{t.description}</p>}
+            {t.description && <span className={styles.templateDesc}>{t.description}</span>}
             <div className={styles.templateActions}>
               <button
                 className={styles.btn}
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  try { await props.onApply(t.id); } finally { setBusy(false); }
-                }}
+                disabled={props.busy}
+                onClick={() => props.onApply(t.id)}
               >
                 Apply
               </button>
               {!t.system && (
                 <button
                   className={`${styles.btn} ${styles.btnDanger}`}
-                  disabled={busy}
-                  onClick={async () => {
-                    if (!confirm(`Delete template "${t.name}"?`)) return;
-                    setBusy(true);
-                    try { await props.onDelete(t.id); } finally { setBusy(false); }
+                  disabled={props.busy}
+                  onClick={() => {
+                    if (confirm(`Delete template "${t.name}"?`)) props.onDelete(t.id);
                   }}
                 >
                   Delete
@@ -237,75 +275,109 @@ function TemplateManager(props: {
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-        <input
-          className={styles.tokenInput}
-          placeholder="New template name…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <input
-          className={styles.tokenInput}
-          placeholder="Description"
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-        />
-        <button
-          className={`${styles.btn} ${styles.btnPrimary}`}
-          disabled={!name.trim() || busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await props.onCreate(name.trim(), desc.trim());
-              setName("");
-              setDesc("");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Save current as template
-        </button>
-      </div>
+
+      <details>
+        <summary className={styles.subtle} style={{ cursor: "pointer" }}>+ Save current as template</summary>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+          <input
+            className={styles.tokenInput}
+            placeholder="Template name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            className={styles.tokenInput}
+            placeholder="Description (optional)"
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+          />
+          <button
+            className={`${styles.btn} ${styles.btnPrimary}`}
+            disabled={!name.trim() || creating}
+            onClick={async () => {
+              setCreating(true);
+              try {
+                await props.onCreate(name.trim(), desc.trim());
+                setName(""); setDesc("");
+              } finally {
+                setCreating(false);
+              }
+            }}
+          >
+            {creating ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </details>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ImpactPanel
+// BaselineCard
 // ---------------------------------------------------------------------------
-function ImpactPanel(props: {
+function BaselineCard({ onCaptured }: { onCaptured: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h3 className={styles.cardTitle}>Baseline</h3>
+      </div>
+      <p className={styles.subtle} style={{ margin: 0 }}>
+        Snapshot the current event buffer. Future changes' impact is computed
+        against this baseline.
+      </p>
+      <button
+        className={styles.btn}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await adminFetch("/api/settings/baseline/capture", { method: "POST" });
+            onCaptured();
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Capturing…" : "Capture baseline now"}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ImpactCard
+// ---------------------------------------------------------------------------
+function ImpactCard(props: {
   report: ImpactReport | null;
   refreshing: boolean;
   onRefresh: () => void;
-  onRequestNarrative: () => void;
-  narrativeBusy: boolean;
 }) {
   const r = props.report;
   if (!r) {
     return (
-      <div className={styles.impactCard}>
-        <h3 className={styles.title}>Impact</h3>
-        <p className={styles.subtle}>
-          No active session. Apply a change or capture a baseline to start
-          monitoring.
+      <div className={styles.card}>
+        <div className={styles.cardHeader}><h3 className={styles.cardTitle}>Impact</h3></div>
+        <p className={styles.subtle} style={{ margin: 0 }}>
+          No active session yet. Apply a change or capture a baseline.
         </p>
       </div>
     );
   }
+
   return (
-    <div className={styles.impactCard}>
-      <div className={styles.headerRow}>
-        <h3 className={styles.title}>Impact ({r.state})</h3>
-        <span className={`${styles.confidenceTier} ${describeTier(r.confidence_tier)}`}>
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h3 className={styles.cardTitle}>Impact ({r.state})</h3>
+        <span className={`${styles.confidenceTier} ${tierClass(r.confidence_tier)}`}>
           {r.confidence_tier}
         </span>
       </div>
-      <p className={styles.subtle}>
-        Audit {r.audit_id} • {r.changed_keys.length} key(s):{" "}
-        {r.changed_keys.slice(0, 3).join(", ") || "—"}
-        {r.changed_keys.length > 3 && "…"}
-      </p>
+
+      <div className={styles.subtle} style={{ fontSize: 11 }}>
+        Audit <code>{r.audit_id.slice(0, 18)}</code>{r.changed_keys.length > 0 && ` • ${r.changed_keys.length} key(s): ${r.changed_keys.slice(0, 2).join(", ")}${r.changed_keys.length > 2 ? "…" : ""}`}
+      </div>
+
       {r.confidence_reasons.length > 0 && (
         <div className={styles.reasonList}>
           {r.confidence_reasons.map((reason) => (
@@ -313,6 +385,7 @@ function ImpactPanel(props: {
           ))}
         </div>
       )}
+
       {r.baseline && r.after_window && (
         <>
           <div className={styles.deltaList}>
@@ -338,33 +411,23 @@ function ImpactPanel(props: {
             <span>{r.baseline.sample_size} → {r.after_window.sample_size}</span>
             <span></span>
           </div>
-          {/* Lightweight inline bar comparison for severity counts. */}
-          <SeverityBars
-            label="severity (baseline)"
-            counts={r.baseline.severity_counts}
-          />
-          <SeverityBars
-            label="severity (after)"
-            counts={r.after_window.severity_counts}
-          />
+
+          <SeverityBars label="severity (after)" counts={r.after_window.severity_counts} />
         </>
       )}
+
       {r.narrative && (
         <div className={styles.narrative}>
           <strong>{(r.recommendation ?? "monitor").toUpperCase()}</strong>: {r.narrative}
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-        <button className={styles.btn} onClick={props.onRefresh} disabled={props.refreshing}>
-          {props.refreshing ? "Refreshing…" : "Refresh"}
-        </button>
-        <button className={styles.btn} onClick={props.onRequestNarrative} disabled={props.narrativeBusy}>
-          {props.narrativeBusy ? "Asking AI…" : "Generate AI summary"}
-        </button>
-      </div>
-      <div className={styles.subtle} style={{ marginTop: 4, fontSize: 11 }}>
-        Lagging metrics ({r.lagging_metrics.join(", ")}) require operator
-        feedback before they can be compared. Awaiting verdicts.
+
+      <button className={styles.btn} onClick={props.onRefresh} disabled={props.refreshing}>
+        {props.refreshing ? "Refreshing…" : "Refresh"}
+      </button>
+
+      <div className={styles.subtle} style={{ fontSize: 10 }}>
+        Lagging metrics ({r.lagging_metrics.join(", ")}) need operator feedback.
       </div>
     </div>
   );
@@ -376,24 +439,22 @@ function SeverityBars({ label, counts }: { label: string; counts: Record<string,
   const seen = new Set<string>();
   return (
     <div>
-      <div className={styles.subtle} style={{ marginTop: 4 }}>{label}</div>
+      <div className={styles.subtle} style={{ marginBottom: 4 }}>{label}</div>
       <div className={styles.bars}>
         {order
           .filter((k) => counts[k] != null)
           .map((k) => {
             seen.add(k);
+            const v = counts[k] ?? 0;
             return (
               <div className={styles.barRow} key={k}>
                 <div>
-                  <div>{k}</div>
+                  <div style={{ fontSize: 10, color: "var(--muted)" }}>{k}</div>
                   <div className={styles.bar}>
-                    <div
-                      className={styles.barFill}
-                      style={{ width: `${((counts[k] ?? 0) / total) * 100}%` }}
-                    />
+                    <div className={styles.barFill} style={{ width: `${(v / total) * 100}%` }} />
                   </div>
                 </div>
-                <span className={styles.subtle}>{counts[k] ?? 0}</span>
+                <span className={styles.subtle}>{v}</span>
               </div>
             );
           })}
@@ -402,7 +463,7 @@ function SeverityBars({ label, counts }: { label: string; counts: Record<string,
           .map(([k, v]) => (
             <div className={styles.barRow} key={k}>
               <div>
-                <div>{k}</div>
+                <div style={{ fontSize: 10, color: "var(--muted)" }}>{k}</div>
                 <div className={styles.bar}>
                   <div className={styles.barFill} style={{ width: `${(v / total) * 100}%` }} />
                 </div>
@@ -423,11 +484,8 @@ export function SettingsPage() {
   const settings = useSettings(token);
   const templates = useSettingsTemplates(token);
   const impact = useImpact(token);
-  // Live-status feed for the TopBar pill — public route, no admin token needed.
   const { data: live, error: liveError } = useLiveStatus(5000);
-  // Tri-state for the connection dot: undefined while we haven't heard back
-  // yet, true when the server reports the perception loop is running, false
-  // when the poll errored or the loop is down.
+
   const connected: boolean | undefined =
     live ? !!live.running : liveError ? false : undefined;
   const sourceName = live?.source ? shortSource(live.source) : "—";
@@ -437,9 +495,8 @@ export function SettingsPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
-  const [narrativeBusy, setNarrativeBusy] = useState(false);
 
-  // Re-seed the draft whenever the effective values change AND the operator
+  // Re-seed the draft from effective values whenever they appear AND the operator
   // hasn't started editing.
   useEffect(() => {
     if (settings.effective && Object.keys(draft).length === 0) {
@@ -449,11 +506,7 @@ export function SettingsPage() {
 
   const dirtyKeys = useMemo(() => {
     if (!settings.effective) return [];
-    const out: string[] = [];
-    for (const k of Object.keys(draft)) {
-      if (draft[k] !== settings.effective.values[k]) out.push(k);
-    }
-    return out;
+    return Object.keys(draft).filter((k) => draft[k] !== settings.effective!.values[k]);
   }, [draft, settings.effective]);
 
   const errorByKey = useMemo(() => {
@@ -465,9 +518,7 @@ export function SettingsPage() {
   const groupedSpecs = useMemo(() => {
     if (!settings.schema) return [] as Array<[string, SettingSpec[]]>;
     const by: Record<string, SettingSpec[]> = {};
-    for (const s of settings.schema.settings) {
-      (by[s.category] ??= []).push(s);
-    }
+    for (const s of settings.schema.settings) (by[s.category] ??= []).push(s);
     return Object.entries(by);
   }, [settings.schema]);
 
@@ -489,10 +540,7 @@ export function SettingsPage() {
       setDraft({});
     } catch (exc) {
       const errors = extractValidationErrors(exc);
-      if (errors) {
-        setValidationErrors(errors);
-        return;
-      }
+      if (errors) { setValidationErrors(errors); return; }
       if (isPrivacyConfirmRequired(exc)) {
         if (confirm("This change touches a privacy-sensitive setting (ALPR_MODE). Confirm?")) {
           await doApply({ confirmPrivacy: true });
@@ -500,10 +548,7 @@ export function SettingsPage() {
         }
         return;
       }
-      if (exc instanceof MissingAdminTokenError) {
-        // bubble up to the empty state
-        return;
-      }
+      if (exc instanceof MissingAdminTokenError) return;
       const status = (exc as AdminApiError).status;
       if (status === 409) {
         alert("Settings changed elsewhere — refreshing the view.");
@@ -511,10 +556,7 @@ export function SettingsPage() {
         setDraft({});
         return;
       }
-      if (status === 429) {
-        alert("Apply rate-limited. Try again in a few seconds.");
-        return;
-      }
+      if (status === 429) { alert("Apply rate-limited. Try again in a few seconds."); return; }
       console.error(exc);
       alert(`Apply failed: ${(exc as Error).message}`);
     } finally {
@@ -558,93 +600,74 @@ export function SettingsPage() {
     }
   }
 
-  async function requestNarrative() {
-    if (!impact.report) return;
-    setNarrativeBusy(true);
-    try {
-      // The backend doesn't yet expose a public narrative endpoint by default;
-      // we trigger it by re-applying a no-op so the next impact tick refreshes.
-      // (For v1.5 we'll add a dedicated POST /api/settings/impact/narrate.)
-      await impact.refresh();
-    } finally {
-      setNarrativeBusy(false);
-    }
-  }
-
-  // Token-prompt empty state
+  // ---- Token-prompt empty state ----
   if (!token || settings.needsToken) {
     return (
       <>
         <TopBar sourceName={sourceName} connected={connected} />
         <main className={styles.main}>
-          <div className={styles.left}>
-            <h2 className={styles.title}>Settings Console</h2>
-            {settings.error && (
-              <div className={styles.errorList}>{settings.error}</div>
-            )}
-            <p className={styles.subtle}>
-              Settings is admin-tier. Paste your <code>ROAD_ADMIN_TOKEN</code>{" "}
-              (kept in <code>sessionStorage</code>, cleared on tab close).
-            </p>
-            <div className={styles.tokenPrompt}>
-              <input
-                type="password"
-                className={styles.tokenInput}
-                placeholder="ROAD_ADMIN_TOKEN…"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && tokenInput.trim()) {
-                    setToken(tokenInput.trim());
-                  }
-                }}
-              />
-              <button
-                className={`${styles.btn} ${styles.btnPrimary}`}
-                disabled={!tokenInput.trim()}
-                onClick={() => setToken(tokenInput.trim())}
-              >
-                Save token for this session
-              </button>
+          <section className={styles.center}>
+            <div className={styles.tokenWrap}>
+              <h2 className={styles.pageTitle}>Settings Console</h2>
+              {settings.error && <div className={styles.errorList}>{settings.error}</div>}
+              <p className={styles.subtle}>
+                Settings is admin-tier. Paste your <code>ROAD_ADMIN_TOKEN</code>{" "}
+                (kept in <code>sessionStorage</code>, cleared on tab close).
+              </p>
+              <div className={styles.tokenPrompt}>
+                <input
+                  type="password"
+                  className={styles.tokenInput}
+                  placeholder="ROAD_ADMIN_TOKEN…"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && tokenInput.trim()) setToken(tokenInput.trim());
+                  }}
+                  autoFocus
+                />
+                <button
+                  className={`${styles.btn} ${styles.btnPrimary}`}
+                  disabled={!tokenInput.trim()}
+                  onClick={() => setToken(tokenInput.trim())}
+                >
+                  Save token for this session
+                </button>
+              </div>
             </div>
-          </div>
-          <div className={styles.center} />
+          </section>
         </main>
       </>
     );
   }
 
+  // ---- Main page ----
   return (
     <>
       <TopBar sourceName={sourceName} connected={connected} />
       <main className={styles.main}>
-        <aside className={styles.left}>
-          <h2 className={styles.title}>Live</h2>
-          <VideoFeed stats={{ detections: 0, persons: 0, vehicles: 0, interactions: 0, fps: "—" }} />
-          <div className={styles.subtle}>
-            Effective revision: {settings.effective?.revision_hash ?? "—"} (#
-            {settings.effective?.revision_no ?? 0})
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button className={styles.btn} onClick={() => settings.refresh()}>
-              Refresh
-            </button>
-            <button className={styles.btn} onClick={clear}>
-              Forget token
-            </button>
-          </div>
-        </aside>
-
         <section className={styles.center}>
-          <div className={styles.headerRow}>
-            <h2 className={styles.title}>
-              Settings ({settings.schema?.settings.length ?? 0} tunables)
-            </h2>
-            <span className={styles.subtle}>
-              schema v{settings.schema?.schema_version ?? 0}
-            </span>
+          {/* Page header */}
+          <div className={styles.pageHeader}>
+            <div className={styles.pageTitleGroup}>
+              <h1 className={styles.pageTitle}>Settings</h1>
+              <span className={styles.pageSub}>
+                schema v{settings.schema?.schema_version ?? 0} • rev #
+                {settings.effective?.revision_no ?? 0} •{" "}
+                {settings.effective?.revision_hash ?? "—"}
+              </span>
+            </div>
+            <div className={styles.headerActions}>
+              <button className={styles.btn} onClick={() => settings.refresh()}>
+                Refresh
+              </button>
+              <button className={`${styles.btn} ${styles.btnGhost}`} onClick={clear}>
+                Forget token
+              </button>
+            </div>
           </div>
 
+          {/* Validation / warnings */}
           {validationErrors.length > 0 && (
             <div className={styles.errorList}>
               {validationErrors.map((e) => (
@@ -660,37 +683,38 @@ export function SettingsPage() {
             </div>
           )}
 
+          {/* Tunables */}
           {settings.schema && settings.effective && groupedSpecs.map(([cat, specs]) => (
             <details key={cat} className={styles.category} open>
-              <summary>{cat}</summary>
-              {specs.map((spec) => {
-                const eff = settings.effective!.values[spec.key] as DraftValue;
-                const cur = (draft[spec.key] ?? eff) as DraftValue;
-                return (
-                  <TunableControl
-                    key={spec.key}
-                    spec={spec}
-                    effective={eff}
-                    draft={cur}
-                    errorReason={errorByKey[spec.key] ?? null}
-                    onChange={(v) => setDraft({ ...draft, [spec.key]: v })}
-                  />
-                );
-              })}
+              <summary>{humanize(cat)} <span style={{ float: "right", fontSize: 10 }}>{specs.length}</span></summary>
+              <div className={styles.categoryBody}>
+                {specs.map((spec) => {
+                  const eff = settings.effective!.values[spec.key] as DraftValue;
+                  const cur = (draft[spec.key] ?? eff) as DraftValue;
+                  return (
+                    <TunableControl
+                      key={spec.key}
+                      spec={spec}
+                      effective={eff}
+                      draft={cur}
+                      errorReason={errorByKey[spec.key] ?? null}
+                      onChange={(v) => setDraft({ ...draft, [spec.key]: v })}
+                    />
+                  );
+                })}
+              </div>
             </details>
           ))}
 
+          {settings.loading && !settings.schema && (
+            <p className={styles.subtle}>Loading settings…</p>
+          )}
+
+          {/* Sticky apply bar */}
           <div className={styles.applyBar}>
             <span className={styles.dirtyCount}>
               {dirtyKeys.length} pending change{dirtyKeys.length === 1 ? "" : "s"}
             </span>
-            <button
-              className={`${styles.btn} ${styles.btnPrimary}`}
-              disabled={!dirtyKeys.length || submitting}
-              onClick={() => doApply()}
-            >
-              {submitting ? "Applying…" : "Apply"}
-            </button>
             <button
               className={styles.btn}
               disabled={!dirtyKeys.length}
@@ -705,13 +729,20 @@ export function SettingsPage() {
             >
               Rollback to last-good
             </button>
+            <button
+              className={`${styles.btn} ${styles.btnPrimary}`}
+              disabled={!dirtyKeys.length || submitting}
+              onClick={() => doApply()}
+            >
+              {submitting ? "Applying…" : `Apply${dirtyKeys.length ? ` (${dirtyKeys.length})` : ""}`}
+            </button>
           </div>
         </section>
 
         <aside className={styles.right}>
-          <TemplateManager
+          <TemplatesCard
             templates={templates.templates}
-            loading={templates.loading}
+            busy={submitting}
             onApply={doApplyTemplate}
             onCreate={async (name, description) => {
               if (!settings.effective) return;
@@ -719,47 +750,23 @@ export function SettingsPage() {
             }}
             onDelete={async (id) => templates.remove(id)}
           />
-          <BaselineCapture token={token} onCaptured={() => impact.refresh()} />
-          <ImpactPanel
+          <BaselineCard onCaptured={() => impact.refresh()} />
+          <ImpactCard
             report={impact.report}
             refreshing={impact.refreshing}
             onRefresh={() => impact.refresh()}
-            onRequestNarrative={requestNarrative}
-            narrativeBusy={narrativeBusy}
           />
+
+          {/* Optional video preview — collapsed by default to save space. */}
+          <details className={`${styles.card} ${styles.videoCard}`}>
+            <summary className={styles.cardTitle}>Live preview</summary>
+            <img src="/admin/video_feed" alt="Live preview" />
+            <span className={styles.subtle}>
+              source: {sourceName}{live?.target_fps ? ` @ ${live.target_fps}fps` : ""}
+            </span>
+          </details>
         </aside>
       </main>
     </>
-  );
-}
-
-function BaselineCapture({ token, onCaptured }: { token: string; onCaptured: () => void }) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className={styles.impactCard}>
-      <div className={styles.headerRow}>
-        <h3 className={styles.title}>Baseline</h3>
-      </div>
-      <p className={styles.subtle}>
-        Capture a baseline window from the current event buffer; impact deltas
-        will be computed against it.
-      </p>
-      <button
-        className={styles.btn}
-        disabled={busy}
-        onClick={async () => {
-          if (!token) return;
-          setBusy(true);
-          try {
-            await adminFetch("/api/settings/baseline/capture", { method: "POST" });
-            onCaptured();
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {busy ? "Capturing…" : "Capture baseline now"}
-      </button>
-    </div>
   );
 }

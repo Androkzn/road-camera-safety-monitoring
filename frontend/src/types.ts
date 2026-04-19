@@ -126,6 +126,9 @@ export interface LiveStatus {
   uptime_sec: number;              // Seconds since server start.
   started_at: number | null;       // Unix ts, or null if not running.
   perception?: PerceptionState;    // Nested quality snapshot.
+  target_fps?: number;             // Server-side perception loop tick rate.
+  alpr_mode?: string;              // External ALPR posture (off/on/on_demand).
+  location?: string;               // Free-form location tag.
 }
 
 // =============================================================================
@@ -373,6 +376,7 @@ export interface SettingSpec {
   description: string;
   min: number | null;
   max: number | null;
+  step: number | null;
   enum: string[] | null;
   requires_privacy_confirm: boolean;
 }

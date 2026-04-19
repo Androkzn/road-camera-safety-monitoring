@@ -83,6 +83,11 @@ class SettingSpec:
     max_value: float | None = None
     enum_values: tuple[str, ...] | None = None
     requires_privacy_confirm: bool = False
+    step: float | None = None
+    """UI slider step. ``None`` means the frontend picks a 'nice' default
+    based on the type and range. Set explicitly when the auto-default would
+    give awkward fractional increments (e.g. for ``PAIR_COOLDOWN_SEC`` we
+    want whole-second snaps)."""
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +229,7 @@ SETTINGS_SPEC: list[SettingSpec] = [
         description="Burst capacity (tokens) of the shared LLM bucket.",
         min_value=1.0,
         max_value=20.0,
+        step=1.0,            # whole tokens — fractional capacity is meaningless
     ),
     SettingSpec(
         key="LLM_BUCKET_REFILL_PER_MIN",
@@ -232,8 +238,9 @@ SETTINGS_SPEC: list[SettingSpec] = [
         category="llm-cost",
         mutability="warm_reload",
         description="Refill rate of the LLM bucket in tokens per minute.",
-        min_value=0.5,
+        min_value=1.0,
         max_value=60.0,
+        step=1.0,            # whole tokens / minute
     ),
     # --- alerting ----------------------------------------------------------
     SettingSpec(
@@ -267,6 +274,7 @@ SETTINGS_SPEC: list[SettingSpec] = [
         description="Suppress repeat events from the same track pair.",
         min_value=1.0,
         max_value=60.0,
+        step=1.0,            # whole seconds — fractional cooldowns add no value
     ),
     # --- performance -------------------------------------------------------
     SettingSpec(
@@ -288,6 +296,7 @@ SETTINGS_SPEC: list[SettingSpec] = [
         description="Perception loop tick rate. Applied on next process restart.",
         min_value=0.5,
         max_value=10.0,
+        step=0.5,            # half-fps snaps; finer granularity isn't useful
     ),
 ]
 
@@ -463,6 +472,7 @@ def schema_payload() -> dict[str, Any]:
                 "description": s.description,
                 "min": s.min_value,
                 "max": s.max_value,
+                "step": s.step,
                 "enum": list(s.enum_values) if s.enum_values else None,
                 "requires_privacy_confirm": s.requires_privacy_confirm,
             }
