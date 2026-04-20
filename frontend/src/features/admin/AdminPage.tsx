@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { POLL_INTERVAL_MS } from "../../shared/config/runtime";
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useUptimeTicker } from "../../shared/hooks/useUptimeTicker";
 import { PageChrome } from "../../shared/layout/PageChrome";
@@ -38,7 +39,7 @@ export function AdminPage() {
   const { data: health } = useAdminHealth();
   const { frames } = useDetections();
   const { events: liveEvents, connected, clearEvents } = useEventStream();
-  const liveSources = useLiveSources(5000);
+  const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSources);
 
   const handleRestart = useCallback(async () => {
     clearEvents();

@@ -1,6 +1,7 @@
 /**
  * Admin API surface — health snapshot, live sources lifecycle, history.
  */
+import { LIMITS } from "../../shared/config/runtime";
 import { fetchJson } from "../../shared/lib/fetchClient";
 import type {
   HealthData,
@@ -66,7 +67,7 @@ export const adminApi = {
     const q = new URLSearchParams();
     if (params?.risk_level) q.set("risk_level", params.risk_level);
     if (params?.event_type) q.set("event_type", params.event_type);
-    q.set("limit", String(params?.limit ?? 200));
+    q.set("limit", String(params?.limit ?? LIMITS.liveEventsDefaultLimit));
     return fetchJson<SafetyEvent[]>(`/api/live/events?${q}`, { signal });
   },
 };

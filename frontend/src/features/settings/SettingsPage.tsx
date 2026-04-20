@@ -18,6 +18,7 @@
 
 import { useMemo } from "react";
 
+import { POLL_INTERVAL_MS } from "../../shared/config/runtime";
 import { useAdminToken } from "../../shared/hooks/useAdminToken";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
 import { TopBar } from "../../shared/layout/TopBar";
@@ -54,8 +55,10 @@ export function SettingsPage() {
   // pill — not a second-by-second indicator. Drop the poll frequency from
   // 5 s to 15 s on this page. Other pages that mount these hooks keep
   // their defaults.
-  const { data: live, error: liveError } = useLiveStatus(15_000);
-  const liveSources = useLiveSources(15_000);
+  const { data: live, error: liveError } = useLiveStatus(
+    POLL_INTERVAL_MS.liveStatusSettings,
+  );
+  const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSourcesSettings);
   const { status: wdStatus } = useWatchdogCtx();
   const driftCount = useDriftCount();
   const dialog = useDialog();

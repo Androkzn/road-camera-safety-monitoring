@@ -11,6 +11,8 @@
  * Prior D6 regression: each consumer opened its own `EventSource`, so
  * two visible pages = two connections + two drifting event buffers.
  * This hook now always reads the one shared buffer.
+ * For status-only consumers, use `useEventStreamConnection()`.
  */
 
 export { useEventStreamCtx as useEventStream } from "../events/EventStreamProvider";
+export { useEventStreamConnection } from "../events/EventStreamProvider";

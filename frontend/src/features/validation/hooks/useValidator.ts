@@ -8,6 +8,10 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import {
+  POLL_INTERVAL_MS,
+  STALE_TIME_MS,
+} from "../../../shared/config/runtime";
 import { fetchJson, postJson } from "../../../shared/lib/fetchClient";
 
 export interface ValidatorStatusPayload {
@@ -30,7 +34,9 @@ export interface ValidatorStatusPayload {
 
 const VALIDATOR_QUERY_KEY = ["monitoring", "validator"] as const;
 
-export function useValidator(refetchMs = 5000) {
+export function useValidator(
+  refetchMs: number = POLL_INTERVAL_MS.validator,
+) {
   const qc = useQueryClient();
 
   const status = useQuery<ValidatorStatusPayload>({
@@ -38,7 +44,7 @@ export function useValidator(refetchMs = 5000) {
     queryFn: ({ signal }) =>
       fetchJson<ValidatorStatusPayload>("/api/validator/status", { signal }),
     refetchInterval: refetchMs,
-    staleTime: 2000,
+    staleTime: STALE_TIME_MS.validator,
   });
 
   const toggle = useMutation({

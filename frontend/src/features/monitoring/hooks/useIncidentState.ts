@@ -8,6 +8,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { DELAY_MS } from "../../../shared/config/runtime";
+
 export type UserStatus = "acknowledged" | "resolved";
 
 export interface StoredIncidentState {
@@ -98,7 +100,7 @@ export function useLastVisit() {
         /* ignore */
       }
     };
-    const timer = setTimeout(markVisited, 4000);
+    const timer = setTimeout(markVisited, DELAY_MS.monitoringLastVisit);
     window.addEventListener("beforeunload", markVisited);
     return () => {
       clearTimeout(timer);

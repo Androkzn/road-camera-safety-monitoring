@@ -8,5 +8,11 @@
 export { EventCard } from "./EventCard";
 export { EventDialog } from "./EventDialog";
 export { FeedbackButtons } from "./FeedbackButtons";
-export { EventStreamProvider, useEventStreamCtx } from "./EventStreamProvider";
+export {
+  EventStreamProvider,
+  useEventStreamCtx,
+  useEventStreamConnection,
+  useEventStreamData,
+  useEventStreamActions,
+} from "./EventStreamProvider";
 export type { EventStreamCtx } from "./EventStreamProvider";

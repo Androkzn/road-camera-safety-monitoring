@@ -7,6 +7,7 @@
  */
 import { fetchJson } from "../../shared/lib/fetchClient";
 import { adminFetch } from "../../shared/lib/adminApi";
+import { LIMITS } from "../../shared/config/runtime";
 import type {
   WatchdogFinding,
   WatchdogStatus,
@@ -15,7 +16,7 @@ import type {
 export const watchdogApi = {
   getStatus: (signal?: AbortSignal) =>
     fetchJson<WatchdogStatus>("/api/watchdog", { signal }),
-  getRecent: (n = 100, signal?: AbortSignal) =>
+  getRecent: (n = LIMITS.watchdogRecent, signal?: AbortSignal) =>
     fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`, { signal }),
   deleteFindings: (keys: string[]) =>
     adminFetch<{ deleted: number }>("/api/watchdog/findings/delete", {

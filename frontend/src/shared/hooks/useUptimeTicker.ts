@@ -15,6 +15,8 @@
  */
 import { useEffect, useState } from "react";
 
+import { POLL_INTERVAL_MS } from "../config/runtime";
+
 function toEpochSec(startedAt: string | number | null | undefined): number | null {
   if (startedAt === null || startedAt === undefined) return null;
   if (typeof startedAt === "number") {
@@ -26,7 +28,7 @@ function toEpochSec(startedAt: string | number | null | undefined): number | nul
 
 export function useUptimeTicker(
   startedAt: string | number | null | undefined,
-  intervalMs = 1000,
+  intervalMs: number = POLL_INTERVAL_MS.uptimeTicker,
 ): number {
   const epoch = toEpochSec(startedAt);
   const [elapsed, setElapsed] = useState<number>(() =>

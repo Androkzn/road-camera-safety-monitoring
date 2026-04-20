@@ -20,6 +20,7 @@ import {
   MissingAdminTokenError,
   type AdminApiError,
 } from "../../../shared/lib/adminApi";
+import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 
 import { settingsApi, settingsQueryKeys } from "../api";
 import type {
@@ -49,8 +50,6 @@ export interface SettingsState {
   rollback: () => Promise<ApplyResultPayload>;
   validate: (diff: Record<string, unknown>) => Promise<unknown>;
 }
-
-const EFFECTIVE_POLL_MS = 15_000;
 
 function classifyError(exc: unknown): {
   message: string | null;
@@ -96,7 +95,7 @@ export function useSettings(token: string | null): SettingsState {
     queryKey: settingsQueryKeys.effective,
     queryFn: ({ signal }) => settingsApi.getEffective({ signal }),
     enabled: !!token,
-    refetchInterval: EFFECTIVE_POLL_MS,
+    refetchInterval: POLL_INTERVAL_MS.settingsEffective,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     retry: (_count, err) =>

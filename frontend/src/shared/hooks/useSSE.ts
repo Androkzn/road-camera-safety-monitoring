@@ -7,6 +7,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 
+import { SSE_BACKOFF } from "../config/runtime";
+
 interface UseSSEOptions<T> {
   url: string;
   onMessage: (data: T) => void;
@@ -21,7 +23,7 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
   useEffect(() => {
     if (!enabled) return;
 
-    let backoff = 2000;
+    let backoff: number = SSE_BACKOFF.initialMs;
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
     let es: EventSource | null = null;
@@ -31,7 +33,7 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
       try {
         es = new EventSource(url);
         es.onopen = () => {
-          backoff = 2000;
+          backoff = SSE_BACKOFF.initialMs;
           setConnected(true);
         };
         es.onmessage = (ev) => {
@@ -47,14 +49,20 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
           es = null;
           if (!stopped) {
             timer = setTimeout(connect, backoff);
-            backoff = Math.min(backoff * 1.5, 30000);
+            backoff = Math.min(
+              backoff * SSE_BACKOFF.multiplier,
+              SSE_BACKOFF.maxMs,
+            );
           }
         };
       } catch {
         setConnected(false);
         if (!stopped) {
           timer = setTimeout(connect, backoff);
-          backoff = Math.min(backoff * 1.5, 30000);
+          backoff = Math.min(
+            backoff * SSE_BACKOFF.multiplier,
+            SSE_BACKOFF.maxMs,
+          );
         }
       }
     }

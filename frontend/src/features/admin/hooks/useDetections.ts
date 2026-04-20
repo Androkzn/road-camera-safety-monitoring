@@ -11,10 +11,9 @@
  */
 import { useState, useCallback, useRef } from "react";
 
+import { LIMITS, POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 import { useSSE } from "../../../shared/hooks/useSSE";
 import type { DetectionSnapshot } from "../../../shared/types/common";
-
-const MAX_FRAMES = 8;
 
 /** Per-source playhead snapshot. */
 export interface PlayheadSample {
@@ -50,7 +49,7 @@ export function useDetections() {
     const now = Date.now();
     setStats((prev) => {
       let fps = prev.fps;
-      if (now - counter.start >= 3000) {
+      if (now - counter.start >= POLL_INTERVAL_MS.detectionsFpsWindow) {
         fps = (counter.count / ((now - counter.start) / 1000)).toFixed(1);
         counter.count = 0;
         counter.start = now;
@@ -67,7 +66,9 @@ export function useDetections() {
     if (msg.objects?.length) {
       setFrames((prev) => {
         const next = [msg, ...prev];
-        return next.length > MAX_FRAMES ? next.slice(0, MAX_FRAMES) : next;
+        return next.length > LIMITS.detectionsFrames
+          ? next.slice(0, LIMITS.detectionsFrames)
+          : next;
       });
     }
 

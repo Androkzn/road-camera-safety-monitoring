@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from "react";
 
+import { POLL_INTERVAL_MS } from "../config/runtime";
 import { cx } from "../lib/cx";
 import {
   formatWallTime,
@@ -34,7 +35,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
   useEffect(() => {
     if (!isNew) return;
-    const t = setTimeout(() => setFlash(false), 1500);
+    const t = setTimeout(() => setFlash(false), POLL_INTERVAL_MS.eventCardFlash);
     return () => clearTimeout(t);
   }, [isNew]);
 

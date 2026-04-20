@@ -12,6 +12,11 @@
  *   The previous `counts: ref.current` shape was a silent-stale-bug trap —
  *   consumers did not re-render when a count changed. Counts are now
  *   derived from `events` in the consuming hook via `useMemo`.
+ *
+ * Context split:
+ *   Connected/status-only consumers (Monitoring page) now subscribe via
+ *   `useEventStreamConnection()` so event-buffer pushes do not re-render
+ *   pages that do not read `events` at all.
  */
 
 import {
@@ -23,10 +28,14 @@ import {
   type ReactNode,
 } from "react";
 
+import { LIMITS } from "../config/runtime";
 import { useSSE } from "../hooks/useSSE";
 import type { PerceptionState, SafetyEvent } from "../types/common";
 
-const MAX_EVENTS = 100;
+interface EventStreamDataCtx {
+  events: SafetyEvent[];
+  perception: PerceptionState | null;
+}
 
 export interface EventStreamCtx {
   events: SafetyEvent[];
@@ -35,10 +44,16 @@ export interface EventStreamCtx {
   clearEvents: () => void;
 }
 
-const Ctx = createContext<EventStreamCtx>({
+interface EventStreamActionsCtx {
+  clearEvents: () => void;
+}
+
+const DataCtx = createContext<EventStreamDataCtx>({
   events: [],
   perception: null,
-  connected: false,
+});
+const ConnectionCtx = createContext(false);
+const ActionsCtx = createContext<EventStreamActionsCtx>({
   clearEvents: () => {},
 });
 
@@ -54,7 +69,9 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
     const ev = msg as SafetyEvent;
     setEvents((prev) => {
       const next = [ev, ...prev];
-      return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next;
+      return next.length > LIMITS.eventStreamBuffer
+        ? next.slice(0, LIMITS.eventStreamBuffer)
+        : next;
     });
   }, []);
 
@@ -65,14 +82,46 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
 
   const clearEvents = useCallback(() => setEvents([]), []);
 
-  const value = useMemo<EventStreamCtx>(
-    () => ({ events, perception, connected, clearEvents }),
-    [events, perception, connected, clearEvents],
+  const dataValue = useMemo<EventStreamDataCtx>(
+    () => ({ events, perception }),
+    [events, perception],
+  );
+  const actionsValue = useMemo<EventStreamActionsCtx>(
+    () => ({ clearEvents }),
+    [clearEvents],
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <DataCtx.Provider value={dataValue}>
+      <ConnectionCtx.Provider value={connected}>
+        <ActionsCtx.Provider value={actionsValue}>{children}</ActionsCtx.Provider>
+      </ConnectionCtx.Provider>
+    </DataCtx.Provider>
+  );
+}
+
+export function useEventStreamData(): EventStreamDataCtx {
+  return useContext(DataCtx);
+}
+
+export function useEventStreamConnection(): boolean {
+  return useContext(ConnectionCtx);
+}
+
+export function useEventStreamActions(): EventStreamActionsCtx {
+  return useContext(ActionsCtx);
 }
 
 export function useEventStreamCtx(): EventStreamCtx {
-  return useContext(Ctx);
+  const data = useEventStreamData();
+  const connected = useEventStreamConnection();
+  const actions = useEventStreamActions();
+  return useMemo(
+    () => ({
+      ...data,
+      connected,
+      ...actions,
+    }),
+    [data, connected, actions],
+  );
 }

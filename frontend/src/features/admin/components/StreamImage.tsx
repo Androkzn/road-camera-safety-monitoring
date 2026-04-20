@@ -39,6 +39,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
+import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 import type { LiveSourceStatus } from "../../../shared/types/common";
 
 type Transport = "mjpeg" | "poll";
@@ -131,7 +132,10 @@ function PollingStreamImage({ source, className, onError }: StreamImageProps) {
   // parent (which would unmount the tile and freeze it on "Connecting…").
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    const id = window.setInterval(() => setTick(Date.now()), 400);
+    const id = window.setInterval(
+      () => setTick(Date.now()),
+      POLL_INTERVAL_MS.streamImageFrame,
+    );
     return () => window.clearInterval(id);
   }, [source.id]);
 

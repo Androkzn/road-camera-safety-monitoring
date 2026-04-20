@@ -12,6 +12,10 @@
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import {
+  POLL_INTERVAL_MS,
+  STALE_TIME_MS,
+} from "../../../shared/config/runtime";
 import type {
   LiveSourceStatus,
   LiveSourcesResponse,
@@ -28,13 +32,13 @@ export interface UseLiveSourcesListResult {
 }
 
 export function useLiveSourcesList(
-  refetchIntervalMs = 5_000,
+  refetchIntervalMs: number = POLL_INTERVAL_MS.liveSources,
 ): UseLiveSourcesListResult {
   const { data, error, refetch, isLoading } = useQuery<LiveSourcesResponse>({
     queryKey: adminQueryKeys.liveSources,
     queryFn: ({ signal }) => adminApi.getLiveSources(signal),
     refetchInterval: refetchIntervalMs,
-    staleTime: 2_000,
+    staleTime: STALE_TIME_MS.liveSources,
   });
 
   const refresh = useCallback(async () => {

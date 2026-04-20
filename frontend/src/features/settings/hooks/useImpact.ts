@@ -22,11 +22,10 @@ import {
   isAdminAuthFailure,
   MissingAdminTokenError,
 } from "../../../shared/lib/adminApi";
+import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 
 import { settingsApi, settingsQueryKeys } from "../api";
 import type { ImpactReport } from "../types";
-
-const POLL_MS = 5_000;
 
 export interface ImpactState {
   report: ImpactReport | null;
@@ -41,7 +40,7 @@ export function useImpact(token: string | null): ImpactState {
     queryKey: settingsQueryKeys.impact,
     queryFn: ({ signal }) => settingsApi.getImpact({ signal }),
     enabled: !!token,
-    refetchInterval: POLL_MS,
+    refetchInterval: POLL_INTERVAL_MS.settingsImpact,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     retry: (_count, err) =>

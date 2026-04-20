@@ -13,6 +13,8 @@
  */
 import { useEffect, useState } from "react";
 
+import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
+import { cx } from "../../../shared/lib/cx";
 import type { LiveSourceStatus } from "../../../shared/types/common";
 import { useDialog } from "../../../shared/ui";
 
@@ -55,20 +57,21 @@ export function StreamTile({
   // restores the live feed without operator action.
   useEffect(() => {
     if (!imgError || !running) return;
-    const id = window.setTimeout(() => setImgError(false), 1500);
+    const id = window.setTimeout(
+      () => setImgError(false),
+      POLL_INTERVAL_MS.streamTileRetry,
+    );
     return () => window.clearTimeout(id);
   }, [imgError, running]);
 
   const detection = source.detection_enabled;
 
-  const tileClass = [
+  const tileClass = cx(
     styles.tile,
-    !detection ? styles.tileMuted : "",
-    focused ? styles.tileFocused : "",
-    minimized ? styles.tileMini : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+    !detection && styles.tileMuted,
+    focused && styles.tileFocused,
+    minimized && styles.tileMini,
+  );
 
   return (
     <div className={tileClass}>

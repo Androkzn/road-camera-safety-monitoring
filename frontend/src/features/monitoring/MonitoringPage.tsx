@@ -13,7 +13,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { useEventStream } from "../../shared/hooks/useEventStream";
+import { useEventStreamConnection } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
 import { PageChrome } from "../../shared/layout/PageChrome";
 import { useDialog } from "../../shared/ui";
@@ -33,7 +33,7 @@ import type { SevFilter } from "./types";
 import styles from "./MonitoringPage.module.css";
 
 export function MonitoringPage() {
-  const { connected } = useEventStream();
+  const connected = useEventStreamConnection();
   const { data: liveStatus } = useLiveStatus();
   const { status, findings, deleteFindings, clearAll } = useWatchdogCtx();
 

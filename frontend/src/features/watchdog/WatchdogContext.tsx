@@ -17,6 +17,11 @@ import {
   type AdminApiError,
   MissingAdminTokenError,
 } from "../../shared/lib/adminApi";
+import {
+  LIMITS,
+  POLL_INTERVAL_MS,
+  STALE_TIME_MS,
+} from "../../shared/config/runtime";
 import { dialog } from "../../shared/ui";
 import type { WatchdogFinding, WatchdogStatus } from "../../shared/types/common";
 
@@ -46,7 +51,7 @@ const Ctx = createContext<WatchdogCtx>({
 async function fetchBoth(signal?: AbortSignal): Promise<WatchdogData> {
   const [status, findings] = await Promise.all([
     watchdogApi.getStatus(signal),
-    watchdogApi.getRecent(100, signal),
+    watchdogApi.getRecent(LIMITS.watchdogRecent, signal),
   ]);
   return { status, findings };
 }
@@ -86,8 +91,8 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
   const { data, refetch } = useQuery({
     queryKey: watchdogQueryKeys.combined,
     queryFn: ({ signal }) => fetchBoth(signal),
-    refetchInterval: 15_000,
-    staleTime: 10_000,
+    refetchInterval: POLL_INTERVAL_MS.watchdog,
+    staleTime: STALE_TIME_MS.watchdog,
   });
 
   const refresh = useCallback(() => {

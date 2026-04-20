@@ -24,6 +24,7 @@
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 import { dialog } from "../../../shared/ui";
 import type {
   LiveSourceStatus,
@@ -62,7 +63,9 @@ export interface UseLiveSourcesResult {
   busyById: Record<string, BusyAction | null>;
 }
 
-export function useLiveSources(refetchIntervalMs = 5_000): UseLiveSourcesResult {
+export function useLiveSources(
+  refetchIntervalMs: number = POLL_INTERVAL_MS.liveSources,
+): UseLiveSourcesResult {
   const qc = useQueryClient();
   const list = useLiveSourcesList(refetchIntervalMs);
   const registry = useStreamRegistry();

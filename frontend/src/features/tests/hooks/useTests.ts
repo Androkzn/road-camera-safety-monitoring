@@ -7,6 +7,10 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import {
+  POLL_INTERVAL_MS,
+  STALE_TIME_MS,
+} from "../../../shared/config/runtime";
 import { testsApi, testsQueryKeys } from "../api";
 import type { TestStatus } from "../../../shared/types/common";
 
@@ -16,8 +20,10 @@ export function useTests() {
     queryKey: testsQueryKeys.status,
     queryFn: ({ signal }) => testsApi.getStatus(signal),
     refetchInterval: (query) =>
-      query.state.data?.status === "running" ? 1_500 : 10_000,
-    staleTime: 1_000,
+      query.state.data?.status === "running"
+        ? POLL_INTERVAL_MS.testsRunning
+        : POLL_INTERVAL_MS.testsIdle,
+    staleTime: STALE_TIME_MS.tests,
     refetchOnWindowFocus: true,
   });
 
