@@ -102,3 +102,79 @@ class TestPackageVersion:
         assert isinstance(__version__, str)
         parts = __version__.split(".")
         assert len(parts) == 3
+
+
+class TestCameraCalibration:
+    """Per-slot camera calibration: defaults + env overrides."""
+
+    def test_default_calibration_matches_globals(self):
+        from road_safety.config import (
+            CAMERA_FOCAL_PX,
+            CAMERA_HEIGHT_M,
+            CAMERA_HORIZON_FRAC,
+            DEFAULT_CAMERA_CALIBRATION,
+        )
+        assert DEFAULT_CAMERA_CALIBRATION.focal_px == CAMERA_FOCAL_PX
+        assert DEFAULT_CAMERA_CALIBRATION.height_m == CAMERA_HEIGHT_M
+        assert DEFAULT_CAMERA_CALIBRATION.horizon_frac == CAMERA_HORIZON_FRAC
+        assert DEFAULT_CAMERA_CALIBRATION.orientation == "forward"
+        assert DEFAULT_CAMERA_CALIBRATION.bumper_offset_m == 0.0
+
+    def test_primary_slot_uses_front_dashcam_defaults(self):
+        from road_safety.config import camera_calibration_for
+        cal = camera_calibration_for("primary")
+        # Front dashcam (iPhone 1× wide) on a Nissan Rogue rearview mirror.
+        assert cal.focal_px == 600.0
+        assert cal.height_m == 1.25
+        assert cal.orientation == "forward"
+        assert cal.bumper_offset_m == 1.7
+
+    def test_rear_slot_uses_ultrawide_defaults(self):
+        from road_safety.config import camera_calibration_for
+        cal = camera_calibration_for("rear")
+        # iPhone 0.5× ultra-wide on the rear window.
+        assert cal.focal_px == 260.0
+        assert cal.height_m == 1.10
+        assert cal.orientation == "rear"
+        assert cal.bumper_offset_m == 0.3
+
+    def test_left_slot_marked_side_orientation(self):
+        from road_safety.config import camera_calibration_for
+        cal = camera_calibration_for("left")
+        # Side cam: ground-plane prior is invalid; downstream code skips it.
+        assert cal.focal_px == 260.0
+        assert cal.orientation == "side"
+        assert cal.horizon_frac == 0.50  # level mount → horizon at image center
+        assert cal.bumper_offset_m == 0.1
+
+    def test_unknown_slot_falls_back_to_default(self):
+        from road_safety.config import (
+            DEFAULT_CAMERA_CALIBRATION,
+            camera_calibration_for,
+        )
+        cal = camera_calibration_for("operator_defined_slot_xyz")
+        assert cal == DEFAULT_CAMERA_CALIBRATION
+
+    def test_env_override_per_slot(self, monkeypatch):
+        from road_safety.config import camera_calibration_for
+        monkeypatch.setenv("ROAD_CAMERA_FOCAL_PX__PRIMARY", "742.5")
+        monkeypatch.setenv("ROAD_CAMERA_BUMPER_OFFSET_M__PRIMARY", "2.1")
+        cal = camera_calibration_for("primary")
+        assert cal.focal_px == 742.5
+        assert cal.bumper_offset_m == 2.1
+        # Other fields still come from the slot defaults.
+        assert cal.orientation == "forward"
+        assert cal.height_m == 1.25
+
+    def test_env_override_orientation(self, monkeypatch):
+        from road_safety.config import camera_calibration_for
+        monkeypatch.setenv("ROAD_CAMERA_ORIENTATION__PRIMARY", "side")
+        cal = camera_calibration_for("primary")
+        assert cal.orientation == "side"
+
+    def test_unparseable_env_falls_back(self, monkeypatch):
+        """Bad numeric override doesn't crash the slot — it logs and uses default."""
+        from road_safety.config import camera_calibration_for
+        monkeypatch.setenv("ROAD_CAMERA_FOCAL_PX__PRIMARY", "not_a_number")
+        cal = camera_calibration_for("primary")
+        assert cal.focal_px == 600.0  # falls back to slot default

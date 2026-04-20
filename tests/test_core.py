@@ -75,6 +75,40 @@ class TestEstimateDistance:
         result = estimate_distance_m(det, frame_h=600)
         assert result is None or isinstance(result, float)
 
+    def test_bumper_offset_subtracts_from_reading(self):
+        """``offset_m`` shifts the published distance toward the bumper."""
+        det = Detection(cls="car", conf=0.9, x1=200, y1=350, x2=400, y2=500)
+        raw = estimate_distance_m(det, frame_h=600, offset_m=0.0)
+        shifted = estimate_distance_m(det, frame_h=600, offset_m=1.7)
+        assert raw is not None and shifted is not None
+        assert shifted == pytest.approx(max(0.0, raw - 1.7), abs=0.01)
+
+    def test_bumper_offset_clamps_at_zero(self):
+        """Offset larger than the raw distance clamps to 0, never negative."""
+        det = Detection(cls="car", conf=0.9, x1=200, y1=350, x2=400, y2=500)
+        result = estimate_distance_m(det, frame_h=600, offset_m=999.0)
+        assert result == 0.0
+
+    def test_side_cam_skips_ground_plane(self):
+        """Side cams use known-height only; result must equal known-height prior alone."""
+        det = Detection(cls="car", conf=0.9, x1=200, y1=350, x2=400, y2=500)
+        side = estimate_distance_m(det, frame_h=600, skip_ground_plane=True)
+        # When ground-plane is skipped and the only candidate is the
+        # known-height prior, the result must equal that prior exactly.
+        from road_safety.core.detection import FOCAL_PX, TYPICAL_HEIGHT_M
+        expected = round(FOCAL_PX * TYPICAL_HEIGHT_M["car"] / det.height, 2)
+        assert side == pytest.approx(expected, abs=0.01)
+
+    def test_per_camera_focal_changes_distance(self):
+        """A 0.5x ultra-wide focal (~260 px) reports a *closer* distance than 1x (~600 px)."""
+        det = Detection(cls="car", conf=0.9, x1=200, y1=350, x2=400, y2=500)
+        wide_1x = estimate_distance_m(det, frame_h=600, focal_px=600.0, skip_ground_plane=True)
+        ultra_05x = estimate_distance_m(det, frame_h=600, focal_px=260.0, skip_ground_plane=True)
+        assert wide_1x is not None and ultra_05x is not None
+        # ratio of distances ≈ ratio of focal lengths (pinhole linearity).
+        assert ultra_05x < wide_1x
+        assert ultra_05x == pytest.approx(wide_1x * 260.0 / 600.0, rel=0.02)
+
 
 # ── estimate_ttc_sec ─────────────────────────────────────────────────
 
