@@ -46,7 +46,10 @@
       "Bash(curl -sv http://localhost:8000/api/watchdog)",
       "Bash(xargs -r kill)",
       "Bash(git shortlog *)",
-      "Bash(awk '{print $NF}')"
+      "Bash(awk '{print $NF}')",
+      "Bash(grep -E '\\\\.md$')",
+      "Bash(chmod +x /tmp/check_features.sh)",
+      "Bash(/tmp/check_features.sh)"
     ],
     "deny": [
       "Bash(rm -rf /*)",
