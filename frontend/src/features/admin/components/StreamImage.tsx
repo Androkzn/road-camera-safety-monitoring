@@ -36,10 +36,16 @@
  *   path warm (the slot's viewer counter never drops to zero). To force
  *   a synchronous teardown we re-point `src` at a 1×1 transparent GIF
  *   data URL on unmount and on every (id, started_at) change.
+ *
+ * Auth (BE-D13)
+ *   ``<img>`` cannot send ``Authorization``. When the backend requires an
+ *   admin bearer on media routes, we mint a short-lived signed URL via
+ *   ``GET /api/live/media_token`` and attach ``?exp=&token=`` to the feed URL.
  */
 import { useEffect, useRef, useState } from "react";
 
 import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
+import { appendMediaQueryParam, useSignedMediaUrl } from "../../../shared/hooks/useSignedMediaUrl";
 import type { LiveSourceStatus } from "../../../shared/types/common";
 
 type Transport = "mjpeg" | "poll";
@@ -86,13 +92,13 @@ export function StreamImage({ source, className, onError }: StreamImageProps) {
 
 function MjpegStreamImage({ source, className, onError }: StreamImageProps) {
   const ref = useRef<HTMLImageElement>(null);
+  const { signedUrl, error: mintError } = useSignedMediaUrl(source.id, "mjpeg", true);
 
   // The ?v=started_at param isn't a cache-buster — MJPEG is never cached —
   // it's a *re-mount key* baked into the URL so the server sees a brand
   // new connection after a restart, instead of reattaching to the prior
   // (now-stale) viewer slot. Pair this with the React `key` below.
   const startedAt = source.started_at ?? 0;
-  const src = `/admin/video_feed/${source.id}?v=${startedAt}`;
 
   useEffect(() => {
     const img = ref.current;
@@ -104,12 +110,36 @@ function MjpegStreamImage({ source, className, onError }: StreamImageProps) {
       // which delays the encode-skip optimisation in `_on_frame`.
       if (img) img.src = BLANK_GIF;
     };
-  }, [source.id, startedAt]);
+  }, [source.id, startedAt, signedUrl]);
+
+  if (!signedUrl) {
+    return (
+      <div
+        aria-live="polite"
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#94a3b8",
+          fontSize: 12,
+          padding: 8,
+          textAlign: "center",
+          pointerEvents: "none",
+        }}
+      >
+        {mintError ?? "Connecting…"}
+      </div>
+    );
+  }
+
+  const src = appendMediaQueryParam(signedUrl, "v", startedAt);
 
   return (
     <img
       ref={ref}
-      key={`${source.id}-${startedAt}`}
+      key={`${source.id}-${startedAt}-${signedUrl.slice(-8)}`}
       src={src}
       alt={`Live feed: ${source.name}`}
       className={className}
@@ -119,6 +149,7 @@ function MjpegStreamImage({ source, className, onError }: StreamImageProps) {
 }
 
 function PollingStreamImage({ source, className, onError }: StreamImageProps) {
+  const { signedUrl, error: mintError } = useSignedMediaUrl(source.id, "frame", true);
   // Polling tick. Each fresh `Date.now()` doubles as a cache-buster query
   // param so the <img> actually refetches; without it the browser would
   // happily reuse the cached JPEG forever. The 400 ms cadence matches the
@@ -130,6 +161,11 @@ function PollingStreamImage({ source, className, onError }: StreamImageProps) {
   // want to keep polling silently instead of bubbling every 503 up to the
   // parent (which would unmount the tile and freeze it on "Connecting…").
   const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+  }, [source.id, source.started_at, signedUrl]);
+
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), POLL_INTERVAL_MS.streamImageFrame);
     return () => window.clearInterval(id);
@@ -143,11 +179,35 @@ function PollingStreamImage({ source, className, onError }: StreamImageProps) {
     if (loaded) onError();
   };
 
+  if (!signedUrl) {
+    return (
+      <div
+        aria-live="polite"
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#94a3b8",
+          fontSize: 12,
+          padding: 8,
+          textAlign: "center",
+          pointerEvents: "none",
+        }}
+      >
+        {mintError ?? "Connecting…"}
+      </div>
+    );
+  }
+
+  const frameSrc = appendMediaQueryParam(signedUrl, "t", tick);
+
   return (
     <>
       <img
-        key={`${source.id}-${source.started_at ?? "x"}`}
-        src={`/admin/frame/${source.id}?t=${tick}`}
+        key={`${source.id}-${source.started_at ?? "x"}-${signedUrl.slice(-8)}`}
+        src={frameSrc}
         alt={`Live feed: ${source.name}`}
         className={className}
         // Hide the element until the first real frame lands. Otherwise the
