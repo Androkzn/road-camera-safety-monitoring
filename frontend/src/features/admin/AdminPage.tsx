@@ -156,11 +156,12 @@ export function AdminPage() {
           {isDashcam && mapClockSource && (
             <div className={styles.mapSlot}>
               <VehicleMap
+                videoKey="front"
                 clock={{
                   // Wallclock since stream start — works for any transport
-                  // (MJPEG, polled JPEGs, file-loop). The marker advances
-                  // at real seconds-per-second and loops every ~60 s of
-                  // wallclock so it visibly traverses the GPS path.
+                  // (MJPEG, polled JPEGs, file-loop). With ``videoKey`` set
+                  // the track is already in video time, so the marker is
+                  // driven directly by the playhead (no loop compression).
                   uptimeSec: mapClockSource.uptime_sec,
                   running: mapClockSource.running,
                   videoDurationSec: null,

@@ -101,18 +101,15 @@ YT_DLP_PATH = str(_VENV_YT_DLP) if _VENV_YT_DLP.exists() else "yt-dlp"
 # ─────────────────────────────────────────────────────────────────────────────
 # Demo "fake dashcam" fallback: when no operator has configured streams via
 # ``ROAD_STREAM_SOURCE`` or ``ROAD_STREAM_SOURCES``, we default to the
-# bundled MP4s so the admin UI has something to show out of the box. Two
-# files ship with the repo:
-#   * iPhone-captured front dashcam → tagged as the primary vehicle cam
-#   * DJI drone/action-cam exterior view → tagged as "Left Side" so the
-#     operator sees both angles of the same vehicle simultaneously.
-# The ``StreamReader`` loops local files, so the demo replays end-to-end
-# without operator action. Set either env var to override for a real
-# deployment.
-_DEMO_DASHCAM_FILE = PROJECT_ROOT / "resourses" / "Safe Fleet iPhone.mp4"
-_DEMO_DJI_FILE = PROJECT_ROOT / "resourses" / "Safe Fleet DJI.mp4"
+# bundled front+rear-cam MP4s so the admin UI has something to show out of
+# the box. The ``StreamReader`` loops local files, so the demo replays
+# end-to-end without operator action. Set either env var to override for a
+# real deployment.
+_DEMO_FRONT_CAM_FILE = PROJECT_ROOT / "resourses" / "Front Cam.mp4"
+_DEMO_REAR_CAM_FILE = PROJECT_ROOT / "resourses" / "Rear Cam.mp4"
+_DEMO_DASHCAM_FILE = _DEMO_FRONT_CAM_FILE  # back-compat alias for legacy imports
 _DEMO_DASHCAM_SOURCE = str(_DEMO_DASHCAM_FILE) if _DEMO_DASHCAM_FILE.exists() else ""
-_DEMO_DJI_SOURCE = str(_DEMO_DJI_FILE) if _DEMO_DJI_FILE.exists() else ""
+_DEMO_REAR_CAM_SOURCE = str(_DEMO_REAR_CAM_FILE) if _DEMO_REAR_CAM_FILE.exists() else ""
 
 # ``ROAD_STREAM_SOURCE`` — what the edge node captures from. Empty string
 # falls back to the demo dashcam loop above. Accepted forms: HLS URL,
@@ -137,23 +134,23 @@ def _parse_stream_sources() -> list[dict[str, str]]:
     raw = os.getenv("ROAD_STREAM_SOURCES", "").strip()
     if not raw:
         if DEFAULT_STREAM_SOURCE:
-            # Demo naming: when the fallback is the bundled dashcam MP4,
+            # Demo naming: when the fallback is the bundled front-cam MP4,
             # label it with the demo vehicle identity so the admin UI shows
-            # "Fox Factory — Nissan Rogue XX 001 X" instead of "Primary".
-            # When the DJI exterior-view MP4 is also present, add it as a
-            # second source labelled "Left Side" so both angles of the demo
-            # vehicle are monitored in parallel.
+            # "Fox Factory — Nissan Rogue XX 001 X — Front Cam" instead of
+            # "Primary". When the rear-cam MP4 is also present, add it as a
+            # second source so both angles of the demo vehicle are monitored
+            # in parallel.
             if DEFAULT_STREAM_SOURCE == _DEMO_DASHCAM_SOURCE:
                 sources = [{
                     "id": "primary",
-                    "name": "Fox Factory — Nissan Rogue XX 001 X",
+                    "name": "Fox Factory — Nissan Rogue XX 001 X — Front Cam",
                     "url": DEFAULT_STREAM_SOURCE,
                 }]
-                if _DEMO_DJI_SOURCE:
+                if _DEMO_REAR_CAM_SOURCE:
                     sources.append({
-                        "id": "left_side",
-                        "name": "Left Side Camera",
-                        "url": _DEMO_DJI_SOURCE,
+                        "id": "rear",
+                        "name": "Fox Factory — Nissan Rogue XX 001 X — Rear Cam",
+                        "url": _DEMO_REAR_CAM_SOURCE,
                     })
                 return sources
             return [{"id": "primary", "name": "Primary", "url": DEFAULT_STREAM_SOURCE}]

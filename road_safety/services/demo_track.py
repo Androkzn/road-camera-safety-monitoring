@@ -1,19 +1,21 @@
-"""Demo GPS track — parses the bundled ``location-history.json`` into a
-flat, loopable path for the frontend map overlay.
+"""Demo GPS track — parses the bundled GPX file into a flat, loopable path
+for the frontend map overlay.
 
 Role:
     The demo dashcam MP4 replays forever (see ``StreamReader`` loop mode).
     We want an accompanying map tile that shows the "vehicle" moving along
-    a plausible route while the MP4 plays. This module converts the Google-
-    Takeout-style ``location-history.json`` into a single ordered list of
+    a plausible route while the MP4 plays. This module parses a GPX file
+    (iPhone "Location Tracker" export, single ``<trk>`` with one or more
+    ``<trkseg>`` children, each ``<trkpt>`` carrying ``lat``/``lon`` attrs
+    and a ``<time>`` child in ISO-8601 UTC) into a single ordered list of
     ``(lat, lng, t_sec)`` waypoints and caches the result so every request
     reads from memory instead of re-parsing.
 
-Why a flat list:
-    The source file interleaves ``visit`` / ``activity`` / ``timelinePath``
-    entries; only ``timelinePath`` carries actual waypoints with a
-    ``point: "geo:LAT,LNG"`` and ``durationMinutesOffsetFromStartTime``.
-    We walk every ``timelinePath`` and concatenate its points into one
+Why GPX (and a flat list):
+    The iPhone Location Tracker app exports per-point absolute timestamps,
+    which is exactly what ``load_track_for_window`` needs to align the map
+    marker with a specific MP4's wallclock window. The loader walks every
+    ``<trkseg>`` in the file and concatenates its points into one
     continuous loop, offsetting later segments so the total duration grows
     monotonically. That lets the frontend animate a single polyline and
     interpolate position by ``wallclock_sec % total_duration_sec``.
@@ -22,12 +24,12 @@ No ``from __future__ import annotations`` — we rely on the 3.10+ union
 syntax at runtime (module is imported once at server boot).
 """
 
-import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
 from road_safety.config import PROJECT_ROOT
 
@@ -35,7 +37,15 @@ log = logging.getLogger(__name__)
 
 # Fixed location relative to the project root. If the operator deletes the
 # file the endpoint returns ``{ok: false}`` rather than crashing the app.
-_TRACK_FILE = PROJECT_ROOT / "resourses" / "location-history.json"
+_TRACK_FILE = PROJECT_ROOT / "resourses" / "log-tracker-merged.gpx"
+
+# GPX 1.1 default namespace. ElementTree needs the Clark-notation prefix
+# on every tag lookup (``{http://...}trkpt``) — we build the matchers
+# once up front.
+_GPX_NS = "http://www.topografix.com/GPX/1/1"
+_Q_TRKSEG = f"{{{_GPX_NS}}}trkseg"
+_Q_TRKPT = f"{{{_GPX_NS}}}trkpt"
+_Q_TIME = f"{{{_GPX_NS}}}time"
 
 
 @dataclass(frozen=True)
@@ -51,66 +61,103 @@ class TrackPoint:
 
 # Module-level cache. Populated by ``load_track()`` on first call; later
 # calls are O(1). The server only parses once per process — the file
-# doesn't change at runtime and a ~200-line JSON re-parse on every
+# doesn't change at runtime and a ~200 KB XML re-parse on every
 # request is wasteful when the map polls every second or two.
 _CACHE: dict[str, Any] | None = None
 
 
-def _parse_geo(point: str) -> tuple[float, float] | None:
-    """Parse a ``"geo:LAT,LNG"`` string into a ``(lat, lng)`` tuple.
-
-    Returns ``None`` if the string is malformed — callers drop bad points
-    rather than crash, because the source file is user-provided data that
-    may contain typos or schema drift.
-    """
-    if not isinstance(point, str) or not point.startswith("geo:"):
+def _parse_iso_utc(value: str) -> datetime | None:
+    """Parse an ISO-8601 timestamp into an aware UTC datetime. ``None`` on failure."""
+    if not isinstance(value, str) or not value:
         return None
+    # Normalise the trailing Z — fromisoformat only accepts it from 3.11,
+    # and we still support 3.10.
+    cleaned = value.replace("Z", "+00:00")
     try:
-        lat_s, lng_s = point[4:].split(",", 1)
-        return float(lat_s), float(lng_s)
+        dt = datetime.fromisoformat(cleaned)
     except ValueError:
         return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
-def _extract_points(raw: list[Any]) -> list[TrackPoint]:
-    """Flatten every ``timelinePath`` in ``raw`` into one continuous list.
+def _parse_trkpt(elem: ET.Element) -> tuple[float, float, datetime] | None:
+    """Return ``(lat, lng, time_utc)`` for a ``<trkpt>`` element.
 
-    Each segment's ``durationMinutesOffsetFromStartTime`` resets to 0 at its
-    own start — we accumulate a running ``segment_base_sec`` so the returned
-    ``t_sec`` values are monotonically non-decreasing across segments. A tiny
-    +1s gap between segments avoids zero-length "teleport" edges in the
-    interpolator on the frontend.
+    Returns ``None`` if ``lat``/``lon`` are missing/malformed or the
+    ``<time>`` child is absent/unparseable — callers drop bad points
+    rather than crash.
+    """
+    lat_s = elem.get("lat")
+    lng_s = elem.get("lon")
+    if lat_s is None or lng_s is None:
+        return None
+    try:
+        lat = float(lat_s)
+        lng = float(lng_s)
+    except ValueError:
+        return None
+    time_el = elem.find(_Q_TIME)
+    if time_el is None or not time_el.text:
+        return None
+    t = _parse_iso_utc(time_el.text)
+    if t is None:
+        return None
+    return lat, lng, t
+
+
+def _iter_segments(root: ET.Element) -> list[list[tuple[float, float, datetime]]]:
+    """Flatten the GPX tree into a list of segments, each a list of
+    ``(lat, lng, time_utc)`` tuples sorted by time.
+
+    Empty segments are dropped. A segment preserves its own timestamps so
+    callers can still do wallclock windowing; for the loopable view we
+    rebase to seconds-from-start.
+    """
+    segs: list[list[tuple[float, float, datetime]]] = []
+    for seg_el in root.iter(_Q_TRKSEG):
+        pts: list[tuple[float, float, datetime]] = []
+        for trkpt in seg_el.iter(_Q_TRKPT):
+            parsed = _parse_trkpt(trkpt)
+            if parsed is not None:
+                pts.append(parsed)
+        if pts:
+            pts.sort(key=lambda p: p[2])
+            segs.append(pts)
+    return segs
+
+
+def _read_gpx(path: Path) -> list[list[tuple[float, float, datetime]]] | None:
+    """Read and segment a GPX file. Returns ``None`` on I/O or parse error."""
+    try:
+        tree = ET.parse(path)
+    except (OSError, ET.ParseError) as exc:
+        log.warning("demo track load failed: %s", exc)
+        return None
+    return _iter_segments(tree.getroot())
+
+
+def _flatten_loop(segments: list[list[tuple[float, float, datetime]]]) -> list[TrackPoint]:
+    """Concatenate every segment into one loop, rebasing times to seconds-from-start.
+
+    Between segments we insert a +1s gap so zero-length "teleport" edges
+    don't appear in the frontend interpolator when a recording has a
+    dropout.
     """
     pts: list[TrackPoint] = []
     segment_base_sec = 0.0
-    for entry in raw:
-        if not isinstance(entry, dict):
+    for seg in segments:
+        if not seg:
             continue
-        path = entry.get("timelinePath")
-        if not isinstance(path, list):
-            continue
-
-        segment_max_sec = 0.0
-        for wp in path:
-            if not isinstance(wp, dict):
-                continue
-            latlng = _parse_geo(wp.get("point", ""))
-            if latlng is None:
-                continue
-            try:
-                minute_off = float(wp.get("durationMinutesOffsetFromStartTime", 0))
-            except (TypeError, ValueError):
-                minute_off = 0.0
-            t_sec = segment_base_sec + minute_off * 60.0
-            pts.append(TrackPoint(lat=latlng[0], lng=latlng[1], t_sec=t_sec))
-            if t_sec > segment_max_sec:
-                segment_max_sec = t_sec
-
-        # Advance the base past this segment's longest offset so the next
-        # segment's minute-0 sits *after* this segment ends.
-        if segment_max_sec > segment_base_sec:
-            segment_base_sec = segment_max_sec + 1.0
-
+        seg_start_ts = seg[0][2].timestamp()
+        seg_max = 0.0
+        for lat, lng, t in seg:
+            t_sec = segment_base_sec + (t.timestamp() - seg_start_ts)
+            pts.append(TrackPoint(lat=lat, lng=lng, t_sec=t_sec))
+            if t_sec > seg_max:
+                seg_max = t_sec
+        segment_base_sec = seg_max + 1.0
     return pts
 
 
@@ -130,32 +177,22 @@ def _build_cache() -> dict[str, Any]:
             "total_duration_sec": 0.0,
             "bounds": None,
         }
-    try:
-        raw = json.loads(_TRACK_FILE.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        log.warning("demo track load failed: %s", exc)
+
+    segments = _read_gpx(_TRACK_FILE)
+    if segments is None:
         return {
             "ok": False,
-            "error": f"failed to parse track: {exc}",
+            "error": "failed to parse track",
             "points": [],
             "total_duration_sec": 0.0,
             "bounds": None,
         }
 
-    if not isinstance(raw, list):
-        return {
-            "ok": False,
-            "error": "track root is not a list",
-            "points": [],
-            "total_duration_sec": 0.0,
-            "bounds": None,
-        }
-
-    points = _extract_points(raw)
+    points = _flatten_loop(segments)
     if not points:
         return {
             "ok": False,
-            "error": "no usable timelinePath points in track file",
+            "error": "no usable trkpt waypoints in track file",
             "points": [],
             "total_duration_sec": 0.0,
             "bounds": None,
@@ -210,77 +247,115 @@ def reset_cache_for_tests() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Video-synced variant — slice the Timeline to the window of a real recording
+# Video-synced variant — slice the track to the window of a real recording
 # ---------------------------------------------------------------------------
 
 
-def _parse_iso_utc(value: str) -> datetime | None:
-    """Parse an ISO-8601 timestamp into an aware UTC datetime. ``None`` on failure."""
-    if not isinstance(value, str) or not value:
-        return None
-    # Normalise the trailing Z — fromisoformat only accepts it from 3.11,
-    # and we still support 3.10.
-    cleaned = value.replace("Z", "+00:00")
-    try:
-        dt = datetime.fromisoformat(cleaned)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def _extract_points_in_window(
-    raw: list[Any],
+def _points_in_window(
+    segments: list[list[tuple[float, float, datetime]]],
     window_start: datetime,
     window_end: datetime,
 ) -> list[TrackPoint]:
-    """Return the Timeline waypoints that fall inside ``[window_start, window_end]``.
+    """Return waypoints that fall inside ``[window_start, window_end]``.
 
     Each waypoint's ``t_sec`` is re-based so ``t_sec == 0`` means
     ``window_start`` (i.e. the beginning of the video). Waypoints outside
     the window are dropped. Segments whose entire wallclock span sits
-    outside the window are skipped cheaply without scanning their points.
+    outside the window are skipped cheaply.
     """
     pts: list[TrackPoint] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
+    ws = window_start.timestamp()
+    we = window_end.timestamp()
+    for seg in segments:
+        if not seg:
             continue
-        path = entry.get("timelinePath")
-        if not isinstance(path, list):
+        seg_start = seg[0][2]
+        seg_end = seg[-1][2]
+        # Fast reject: segment entirely outside the window.
+        if seg_end < window_start or seg_start > window_end:
             continue
-        seg_start = _parse_iso_utc(entry.get("startTime", ""))
-        seg_end = _parse_iso_utc(entry.get("endTime", ""))
-        if seg_start is None:
-            continue
-        # Fast reject: entire segment ends before window starts, or starts
-        # after window ends. The second clause uses seg_start only — segments
-        # without endTime still pass through to per-waypoint filtering.
-        if seg_end is not None and seg_end < window_start:
-            continue
-        if seg_start > window_end:
-            continue
-
-        for wp in path:
-            if not isinstance(wp, dict):
+        for lat, lng, t in seg:
+            ts = t.timestamp()
+            if ts < ws or ts > we:
                 continue
-            latlng = _parse_geo(wp.get("point", ""))
-            if latlng is None:
-                continue
-            try:
-                minute_off = float(wp.get("durationMinutesOffsetFromStartTime", 0))
-            except (TypeError, ValueError):
-                minute_off = 0.0
-            wp_wall = seg_start.timestamp() + minute_off * 60.0
-            if (
-                wp_wall < window_start.timestamp()
-                or wp_wall > window_end.timestamp()
-            ):
-                continue
-            t_sec = wp_wall - window_start.timestamp()
-            pts.append(TrackPoint(lat=latlng[0], lng=latlng[1], t_sec=t_sec))
+            pts.append(TrackPoint(lat=lat, lng=lng, t_sec=ts - ws))
     pts.sort(key=lambda p: p.t_sec)
     return pts
+
+
+def _nearest_segment_points(
+    segments: list[list[tuple[float, float, datetime]]],
+    window_start: datetime,
+    duration_sec: float,
+) -> tuple[list[TrackPoint], dict[str, Any] | None]:
+    """Fallback: pick the segment closest to ``window_start`` and linearly
+    re-time its waypoints across ``[0, duration_sec]``.
+
+    Why: The GPS export isn't guaranteed to cover the exact wallclock
+    window of a video (e.g. GPS dropout, or the export was trimmed).
+    Rather than showing an empty map, we pick the nearest segment —
+    preferring ones that *end* before the video starts (most recent
+    recorded history) — and stretch its points across the video's
+    playback duration. The animation preserves relative waypoint pacing
+    (a 30 s gap in the source is still a gap in the output, just scaled).
+
+    Returns ``(points, meta)`` where ``meta`` is a small dict describing
+    the chosen segment, suitable for embedding in the response so the
+    frontend can show "approximate" UI affordances.
+    """
+    if duration_sec <= 0:
+        return [], None
+
+    window_ts = window_start.timestamp()
+    best: tuple[float, int, list[tuple[float, float, datetime]]] | None = None
+
+    for seg in segments:
+        if not seg:
+            continue
+        seg_start = seg[0][2]
+        seg_end = seg[-1][2]
+        # Distance = seconds between the segment's end and the window start.
+        # Past segments are preferred; future segments get a small penalty.
+        if seg_end <= window_start:
+            distance_sec = window_ts - seg_end.timestamp()
+        else:
+            distance_sec = max(0.0, seg_start.timestamp() - window_ts) + 1.0
+        # Tie-break: prefer segments with more waypoints (richer signal)
+        # by using -count as the secondary sort key.
+        candidate = (distance_sec, -len(seg), seg)
+        if best is None or candidate < best:
+            best = candidate
+
+    if best is None:
+        return [], None
+
+    _, neg_count, seg = best
+    seg_start = seg[0][2]
+    seg_end = seg[-1][2]
+    # Re-time: map each point's offset-within-segment onto [0, duration_sec].
+    offsets = [p[2].timestamp() - seg_start.timestamp() for p in seg]
+    lo = min(offsets)
+    hi = max(offsets)
+    span = hi - lo
+    out: list[TrackPoint] = []
+    if span <= 0:
+        # Single-waypoint segment: drop a stationary point at t=0 and t=duration
+        # so the interpolator still has two points to work with.
+        lat, lng, _ = seg[0]
+        out.append(TrackPoint(lat=lat, lng=lng, t_sec=0.0))
+        out.append(TrackPoint(lat=lat, lng=lng, t_sec=duration_sec))
+    else:
+        for off, (lat, lng, _) in zip(offsets, seg):
+            frac = (off - lo) / span
+            out.append(TrackPoint(lat=lat, lng=lng, t_sec=frac * duration_sec))
+        out.sort(key=lambda p: p.t_sec)
+
+    meta = {
+        "segment_start": seg_start.isoformat(),
+        "segment_end": seg_end.isoformat(),
+        "point_count": -neg_count,
+    }
+    return out, meta
 
 
 def load_track_for_window(
@@ -289,7 +364,7 @@ def load_track_for_window(
 ) -> dict[str, Any]:
     """Return a track payload scoped to ``[start_iso_utc, +duration_sec]``.
 
-    Unlike :func:`load_track` (which flattens the whole Timeline into a
+    Unlike :func:`load_track` (which flattens the whole track into a
     loopable path), this variant re-bases ``t_sec`` so ``0`` is the
     video's first frame. The frontend can then drive the map marker
     directly from video playback time — no wallclock compression needed.
@@ -298,7 +373,7 @@ def load_track_for_window(
     can consume it.
 
     No caching: the inputs (start/duration) are per-video, and parsing
-    the JSON a handful of times at server boot is negligible.
+    the GPX a handful of times at server boot is negligible.
     """
     window_start = _parse_iso_utc(start_iso_utc)
     if window_start is None or duration_sec <= 0:
@@ -322,48 +397,56 @@ def load_track_for_window(
             "total_duration_sec": 0.0,
             "bounds": None,
         }
-    try:
-        raw = json.loads(_TRACK_FILE.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        log.warning("demo track load failed: %s", exc)
+    segments = _read_gpx(_TRACK_FILE)
+    if segments is None:
         return {
             "ok": False,
-            "error": f"failed to parse track: {exc}",
-            "points": [],
-            "total_duration_sec": 0.0,
-            "bounds": None,
-        }
-    if not isinstance(raw, list):
-        return {
-            "ok": False,
-            "error": "track root is not a list",
+            "error": "failed to parse track",
             "points": [],
             "total_duration_sec": 0.0,
             "bounds": None,
         }
 
-    points = _extract_points_in_window(raw, window_start, window_end)
+    points = _points_in_window(segments, window_start, window_end)
+    sync_mode = "exact"
+    fallback_meta: dict[str, Any] | None = None
     if not points:
-        return {
-            "ok": False,
-            "error": (
-                f"no timelinePath waypoints in window "
-                f"[{window_start.isoformat()}, {window_end.isoformat()}]"
-            ),
-            "points": [],
-            "total_duration_sec": duration_sec,
-            "bounds": None,
-        }
+        # No overlap between the video's wallclock window and any
+        # recorded segment. Fall back to the nearest segment, re-timed
+        # to fit the video duration. Response still renders a map.
+        points, fallback_meta = _nearest_segment_points(
+            segments, window_start, duration_sec,
+        )
+        sync_mode = "nearest"
+        if not points:
+            return {
+                "ok": False,
+                "error": (
+                    "no trkpt waypoints in window "
+                    f"[{window_start.isoformat()}, {window_end.isoformat()}] "
+                    "and no nearest-segment fallback available"
+                ),
+                "points": [],
+                "total_duration_sec": duration_sec,
+                "bounds": None,
+                "sync_mode": "none",
+            }
+        log.info(
+            "demo track window empty; using nearest segment %s (%d points)",
+            fallback_meta.get("segment_start") if fallback_meta else "?",
+            len(points),
+        )
+    else:
+        log.info(
+            "demo track windowed: %d points in [%s, %s]",
+            len(points),
+            window_start.isoformat(),
+            window_end.isoformat(),
+        )
 
     lats = [p.lat for p in points]
     lngs = [p.lng for p in points]
-    log.info(
-        "demo track windowed: %d points in [%s, %s]",
-        len(points),
-        window_start.isoformat(),
-        window_end.isoformat(),
-    )
-    return {
+    response: dict[str, Any] = {
         "ok": True,
         "points": [
             {"lat": p.lat, "lng": p.lng, "t_sec": p.t_sec} for p in points
@@ -375,4 +458,8 @@ def load_track_for_window(
             "north": max(lats),
             "east": max(lngs),
         },
+        "sync_mode": sync_mode,
     }
+    if fallback_meta is not None:
+        response["fallback_segment"] = fallback_meta
+    return response

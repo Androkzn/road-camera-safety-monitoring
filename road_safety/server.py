@@ -2453,19 +2453,19 @@ def demo_track():
 
 # Videos that this endpoint knows how to probe + sync. Keyed on the short
 # ``?video=`` parameter so the frontend doesn't need to know absolute paths.
-from road_safety.config import _DEMO_DASHCAM_FILE, _DEMO_DJI_FILE  # noqa: E402
+from road_safety.config import _DEMO_FRONT_CAM_FILE, _DEMO_REAR_CAM_FILE  # noqa: E402
 
 _DEMO_VIDEO_SOURCES: dict[str, Path] = {
-    "iphone": _DEMO_DASHCAM_FILE,
-    "dji": _DEMO_DJI_FILE,
+    "front": _DEMO_FRONT_CAM_FILE,
+    "rear": _DEMO_REAR_CAM_FILE,
 }
 
 
 @app.get("/api/demo/video-track")
-def demo_video_track(video: str = "iphone"):
+def demo_video_track(video: str = "front"):
     """Return a GPS track aligned to the requested video's recording window.
 
-    HTTP: GET /api/demo/video-track?video=iphone
+    HTTP: GET /api/demo/video-track?video=front
     AUTH: public — same as /api/demo/track.
 
     Unlike /api/demo/track (which flattens the whole Timeline into a loop),
@@ -2480,7 +2480,7 @@ def demo_video_track(video: str = "iphone"):
         {
           "ok": true,
           "video": {
-            "key": "iphone",
+            "key": "front",
             "path": "...",
             "creation_time": "2026-04-19T22:41:03Z",
             "duration_sec": 653.85,

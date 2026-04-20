@@ -44,6 +44,11 @@ export interface DemoVideoMeta {
   codec?: string | null;
 }
 
+/** "exact" — Timeline covers the video's wallclock window literally;
+ *  "nearest" — nearest segment stretched to fit the video duration;
+ *  "none" — nothing usable found (ok === false). */
+export type SyncMode = "exact" | "nearest" | "none";
+
 export interface DemoTrackResponse {
   ok: boolean;
   vehicle?: DemoVehicle;
@@ -55,11 +60,21 @@ export interface DemoTrackResponse {
    *  and the marker can be driven directly by the MP4 playback head —
    *  no loop compression needed. */
   video?: DemoVideoMeta | null;
+  /** Only returned by the video-track endpoint. */
+  sync_mode?: SyncMode;
+  /** Returned by the video-track endpoint when the fallback fired. */
+  fallback_segment?: {
+    segment_start: string;
+    segment_end: string;
+    point_count: number;
+  };
+  /** Error description when ``ok`` is false. */
+  error?: string;
 }
 
 /** Known video keys understood by ``/api/demo/video-track``. Keep in sync
  *  with ``_DEMO_VIDEO_SOURCES`` in ``road_safety/server.py``. */
-export type DemoVideoKey = "iphone" | "dji";
+export type DemoVideoKey = "front" | "rear";
 
 export interface VehiclePosition {
   lat: number;
@@ -172,8 +187,9 @@ export interface PlaybackClock {
 export function useVehiclePosition(
   loopSec = 60,
   clock?: PlaybackClock | null,
+  videoKey?: DemoVideoKey | null,
 ): VehiclePosition | null {
-  const { data } = useDemoTrack();
+  const { data } = useDemoTrack(videoKey ?? null);
   const [pos, setPos] = useState<VehiclePosition | null>(null);
   const rafRef = useRef<number | null>(null);
   // Local wallclock playhead in seconds. Advances 1s per real second
@@ -195,16 +211,34 @@ export function useVehiclePosition(
       return;
     }
     const points = data.points;
-    const duration = data.total_duration_sec ?? points[points.length - 1]!.t_sec;
-    if (duration <= 0) {
+    // Map playhead onto the actual GPS span [firstT, lastT], NOT
+    // [0, total_duration_sec]. The source GPS log can start long
+    // before the first usable point (e.g. parked / signal acquisition);
+    // for the bundled demo, ``points[0].t_sec`` is 2400 s while
+    // ``total_duration_sec`` is 7501 s. Mapping onto [0, 7501] would
+    // make the marker freeze on the first point for ~2400/125 ≈ 19 s
+    // every loop (the clamp-to-firstPt branch in ``sampleTrack``),
+    // then snap forward — visible as "stuck, then random fast jump".
+    const firstT = points[0]!.t_sec;
+    const lastT = points[points.length - 1]!.t_sec;
+    const span = lastT - firstT;
+    if (span <= 0) {
       setPos(null);
       return;
     }
+    // The video-track endpoint returns ``t_sec`` values already expressed
+    // in video time, so the playhead maps 1:1 onto the track without the
+    // loopSec compression used for full-timeline mode.
+    const videoSynced = !!data.video && !!data.sync_mode && data.sync_mode !== "none";
 
     console.debug("[map-sync] effect mount", {
       points: points.length,
-      duration_sec: duration,
+      firstT,
+      lastT,
+      span,
       loopSec,
+      videoSynced,
+      syncMode: data.sync_mode,
     });
 
     const FRAME_MS = 1000 / 30;
@@ -228,10 +262,15 @@ export function useVehiclePosition(
         }
 
         const playheadSec = Math.max(0, playheadRef.current);
-        // Compress the ~7500 s GPS path onto a ``loopSec`` (60 s) wall-
-        // clock loop. Each wall-second covers ~125 s of GPS time —
-        // visible motion against widely-spaced waypoints.
-        const trackTime = ((playheadSec / loopSec) * duration) % duration;
+        // Two modes:
+        //  - video-synced (t_sec already == video time): playhead maps
+        //    directly onto track time, no compression. One real second
+        //    of playhead == one second of GPS.
+        //  - loop mode (the full ~7500 s path): compress onto ``loopSec``
+        //    wallclock so every recorded point is visited once per loop.
+        const trackTime = videoSynced
+          ? firstT + (playheadSec % span)
+          : firstT + ((playheadSec / loopSec) * span) % span;
         const next = sampleTrack(points, trackTime);
         if (next) setPos(next);
 

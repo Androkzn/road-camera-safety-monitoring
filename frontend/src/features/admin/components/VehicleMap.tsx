@@ -21,6 +21,7 @@ import {
 import {
   useDemoTrack,
   useVehiclePosition,
+  type DemoVideoKey,
   type PlaybackClock,
   type VehiclePosition,
 } from "../hooks/useDemoTrack";
@@ -72,9 +73,19 @@ function FollowVehicle({ position }: { position: VehiclePosition | null }) {
   return null;
 }
 
-export function VehicleMap({ clock }: { clock?: PlaybackClock | null }) {
-  const { data, isLoading, isError } = useDemoTrack();
-  const position = useVehiclePosition(LOOP_SEC, clock);
+export interface VehicleMapProps {
+  clock?: PlaybackClock | null;
+  /** When set, fetch the video-synced GPS track (``/api/demo/video-track``)
+   *  keyed on this video. Points' ``t_sec`` becomes video-relative so the
+   *  marker can be driven directly by the MP4 playhead. When omitted, falls
+   *  back to the full-timeline loop. */
+  videoKey?: DemoVideoKey | null;
+}
+
+export function VehicleMap({ clock, videoKey }: VehicleMapProps) {
+  const { data, isLoading, isError } = useDemoTrack(videoKey ?? null);
+  const position = useVehiclePosition(LOOP_SEC, clock, videoKey ?? null);
+  const syncMode = data?.sync_mode;
 
   // Trailing polyline: only the route the vehicle has already passed in
   // the current loop. We slice the full track at the marker's current
@@ -137,6 +148,14 @@ export function VehicleMap({ clock }: { clock?: PlaybackClock | null }) {
             </span>
             <span className={styles.speedUnit}>km/h</span>
           </div>
+          {syncMode === "nearest" && (
+            <div
+              className={styles.syncHint}
+              title="No GPS samples cover this video's window — showing nearest recorded segment, re-timed to fit."
+            >
+              GPS ~ approx
+            </div>
+          )}
         </div>
       )}
       <MapContainer
