@@ -9,6 +9,7 @@ import type {
   WatchdogFinding,
   WatchdogStatus,
 } from "../../../shared/types/common";
+import { useDialog } from "../../../shared/ui";
 
 import styles from "./WatchdogDrawer.module.css";
 
@@ -99,8 +100,20 @@ export function WatchdogDrawer({
     }
   }, [onDeleteSelected, selected, exitSelectMode]);
 
+  const dialog = useDialog();
   const handleClearAll = useCallback(async () => {
     if (!onClearAll) return;
+    const ok = await dialog.confirm({
+      title: "Clear all findings?",
+      message:
+        total > 0
+          ? `This deletes all ${total} finding${total === 1 ? "" : "s"} from the watchdog queue. The action can't be undone.`
+          : "This clears the watchdog queue. The action can't be undone.",
+      okLabel: "Clear all",
+      cancelLabel: "Cancel",
+      variant: "danger",
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await onClearAll();
@@ -108,7 +121,7 @@ export function WatchdogDrawer({
     } finally {
       setDeleting(false);
     }
-  }, [onClearAll, exitSelectMode]);
+  }, [onClearAll, exitSelectMode, dialog, total]);
 
   return (
     <>

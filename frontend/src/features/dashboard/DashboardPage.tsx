@@ -10,8 +10,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
+import { adminFetch } from "../../shared/lib/adminApi";
 import { humanEventType } from "../../shared/lib/format";
 import { TopBar } from "../../shared/layout/TopBar";
+import { useDialog } from "../../shared/ui";
 import { EventCard } from "../../shared/events";
 import { TestBadge, TestDrawer, useTests } from "../tests";
 import { useWatchdogCtx } from "../watchdog";
@@ -41,10 +43,23 @@ export function DashboardPage() {
   } = useWatchdogCtx();
   const [clearingEvents, setClearingEvents] = useState(false);
   const hasFindings = (findings?.length ?? 0) > 0;
+  const dialog = useDialog();
 
   const handleClearEvents = useCallback(async () => {
+    const ok = await dialog.confirm({
+      title: "Clear all events?",
+      message:
+        hasFindings
+          ? "This wipes the event feed and all watchdog findings. The action is local and can't be undone."
+          : "This wipes the event feed. The action is local and can't be undone.",
+      okLabel: "Clear all",
+      cancelLabel: "Cancel",
+      variant: "danger",
+    });
+    if (!ok) return;
     setClearingEvents(true);
     try {
+      await adminFetch<{ cleared: number }>("/api/events", { method: "DELETE" });
       clearEvents();
       if (hasFindings) {
         await clearAllFindings();
@@ -52,7 +67,7 @@ export function DashboardPage() {
     } finally {
       setClearingEvents(false);
     }
-  }, [clearEvents, clearAllFindings, hasFindings]);
+  }, [clearEvents, clearAllFindings, hasFindings, dialog]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const prevTestStatus = useRef<string>("idle");

@@ -12,7 +12,7 @@
  *              MultiSourceGrid + Tabs(Detections | Events | History).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { TopBar } from "../../shared/layout/TopBar";
@@ -38,9 +38,19 @@ import styles from "./AdminPage.module.css";
 export function AdminPage() {
   const { data: health } = useAdminHealth();
   const { frames, playheads } = useDetections();
-  const { events: liveEvents, connected } = useEventStream();
+  const { events: liveEvents, connected, clearEvents } = useEventStream();
   const liveSources = useLiveSources(5000);
   const { status: wdStatus } = useWatchdogCtx();
+
+  // Restart flow: wipe the admin event list BEFORE kicking the streams so
+  // the replayed MP4 produces a fresh timeline of detections instead of
+  // piling new-but-identical events on top of the old ones. Without this,
+  // operators perceive cleared events as "coming back" because the dashcam
+  // loop replays the same scenes and emits the same event categories.
+  const handleRestart = useCallback(async () => {
+    clearEvents();
+    await liveSources.restartAll();
+  }, [clearEvents, liveSources]);
 
   const [focusedId, setFocusedId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -136,6 +146,7 @@ export function AdminPage() {
             liveSources={liveSources}
             focusedId={focusedId}
             onFocusChange={setFocusedId}
+            onRestart={handleRestart}
           />
           {isDashcam && mapClockSource && (
             <div className={styles.mapSlot}>

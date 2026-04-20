@@ -37,11 +37,11 @@ export function EventCard({ event: e, isNew }: EventCardProps) {
   const objs = e.objects?.length ? e.objects.join(" · ") : "—";
   const enr = e.enrichment;
 
-  // Friendly copy for the per-event skip reasons. ``alpr_policy_disabled``
-  // is the *default* deployment state (ROAD_ALPR_MODE=off) — it would
-  // stamp every card with a notice that is neither actionable nor
-  // event-specific, so we suppress it here and keep only the per-event
-  // signals worth surfacing to operators.
+  // Friendly copy for per-event skip reasons. The backend only stamps
+  // per-event reasons here (policy-level skipping is a deployment
+  // property, not an event signal — see _emit_event in server.py). The
+  // legacy ``alpr_policy_disabled`` value is mapped to undefined so old
+  // events in the rolling buffer don't surface a noisy banner.
   const skipLabel: Record<string, string> = {
     perception_degraded: "ALPR skipped — image quality too low",
     low_risk_event: "ALPR skipped — low-risk (batch review)",

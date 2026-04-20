@@ -120,6 +120,7 @@
  * on change — convenient but imprecise; prefer naming props in
  * production code. */
 .tile {
+  position: relative;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
     var(--panel);
@@ -140,11 +141,86 @@
   transform: translateY(-1px);
 }
 
-/* Active tile — currently-selected severity filter. */
+/* Active tile — currently-selected severity filter.
+ * Per-variant colored border, glow, and a top accent bar make the
+ * selected state unmistakable at a glance. */
 .tileActive {
   opacity: 1;
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+  transform: translateY(-1px);
+}
+
+.tileActive.terror {
+  border-color: var(--high);
+  background:
+    radial-gradient(circle at top, rgba(239, 68, 68, 0.22), transparent 65%),
+    linear-gradient(180deg, rgba(239, 68, 68, 0.10), rgba(239, 68, 68, 0.04)),
+    var(--panel);
+  box-shadow:
+    0 0 0 1px var(--high) inset,
+    0 12px 30px rgba(239, 68, 68, 0.25);
+}
+
+.tileActive.twarning {
+  border-color: var(--medium);
+  background:
+    radial-gradient(circle at top, rgba(245, 158, 11, 0.22), transparent 65%),
+    linear-gradient(180deg, rgba(245, 158, 11, 0.10), rgba(245, 158, 11, 0.04)),
+    var(--panel);
+  box-shadow:
+    0 0 0 1px var(--medium) inset,
+    0 12px 30px rgba(245, 158, 11, 0.22);
+}
+
+.tileActive.tinfo {
+  border-color: var(--accent);
+  background:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.22), transparent 65%),
+    linear-gradient(180deg, rgba(56, 189, 248, 0.10), rgba(56, 189, 248, 0.04)),
+    var(--panel);
+  box-shadow:
+    0 0 0 1px var(--accent) inset,
+    0 12px 30px rgba(56, 189, 248, 0.22);
+}
+
+.tileActive.ttotal {
+  border-color: rgba(255, 255, 255, 0.35);
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.10), transparent 65%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    var(--panel);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.25) inset,
+    0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* Accent bar slides in from the top of the active tile. */
+.tileActive::before {
+  content: "";
+  position: absolute;
+  inset: 0 14px auto 14px;
+  top: -1px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: currentColor;
+}
+
+.tileActive.terror::before {
+  background: var(--high);
+}
+.tileActive.twarning::before {
+  background: var(--medium);
+}
+.tileActive.tinfo::before {
+  background: var(--accent);
+}
+.tileActive.ttotal::before {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Bolder label on the active tile so the caption "pops" too. */
+.tileActive .tLabel {
+  color: var(--text);
+  font-weight: 700;
 }
 
 /* Tile caption. */

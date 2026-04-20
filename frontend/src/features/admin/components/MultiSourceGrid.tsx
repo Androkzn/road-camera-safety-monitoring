@@ -209,12 +209,18 @@ interface MultiSourceGridProps {
   liveSources: UseLiveSourcesResult;
   focusedId: string | null;
   onFocusChange: (id: string | null) => void;
+  // Overrides the inline ``liveSources.restartAll`` call for the Restart
+  // toolbar button. AdminPage uses this to pair the stream restart with
+  // a client-side event-list wipe so replayed dashcam scenes don't re-fill
+  // the feed with identical-looking events right after the operator cleared.
+  onRestart?: () => Promise<void> | void;
 }
 
 export function MultiSourceGrid({
   liveSources,
   focusedId,
   onFocusChange,
+  onRestart,
 }: MultiSourceGridProps) {
   const {
     sources,
@@ -322,7 +328,13 @@ export function MultiSourceGrid({
           <button
             type="button"
             className={styles.toolbarBtn}
-            onClick={restartAll}
+            onClick={() => {
+              // Prefer the parent-supplied handler (AdminPage wipes the
+              // event list first so the replayed MP4 doesn't repopulate
+              // it with identical-looking detections).
+              if (onRestart) void onRestart();
+              else void restartAll();
+            }}
             disabled={sources.length === 0 || restartingAll}
             title="Restart every stream from the beginning and reset the map marker"
           >

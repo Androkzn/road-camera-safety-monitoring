@@ -27,7 +27,10 @@
       "Bash(python start.py --skip-tests --no-browser)",
       "Bash(/Users/andreitekhtelev/Desktop/fleet-safety-demo/.venv/bin/python -m pytest tests/test_validator.py -v)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/api/live/status)",
-      "Bash(curl -s \"http://localhost:8000/api/watchdog/recent?n=100\")"
+      "Bash(curl -s \"http://localhost:8000/api/watchdog/recent?n=100\")",
+      "Bash(curl -s \"http://localhost:8000/api/events?limit=5\")",
+      "Bash(awk '-F: ' '{print $NF}')",
+      "Bash(python -c \"import road_safety.server\")"
     ],
     "deny": [
       "Bash(rm -rf /*)",

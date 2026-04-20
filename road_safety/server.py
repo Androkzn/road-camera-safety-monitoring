@@ -1775,24 +1775,28 @@ async def _emit_event(event: dict, internal_thumb_name: str) -> None:
 
     # Three skip paths for the vision call:
     #   (a) policy: ALPR disabled unless ROAD_ALPR_MODE=third_party.
-    #       Default is ``off`` — no external ALPR call, ever.
+    #       Default is ``off`` — no external ALPR call, ever. This is a
+    #       deployment-wide posture (visible via /api/settings) and is
+    #       NOT stamped onto each event: doing so would attach a constant
+    #       banner to every card in the default posture, drowning the
+    #       per-event signals below.
     #   (b) perception is degraded — low-SNR image, money wasted.
     #   (c) low-risk events — weekly-batch review SLA, ALPR adds little value.
     # This prevents unnecessary external calls before rate limiting even
-    # starts. The reason string is surfaced on the event so dashboards
-    # can explain *why* enrichment was skipped.
+    # starts. The per-event reason string is surfaced on the event so
+    # dashboards can explain *why* enrichment was skipped for that frame.
     policy_skip = ALPR_MODE != "third_party"
     perception_skip = state.quality.risk_adjustment().get("skip_vision_enrichment", False)
     low_risk_skip = event.get("risk_level") == "low"
     skip_enrich = policy_skip or perception_skip or low_risk_skip
     event["perception_state"] = state.quality.state().get("state", "nominal")
-    if skip_enrich:
-        if policy_skip:
-            event["enrichment_skipped"] = "alpr_policy_disabled"
-        elif perception_skip:
-            event["enrichment_skipped"] = "perception_degraded"
-        else:
-            event["enrichment_skipped"] = "low_risk_event"
+    # Only emit per-event skip reasons. Policy-level skipping is a
+    # deployment property, not a per-event signal — operators read it
+    # from settings, not from each event.
+    if perception_skip:
+        event["enrichment_skipped"] = "perception_degraded"
+    elif low_risk_skip:
+        event["enrichment_skipped"] = "low_risk_event"
 
     # ``asyncio.gather`` runs both coroutines concurrently; the call
     # completes when BOTH finish. Narration ~200ms; enrichment ~500ms.
@@ -2805,6 +2809,26 @@ def event(event_id: str):
         if ev.get("event_id") == event_id:
             return ev
     raise HTTPException(404, "event not found")
+
+
+@app.delete("/api/events")
+def clear_events(request: Request):
+    """Wipe the in-memory event buffer.
+
+    HTTP: DELETE /api/events
+    AUTH: admin bearer
+    Returns: ``{"cleared": <n>}`` — count of events removed.
+
+    Events are not persisted server-side (they live in a ring buffer),
+    so this is a soft wipe: the next emitted event still appears, but
+    everything currently served by ``/api/events`` / ``/api/live/events``
+    and replayed on SSE reconnect is gone.
+    """
+    _require_admin(request, "clear events")
+    cleared = len(state.recent_events)
+    state.recent_events.clear()
+    audit.log("clear_events", "recent_events", outcome="success")
+    return {"cleared": cleared}
 
 
 # ===== SECTION: ROUTE HANDLERS — LLM OBSERVABILITY (ADMIN) =====

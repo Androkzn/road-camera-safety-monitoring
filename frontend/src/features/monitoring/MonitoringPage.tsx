@@ -12,9 +12,11 @@ import { useCallback, useMemo, useState } from "react";
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
 import { TopBar } from "../../shared/layout/TopBar";
+import { useDialog } from "../../shared/ui";
 import { useWatchdogCtx } from "../watchdog";
 
 import {
+  EventsPanel,
   IncidentFeed,
   ImmediateActions,
   MetaGrid,
@@ -23,15 +25,19 @@ import {
   SummaryHeader,
   ValidatorControl,
 } from "./components";
+import { useValidator } from "./hooks/useValidator";
 import { buildIncidents } from "./utils/incidents";
 import type { SevFilter } from "./types";
 
 import styles from "./MonitoringPage.module.css";
 
 export function MonitoringPage() {
-  const { connected } = useEventStream();
+  const { connected, events } = useEventStream();
   const { data: liveStatus } = useLiveStatus();
   const { status, findings, deleteFindings, clearAll } = useWatchdogCtx();
+  const { status: validatorStatus } = useValidator();
+  const validatorActive =
+    !!validatorStatus?.enabled && !validatorStatus?.paused;
 
   const [filter, setFilter] = useState<SevFilter>("all");
   const [selectMode, setSelectMode] = useState(false);
@@ -89,7 +95,19 @@ export function MonitoringPage() {
     }
   }, [deleteFindings, exitSelectMode, filtered, selected]);
 
+  const dialog = useDialog();
   const handleClearAll = useCallback(async () => {
+    const ok = await dialog.confirm({
+      title: "Clear all findings?",
+      message:
+        totalIncidents > 0
+          ? `This deletes all ${totalIncidents} incident${totalIncidents === 1 ? "" : "s"} from the watchdog queue. The action can't be undone.`
+          : "This clears the watchdog queue. The action can't be undone.",
+      okLabel: "Clear all",
+      cancelLabel: "Cancel",
+      variant: "danger",
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await clearAll();
@@ -97,7 +115,7 @@ export function MonitoringPage() {
     } finally {
       setDeleting(false);
     }
-  }, [clearAll, exitSelectMode]);
+  }, [clearAll, exitSelectMode, dialog, totalIncidents]);
 
   const sourceName = liveStatus?.source ?? "—";
 
@@ -152,6 +170,12 @@ export function MonitoringPage() {
         )}
 
         <div className={styles.content}>
+          <EventsPanel
+            events={events}
+            findings={findings ?? []}
+            validatorEnabled={validatorActive}
+            filter={filter}
+          />
           <ImmediateActions incidents={actionQueue} />
           <IncidentFeed
             filter={filter}
