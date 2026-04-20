@@ -1,7 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python start.py)"
+      "Bash(python start.py)",
+      "Bash(python start.py --skip-tests)",
+      "Bash(kill %1)",
+      "Bash(python start.py --skip-tests --no-browser)",
+      "Bash(yt-dlp --version)",
+      "Bash(.venv/bin/yt-dlp --version)",
+      "Bash(python -c \"import yt_dlp; print\\(yt_dlp.version.__version__\\)\")",
+      "Bash(.venv/bin/python -c \"import yt_dlp; print\\(yt_dlp.version.__version__\\)\")",
+      "Bash(.venv/bin/python -m yt_dlp -g -f \"best[height<=720]\" \"https://www.youtube.com/watch?v=1EiC9bvVGnk\")",
+      "Bash(.venv/bin/python -m pip install --force-reinstall --no-deps yt-dlp)",
+      "Bash(git log *)"
     ]
   }
 }
