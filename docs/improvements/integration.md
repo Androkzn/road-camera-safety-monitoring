@@ -211,12 +211,12 @@ Pact shines with multiple consumers of the same provider. Schemathesis + snapsho
 
 ### R4.1 `[H]` Move admin auth to short-lived JWT + refresh, asymmetric signing
 
-Today `ROAD_ADMIN_TOKEN` is a static shared secret in env. [security.py:36](../../backend/security.py) uses `secrets.compare_digest` (timing-safe — good). Drawbacks: no audit attribution (every admin action is "the admin"), no rotation without a redeploy, no per-user revocation. The audit log loses all forensic value the moment two operators share the token (which they will).
+Today — is a static shared secret in env. [security.py:36](../../backend/security.py) uses `secrets.compare_digest` (timing-safe — good). Drawbacks: no audit attribution (every admin action is "the admin"), no rotation without a redeploy, no per-user revocation. The audit log loses all forensic value the moment two operators share the token (which they will).
 
 **Adoption.**
 1. `pip install pyjwt[crypto]`. Sign with EdDSA (RFC 8032), 15-min access tokens, 7-day single-use refresh.
 2. Claims: `sub`, `kid`, `aud=road-admin`, `tenant_id` (forward-compat with R15.1).
-3. Keep the static `ROAD_ADMIN_TOKEN` as a "break-glass" service token behind a feature flag.
+3. Keep the static — as a "break-glass" service token behind a feature flag.
 4. Audit log writes the verified `sub` instead of "admin".
 5. Publish JWKS at `/.well-known/jwks.json` so rotation is a `kid` bump.
 
@@ -244,7 +244,7 @@ Once OIDC is in place, layer WebAuthn at the IdP. For an ops UI accessed from fi
 
 ### R5.1 `[H]` Document and enforce header-only auth as policy
 
-Bearer in `Authorization` header is **not** auto-attached by the browser; cross-origin and cross-tab `<form>` submissions cannot leak it. Keep it that way: never put admin tokens in cookies. The single fix is B1 (actually require the token on watchdog mutations).
+POC deployments should stay on a trusted network; add real authentication before any production exposure.
 
 **Citation.** OWASP CSRF cheat sheet — https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#use-of-custom-request-headers.
 

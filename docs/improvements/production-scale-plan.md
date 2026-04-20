@@ -35,7 +35,6 @@ state averages.
 ### 1) Control-plane security bottlenecks
 
 - Unauthenticated state mutation endpoints can be abused at internet speed.
-- Shared static admin token does not support per-user attribution or revocation.
 - LLM-facing endpoints without strict rate limits can exhaust budget quickly.
 
 ### 2) Real-time event transport bottlenecks

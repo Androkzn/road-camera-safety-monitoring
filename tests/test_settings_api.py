@@ -1,8 +1,8 @@
 """Tests for the Settings Console FastAPI router.
 
-Covers: bearer auth enforcement, validation 422 shape, ``If-Match`` 409,
-apply-rate-limit 429, ticket exchange + single-use consumption, template
-CRUD via HTTP, baseline + impact reads.
+Covers: validation 422 shape, revision 409, apply-rate-limit 429,
+ticket exchange + single-use consumption, template CRUD via HTTP,
+baseline + impact reads. POC: routes are open (no bearer checks).
 """
 
 from __future__ import annotations
@@ -36,15 +36,7 @@ def fresh_store(monkeypatch):
 
 
 @pytest.fixture()
-def admin_token(monkeypatch):
-    token = "test-admin-token"
-    monkeypatch.setattr("backend.config.ADMIN_TOKEN", token)
-    monkeypatch.setattr("backend.api.settings.ADMIN_TOKEN", token)
-    return token
-
-
-@pytest.fixture()
-def settings_client(tmp_path, fresh_store, admin_token, monkeypatch):
+def settings_client(tmp_path, fresh_store, monkeypatch):
     """Build a minimal FastAPI app with the settings router mounted."""
     settings_db._reset_for_tests(tmp_path / "settings.db")
     # Reset the per-actor apply cooldown.
@@ -54,46 +46,22 @@ def settings_client(tmp_path, fresh_store, admin_token, monkeypatch):
     mon = ImpactMonitor(events_source=lambda: [])
     mount_settings_routes(app, impact_monitor=mon, impact_subscribers=[])
     client = TestClient(app)
-    yield client, admin_token, mon
+    yield client, mon
     settings_db._reset_for_tests(None)
 
 
-def _auth(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
-
-
-# ---------------------------------------------------------------------------
-# Auth enforcement
-# ---------------------------------------------------------------------------
-def test_unauthenticated_read_returns_401(settings_client):
-    client, _, _ = settings_client
+def test_open_read_returns_200(settings_client):
+    client, _ = settings_client
     r = client.get("/api/settings/effective")
-    assert r.status_code == 401
-
-
-def test_wrong_token_returns_403(settings_client):
-    client, _, _ = settings_client
-    r = client.get("/api/settings/effective", headers=_auth("wrong"))
-    assert r.status_code == 403
-
-
-def test_unset_token_returns_503(settings_client, monkeypatch):
-    # Re-patch ADMIN_TOKEN to None and re-mount on a fresh app.
-    monkeypatch.setattr("backend.api.settings.ADMIN_TOKEN", None)
-    app = FastAPI()
-    mon = ImpactMonitor(events_source=lambda: [])
-    mount_settings_routes(app, impact_monitor=mon, impact_subscribers=[])
-    c = TestClient(app)
-    r = c.get("/api/settings/effective", headers=_auth("anything"))
-    assert r.status_code == 503
+    assert r.status_code == 200
 
 
 # ---------------------------------------------------------------------------
 # Reads
 # ---------------------------------------------------------------------------
 def test_get_schema(settings_client):
-    client, token, _ = settings_client
-    r = client.get("/api/settings/schema", headers=_auth(token))
+    client, _ = settings_client
+    r = client.get("/api/settings/schema")
     assert r.status_code == 200
     payload = r.json()
     assert payload["schema_version"] >= 1
@@ -101,8 +69,8 @@ def test_get_schema(settings_client):
 
 
 def test_get_effective(settings_client):
-    client, token, _ = settings_client
-    r = client.get("/api/settings/effective", headers=_auth(token))
+    client, _ = settings_client
+    r = client.get("/api/settings/effective")
     assert r.status_code == 200
     payload = r.json()
     assert "values" in payload
@@ -110,8 +78,8 @@ def test_get_effective(settings_client):
 
 
 def test_default_template_present_in_list(settings_client):
-    client, token, _ = settings_client
-    r = client.get("/api/settings/templates", headers=_auth(token))
+    client, _ = settings_client
+    r = client.get("/api/settings/templates")
     assert r.status_code == 200
     tmpls = r.json()["templates"]
     assert tmpls[0]["id"] == "tpl_default"
@@ -122,10 +90,9 @@ def test_default_template_present_in_list(settings_client):
 # Validate
 # ---------------------------------------------------------------------------
 def test_validate_returns_resolved_diff(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/validate",
-        headers=_auth(token),
         json={"diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65}},
     )
     assert r.status_code == 200
@@ -135,10 +102,9 @@ def test_validate_returns_resolved_diff(settings_client):
 
 
 def test_validate_returns_422_with_errors(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/validate",
-        headers=_auth(token),
         json={"diff": {"TTC_HIGH_SEC": 5.0, "TTC_MED_SEC": 1.0}},
     )
     assert r.status_code == 422
@@ -150,10 +116,9 @@ def test_validate_returns_422_with_errors(settings_client):
 # Apply
 # ---------------------------------------------------------------------------
 def test_apply_success_then_reflected_in_effective(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
             "operator_label": "test",
@@ -163,25 +128,23 @@ def test_apply_success_then_reflected_in_effective(settings_client):
     body = r.json()
     assert body["ok"] is True
     assert "CONF_THRESHOLD" in body["applied_now"]
-    eff = client.get("/api/settings/effective", headers=_auth(token)).json()
+    eff = client.get("/api/settings/effective").json()
     assert eff["values"]["CONF_THRESHOLD"] == 0.6
 
 
 def test_apply_validation_error_returns_422(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={"diff": {"TTC_HIGH_SEC": 99.0}, "operator_label": "test"},
     )
     assert r.status_code == 422
 
 
 def test_apply_revision_conflict_returns_409(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
             "expected_revision_hash": "definitely-not-current",
@@ -194,10 +157,9 @@ def test_apply_revision_conflict_returns_409(settings_client):
 
 
 def test_apply_privacy_confirm_required(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={"diff": {"ALPR_MODE": "on"}, "operator_label": "test"},
     )
     assert r.status_code == 400
@@ -205,7 +167,6 @@ def test_apply_privacy_confirm_required(settings_client):
     # With the flag it goes through.
     r2 = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"ALPR_MODE": "on"},
             "confirm_privacy_change": True,
@@ -216,16 +177,16 @@ def test_apply_privacy_confirm_required(settings_client):
 
 
 def test_apply_rate_limit_429(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     actor = "rate-test"
     body = {
         "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
         "operator_label": actor,
     }
-    r1 = client.post("/api/settings/apply", headers=_auth(token), json=body)
+    r1 = client.post("/api/settings/apply", json=body)
     assert r1.status_code == 200
     # Immediate second hit is below the cooldown.
-    r2 = client.post("/api/settings/apply", headers=_auth(token), json=body)
+    r2 = client.post("/api/settings/apply", json=body)
     assert r2.status_code == 429
     assert "Retry-After" in r2.headers
 
@@ -239,18 +200,16 @@ def test_failed_apply_does_not_burn_cooldown(settings_client):
     *and then* 429 every retry for the next 5 seconds — leaving the
     operator unable to fix their own diff.
     """
-    client, token, _ = settings_client
+    client, _ = settings_client
     actor = "fail-then-succeed"
     bad = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={"diff": {"TTC_HIGH_SEC": 99.0}, "operator_label": actor},
     )
     assert bad.status_code == 422
     # Same actor, immediately, with a valid diff: must succeed (not 429).
     good = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
             "operator_label": actor,
@@ -262,18 +221,16 @@ def test_failed_apply_does_not_burn_cooldown(settings_client):
 def test_privacy_confirm_two_step_same_actor_succeeds(settings_client):
     """The privacy-confirm two-step is one logical operation; the second
     call from the same actor must not be blocked by the cooldown."""
-    client, token, _ = settings_client
+    client, _ = settings_client
     actor = "privacy-flow"
     r1 = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={"diff": {"ALPR_MODE": "on"}, "operator_label": actor},
     )
     assert r1.status_code == 400
     assert r1.json()["error"] == "privacy_confirm_required"
     r2 = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"ALPR_MODE": "on"},
             "confirm_privacy_change": True,
@@ -286,11 +243,10 @@ def test_privacy_confirm_two_step_same_actor_succeeds(settings_client):
 def test_revision_conflict_does_not_burn_cooldown(settings_client):
     """A 409 from ``expected_revision_hash`` mismatch should not stamp
     the cooldown — the operator needs to refetch and retry immediately."""
-    client, token, _ = settings_client
+    client, _ = settings_client
     actor = "etag-flow"
     bad = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
             "expected_revision_hash": "stale-hash",
@@ -300,7 +256,6 @@ def test_revision_conflict_does_not_burn_cooldown(settings_client):
     assert bad.status_code == 409
     good = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
             "operator_label": actor,
@@ -311,17 +266,15 @@ def test_revision_conflict_does_not_burn_cooldown(settings_client):
 
 def test_template_apply_missing_does_not_burn_cooldown(settings_client):
     """404 on a missing template must not lock the operator out."""
-    client, token, _ = settings_client
+    client, _ = settings_client
     actor = "missing-template"
     miss = client.post(
         "/api/settings/templates/tpl_does_not_exist/apply",
-        headers=_auth(token),
         json={"operator_label": actor},
     )
     assert miss.status_code == 404
     good = client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
             "operator_label": actor,
@@ -334,10 +287,9 @@ def test_template_apply_missing_does_not_burn_cooldown(settings_client):
 # Templates
 # ---------------------------------------------------------------------------
 def test_template_create_apply_delete_round_trip(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/templates",
-        headers=_auth(token),
         json={
             "name": "tight",
             "description": "tighter",
@@ -352,19 +304,18 @@ def test_template_create_apply_delete_round_trip(settings_client):
     _last_apply_at.clear()
     r = client.post(
         f"/api/settings/templates/{tmpl_id}/apply",
-        headers=_auth(token),
         json={"operator_label": "tester"},
     )
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
     # Delete it.
-    r = client.delete(f"/api/settings/templates/{tmpl_id}", headers=_auth(token))
+    r = client.delete(f"/api/settings/templates/{tmpl_id}")
     assert r.status_code == 200
     assert r.json()["deleted"] is True
 
     # System template delete is rejected.
-    r = client.delete("/api/settings/templates/tpl_default", headers=_auth(token))
+    r = client.delete("/api/settings/templates/tpl_default")
     assert r.status_code == 409
 
 
@@ -372,10 +323,9 @@ def test_template_create_apply_delete_round_trip(settings_client):
 # Tickets + SSE
 # ---------------------------------------------------------------------------
 def test_stream_ticket_issue_and_consume(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     r = client.post(
         "/api/settings/stream_ticket",
-        headers=_auth(token),
         json={"operator_label": "tester"},
     )
     assert r.status_code == 200
@@ -395,11 +345,10 @@ def test_stream_ticket_issue_and_consume(settings_client):
 
 
 def test_observability_counters_exposed(settings_client):
-    client, token, _ = settings_client
+    client, _ = settings_client
     # Trigger one success + one validation_error so counters are non-zero.
     client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={
             "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
             "operator_label": "obs",
@@ -408,10 +357,9 @@ def test_observability_counters_exposed(settings_client):
     _last_apply_at.clear()
     client.post(
         "/api/settings/apply",
-        headers=_auth(token),
         json={"diff": {"TTC_HIGH_SEC": 99.0}, "operator_label": "obs2"},
     )
-    r = client.get("/api/settings/observability", headers=_auth(token))
+    r = client.get("/api/settings/observability")
     assert r.status_code == 200
     counters = r.json()["counters"]
     assert counters["settings_apply_total_success"] >= 1

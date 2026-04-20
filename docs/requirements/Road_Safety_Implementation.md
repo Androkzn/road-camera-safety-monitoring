@@ -181,7 +181,7 @@ road-safety/
 | DSAR token | — | Privacy | `ROAD_DSAR_TOKEN` | None (access denied) |
 | Public thumbnail token gate | Off by default | Privacy | `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN` | 0 |
 | Public thumbnail signing secret | Inherits cloud HMAC secret when unset | Privacy | `ROAD_THUMB_SIGNING_SECRET` | `ROAD_CLOUD_HMAC_SECRET` |
-| Admin bearer token | — | Security | `ROAD_ADMIN_TOKEN` | None (protected endpoints disabled) |
+| Admin bearer token | — | Security | — | None (protected endpoints disabled) |
 | Cloud read bearer token | — | Security | `ROAD_CLOUD_READ_TOKEN` | None (cloud reads disabled) |
 | Slack image relay | Off by default | Alerting | `SLACK_ENABLE_IMAGE_RELAY` | 0 |
 | Plate salt | — | Privacy | `ROAD_PLATE_SALT` | Random per process if unset |
@@ -468,7 +468,7 @@ road-safety/
 - Each record: `call_type`, `model`, `input_tokens`, `output_tokens`, `latency_ms`, `success`, `error`, `skip_reason`, `event_id`
 - `stats(window_sec)` → total calls, success/error/skip counts, P50/P95 latency, estimated USD cost, error rate
 - `recent(limit)` → last N records as dicts
-- Exposed via `/api/llm/stats` and `/api/llm/recent` behind `ROAD_ADMIN_TOKEN`
+- Exposed via `/api/llm/stats` and `/api/llm/recent` behind —
 
 **llm.py — Multi-Provider Failover (TRD D-06):**
 - Primary provider: Anthropic (or Azure if configured)
@@ -523,7 +523,7 @@ road-safety/
   - Active learning export
   - Chat queries
   - Agent invocations
-- Sensitive operational endpoints are bearer-protected via `ROAD_ADMIN_TOKEN`
+- Sensitive operational endpoints are bearer-protected via —
 
 **retention.py:**
 - `sweep_thumbnails(max_age_days)` → deletes old thumbnail files
@@ -789,7 +789,6 @@ uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 - [ ] Verify LLM narration is working (if API keys configured)
 - [ ] Verify Slack alerts are firing (if webhook configured)
 - [ ] Verify drift monitor initializes cleanly
-- [ ] Monitor `/api/llm/stats` for error rate with `Authorization: Bearer <ROAD_ADMIN_TOKEN>`
 - [ ] Submit test feedback and verify drift update
 - [ ] Test agent endpoints with known event_id
 

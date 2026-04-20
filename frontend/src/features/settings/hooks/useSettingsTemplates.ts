@@ -1,14 +1,8 @@
 /**
  * useSettingsTemplates — list/create/delete/apply settings templates.
  */
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
-import {
-  clearAdminToken,
-  isAdminAuthFailure,
-  MissingAdminTokenError,
-} from "../../../shared/lib/adminApi";
 
 import { settingsApi, settingsQueryKeys } from "../api";
 import type { ApplyResultPayload, SettingsTemplate } from "../types";
@@ -30,21 +24,13 @@ export interface SettingsTemplatesState {
   ) => Promise<ApplyResultPayload>;
 }
 
-export function useSettingsTemplates(token: string | null): SettingsTemplatesState {
+export function useSettingsTemplates(): SettingsTemplatesState {
   const qc = useQueryClient();
 
   const templatesQuery = useQuery({
     queryKey: settingsQueryKeys.templates,
     queryFn: ({ signal }) => settingsApi.listTemplates({ signal }),
-    enabled: !!token,
-    retry: (_count, err) => !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
   });
-
-  useEffect(() => {
-    if (templatesQuery.error && isAdminAuthFailure(templatesQuery.error)) {
-      clearAdminToken();
-    }
-  }, [templatesQuery.error]);
 
   const invalidateTemplates = () => qc.invalidateQueries({ queryKey: settingsQueryKeys.templates });
 
@@ -61,9 +47,6 @@ export function useSettingsTemplates(token: string | null): SettingsTemplatesSta
     onSuccess: () => {
       void invalidateTemplates();
     },
-    onError: (exc) => {
-      if (isAdminAuthFailure(exc)) clearAdminToken();
-    },
   });
 
   const removeMutation = useMutation({
@@ -71,31 +54,22 @@ export function useSettingsTemplates(token: string | null): SettingsTemplatesSta
     onSuccess: () => {
       void invalidateTemplates();
     },
-    onError: (exc) => {
-      if (isAdminAuthFailure(exc)) clearAdminToken();
-    },
   });
 
   const applyTemplateMutation = useMutation({
     mutationFn: ({ id, opts }: { id: string; opts?: { confirm_privacy_change?: boolean } }) =>
       settingsApi.applyTemplate(id, opts),
     onSuccess: () => {
-      // Template application mutates both the template metadata access path
-      // and the effective settings snapshot displayed on this page.
       void Promise.all([
         invalidateTemplates(),
         qc.invalidateQueries({ queryKey: settingsQueryKeys.effective }),
       ]);
     },
-    onError: (exc) => {
-      if (isAdminAuthFailure(exc)) clearAdminToken();
-    },
   });
 
   const refresh = useCallback(async () => {
-    if (!token) return;
     await templatesQuery.refetch();
-  }, [token, templatesQuery]);
+  }, [templatesQuery]);
 
   const create = useCallback(
     async (name: string, description: string, payload: Record<string, unknown>) => {
@@ -119,21 +93,16 @@ export function useSettingsTemplates(token: string | null): SettingsTemplatesSta
   );
 
   const error =
-    templatesQuery.error instanceof MissingAdminTokenError
-      ? null
-      : templatesQuery.error instanceof Error
-        ? templatesQuery.error.message
-        : null;
+    templatesQuery.error instanceof Error ? templatesQuery.error.message : null;
 
   return {
-    templates: token ? (templatesQuery.data?.templates ?? []) : [],
+    templates: templatesQuery.data?.templates ?? [],
     loading:
-      !!token &&
-      (templatesQuery.isFetching ||
-        createMutation.isPending ||
-        removeMutation.isPending ||
-        applyTemplateMutation.isPending),
-    error: token ? error : null,
+      templatesQuery.isFetching ||
+      createMutation.isPending ||
+      removeMutation.isPending ||
+      applyTemplateMutation.isPending,
+    error,
     refresh,
     create,
     remove,

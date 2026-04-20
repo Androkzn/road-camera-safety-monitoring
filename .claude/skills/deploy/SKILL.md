@@ -14,7 +14,7 @@ Pass `cloud` to also start the cloud receiver (port 8001).
 ## Pre-flight
 
 1. `git status` — confirm a clean working tree (or that the user knows about pending changes).
-2. Confirm `.env` exists at the repo root (not committed). Required vars: `ROAD_ADMIN_TOKEN`, `ROAD_DSAR_TOKEN`, `ROAD_VEHICLE_ID`, `ROAD_ID`, `ROAD_DRIVER_ID`. See [.env.example](.env.example).
+2. Confirm `.env` exists at the repo root (not committed). Typical vars: `ROAD_DSAR_TOKEN` (if using DSAR thumbnails), `ROAD_VEHICLE_ID`, `ROAD_ID`, `ROAD_DRIVER_ID`. See [.env.example](.env.example).
 3. Confirm YOLO weights are present (`yolov8n.pt` / `yolov8s.pt`) — they are gitignored and download on first run.
 
 ## Steps

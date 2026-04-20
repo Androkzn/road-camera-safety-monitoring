@@ -122,17 +122,16 @@ flowchart LR
 
 ---
 
-## 5. Authentication tiers (edge server)
+## 5. Access tiers (edge server, POC)
 
-The backend enforces **three conceptual tiers** (see `CLAUDE.md`):
+See `CLAUDE.md` for the current model. This demo build keeps most operator JSON routes **unauthenticated** on the network you bind to.
 
 | Tier | Mechanism | Typical use |
 |------|-----------|-------------|
-| **Public** | None | SSE, dashboard UI, many `/api/*` reads, `/chat` (still audit-logged). |
+| **Open API** | None | SSE, dashboard UI, settings, live control, LLM stats, audit reads, etc. |
 | **DSAR / sensitive imagery** | Header `X-DSAR-Token` must match `ROAD_DSAR_TOKEN` | Unredacted thumbnails when token is configured. |
-| **Admin** | Header `Authorization: Bearer <ROAD_ADMIN_TOKEN>` | LLM stats, audit log, retention sweep, road registry, agents, active-learning export. |
 
-**Frontend note:** the shipped React app **does not** attach `Authorization` headers in `api.ts`. Admin routes are meant for **operators**, **curl**, or a future secured admin client — not for the default public UI.
+**Frontend note:** the React app uses same-origin `fetch` without stored credentials. Treat the host like a lab appliance — not internet-facing.
 
 **Thumbnail URL signing:** when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN` is enabled, public thumbnails may require `exp` + `token` query parameters (HMAC-derived on the server). The event payload may carry presigned URLs from integrations like cloud export (`edge_publisher.build_thumbnail_url`).
 

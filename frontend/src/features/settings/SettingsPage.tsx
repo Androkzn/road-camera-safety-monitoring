@@ -1,25 +1,10 @@
 /**
  * SettingsPage — operator-facing tuning console (orchestrator).
- *
- * Was a 1,564-line god component. Then a 431-line thin page. Now a
- * ~210-line page after D1.A extracted the apply/rollback/template
- * lifecycle into `useSettingsApply` and the no-token empty state into
- * `<TokenEmptyState>`.
- *
- * Layout (responsive):
- *   [TopBar]
- *   ┌─────────────────────────────┬──────────────────┐
- *   │ Page header + apply bar     │ Templates        │
- *   │ Validation / warnings       │ Baseline         │
- *   │ <details> per category      │ Impact           │
- *   │   tunable rows…             │ (Live preview)   │
- *   └─────────────────────────────┴──────────────────┘
  */
 
 import { useMemo } from "react";
 
 import { POLL_INTERVAL_MS } from "../../shared/config/runtime";
-import { useAdminToken } from "../../shared/hooks/useAdminToken";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
 import { TopBar } from "../../shared/layout/TopBar";
 import { ErrorList, useDialog } from "../../shared/ui";
@@ -34,7 +19,6 @@ import {
   LivePreviewCard,
   SettingsHeader,
   TemplatesCard,
-  TokenEmptyState,
   TunablesColumn,
 } from "./components";
 import { useImpact } from "./hooks/useImpact";
@@ -47,14 +31,9 @@ import type { SettingSpec } from "./types";
 import styles from "./SettingsPage.module.css";
 
 export function SettingsPage() {
-  const { token, setToken, clear: clearToken } = useAdminToken();
-  const settings = useSettings(token);
-  const templates = useSettingsTemplates(token);
-  const impact = useImpact(token);
-  // D2.A: Settings only uses live/liveSources to feed the TopBar uptime
-  // pill — not a second-by-second indicator. Drop the poll frequency from
-  // 5 s to 15 s on this page. Other pages that mount these hooks keep
-  // their defaults.
+  const settings = useSettings();
+  const templates = useSettingsTemplates();
+  const impact = useImpact();
   const { data: live, error: liveError } = useLiveStatus(POLL_INTERVAL_MS.liveStatusSettings);
   const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSourcesSettings);
   const { status: wdStatus } = useWatchdogCtx();
@@ -93,25 +72,6 @@ export function SettingsPage() {
     return Object.entries(by);
   }, [settings.schema]);
 
-  // -------------------------------------------------------------------------
-  // Token-prompt empty state
-  // -------------------------------------------------------------------------
-  if (!token || settings.needsToken) {
-    return (
-      <TokenEmptyState
-        sourceName={sourceName}
-        connected={connected}
-        errorCount={errorCount}
-        driftCount={driftCount}
-        error={settings.error}
-        onSave={setToken}
-      />
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // Main page
-  // -------------------------------------------------------------------------
   return (
     <>
       <TopBar
@@ -145,14 +105,6 @@ export function SettingsPage() {
                   disabled={settings.loading}
                 >
                   {settings.loading ? "Retrying…" : "Retry"}
-                </button>
-                <button
-                  type="button"
-                  className={styles.btn}
-                  onClick={() => clearToken()}
-                  title="Clear the cached admin token and re-prompt"
-                >
-                  Forget token
                 </button>
               </div>
             </>

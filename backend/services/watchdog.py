@@ -478,8 +478,8 @@ def _defaults_for(category: str, title: str, severity: str) -> dict[str, Any]:
             "If errors are rate-limit related, reduce load or force the cheaper/faster fallback path until the provider recovers.",
         ]
         commands = [
-            "curl -H \"Authorization: Bearer $ROAD_ADMIN_TOKEN\" http://localhost:8000/api/llm/stats",
-            "curl -H \"Authorization: Bearer $ROAD_ADMIN_TOKEN\" http://localhost:8000/api/llm/recent",
+            "curl http://localhost:8000/api/llm/stats",
+            "curl http://localhost:8000/api/llm/recent",
             "tail -n 160 logs/app.log | rg \"429|anthropic|openai|llm\"",
         ]
     elif cat == "llm" and "latency" in ttl:
@@ -491,7 +491,7 @@ def _defaults_for(category: str, title: str, severity: str) -> dict[str, Any]:
             "Reduce prompt size or route slow paths to a faster model while keeping detection fully local.",
         ]
         commands = [
-            "curl -H \"Authorization: Bearer $ROAD_ADMIN_TOKEN\" http://localhost:8000/api/llm/stats",
+            "curl http://localhost:8000/api/llm/stats",
             "tail -n 160 logs/app.log | rg \"429|Retrying request|HTTP Request\"",
         ]
     elif cat == "llm" and "zero tokens" in ttl:
@@ -503,8 +503,8 @@ def _defaults_for(category: str, title: str, severity: str) -> dict[str, Any]:
             "Fix instrumentation before using cost or throughput data for policy decisions.",
         ]
         commands = [
-            "curl -H \"Authorization: Bearer $ROAD_ADMIN_TOKEN\" http://localhost:8000/api/llm/stats",
-            "curl -H \"Authorization: Bearer $ROAD_ADMIN_TOKEN\" http://localhost:8000/api/llm/recent",
+            "curl http://localhost:8000/api/llm/stats",
+            "curl http://localhost:8000/api/llm/recent",
         ]
     elif cat == "stream":
         likely_cause = "Frames are not flowing through the reader or processing loop at the expected rate, often because the source is stalled or the host is overloaded."

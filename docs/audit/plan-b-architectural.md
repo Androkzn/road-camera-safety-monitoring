@@ -73,12 +73,12 @@ Each work item carries:
 
 ## B3. Full OpenAPI → TypeScript codegen
 
-**Observed.** Plan A item A5 covers the top 5 payloads. The other 48 routes still rely on `frontend/src/shared/lib/adminApi.ts` and hand-mirrored types.
+**Observed.** Plan A item A5 covers the top 5 payloads. The other 48 routes still rely on `frontend/src/shared/lib/fetchClient.ts` and hand-mirrored types.
 
 **Why it matters.** Permanent fix for FE/BE drift; removes most of the hand-written API plumbing.
 
 **Options.**
-- **(a)** OpenAPI codegen via `openapi-typescript-codegen` or `orval` — generates both types and a typed fetch client. Replaces most of `shared/lib/adminApi.ts` plumbing.
+- **(a)** OpenAPI codegen via `openapi-typescript-codegen` or `orval` — generates both types and a typed fetch client. Replaces most of `shared/lib/fetchClient.ts` plumbing.
 - **(b)** Manual Pydantic models per handler, no codegen. (Plan A approach extended.)
 - **(c)** GraphQL layer over the existing handlers.
 
@@ -91,7 +91,7 @@ Each work item carries:
 **Files touched.**
 - All 53 backend route handlers gain `response_model=`.
 - New: `frontend/scripts/codegen.sh`, `frontend/src/shared/api/generated/` (committed).
-- Removed/shrunk: `frontend/src/shared/lib/adminApi.ts`, `frontend/src/shared/lib/fetchClient.ts`, `frontend/src/shared/types/common.ts`, every `features/*/api.ts`.
+- Removed/shrunk: `frontend/src/shared/lib/fetchClient.ts`, `frontend/src/shared/lib/fetchClient.ts`, `frontend/src/shared/types/common.ts`, every `features/*/api.ts`.
 
 **Depends on.** **Plan A A5** (top 5 already migrated and proven), **Plan A A6** (routers extracted so `response_model=` adds aren't tangled with route relocation).
 
@@ -124,7 +124,6 @@ Each work item carries:
 ## B5. Cross-feature client state store
 
 **Observed.**
-- [shared/lib/adminApi.ts:35, 46](../../frontend/src/shared/lib/adminApi.ts) — `setAdminToken` / `clearAdminToken` dispatch `admin-token-changed`; consumers subscribe via `window.addEventListener` (see `shared/hooks/useAdminToken.ts`).
 - [features/admin/AdminPage.tsx:60](../../frontend/src/features/admin/AdminPage.tsx) — dispatches `admin-focused-id-changed` on every change.
 
 **Why it matters.** Works, but is an ad-hoc DOM event bus. Surprising to new contributors. No way to introspect the bus or persist selectively.
@@ -142,7 +141,7 @@ Each work item carries:
 
 **Effort.** S (2–3 days). **Risk.** low.
 
-**Files touched.** `frontend/src/app/providers.tsx`, `shared/lib/adminApi.ts` (token getters/setters move into the provider), `shared/hooks/useAdminToken.ts` (becomes `useAdminTokenCtx`), `features/admin/AdminPage.tsx`.
+**Files touched.** `frontend/src/app/providers.tsx`, `shared/lib/fetchClient.ts`, `features/admin/AdminPage.tsx`.
 
 **Depends on.** **A3.**
 

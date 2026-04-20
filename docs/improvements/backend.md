@@ -14,7 +14,7 @@
 2. **Audit the thread → asyncio bridge.** `_HAIKU_BUCKET._lock = asyncio.Lock()` is loop-bound; the perception thread must use `asyncio.run_coroutine_threadsafe` against a captured loop, not `asyncio.run` or `loop.call_soon_threadsafe`.
 3. **Decompose [server.py](../../backend/server.py) (1,535 LOC) into APIRouters with a `lifespan`-managed factory.** Currently routes, orchestration, identity resolution, and middleware all share one module.
 4. **OpenTelemetry traces + Prometheus metrics.** Replace the ad-hoc in-memory `LLMObserver` ring with OTel spans + a `/metrics` exporter. EU AI Act traceability obligation aligns with this.
-5. **Pydantic-settings + fail-fast config.** Refuse to boot in `ENV=prod` without `THUMB_SIGNING_SECRET`, `ROAD_ADMIN_TOKEN`, etc. Today's silent defaults attribute events to `unidentified_vehicle_<host>`.
+5. **Pydantic-settings + fail-fast config.** Refuse to boot in `ENV=prod` without `THUMB_SIGNING_SECRET`, —, etc. Today's silent defaults attribute events to `unidentified_vehicle_<host>`.
 6. **EU AI Act risk register and model card.** This system is borderline high-risk under Annex III §6(d); ship the docs before pilots.
 7. **YOLO accelerator selection + multi-source load governance** (R4 + R-PERF). The 2026-04-19 perf incident showed `yolov8s.pt` × 6 stream slots × CPU-only inference saturated uvicorn at ~205 % CPU; auto-device selection (CUDA → MPS → CPU) and the per-slot `detection_enabled` toggle are shipped, but auto-shedding, a detecting-slot cap, shared MJPEG fan-out, and a `perf.cpu_saturated` watchdog rule remain.
 
@@ -174,7 +174,6 @@ The same incident exposed a structural gap: the multi-source slot manager ([core
 
 Replace raw `os.getenv` reads in [config.py](../../backend/config.py) with `pydantic_settings.BaseSettings`. Refuse to boot in non-dev when required vars are missing.
 
-**Why this project.** [server.py:98 `_resolve_identity()`](../../backend/server.py#L98) demonstrates the failure mode of silent defaults — events get attributed to "unidentified_vehicle_<host>". The same pattern likely exists for `THUMB_SIGNING_SECRET` (a hardcoded default would void HMAC integrity), Anthropic key, Azure creds, admin tokens.
 
 **Adoption.**
 ```python
@@ -186,7 +185,6 @@ class Settings(BaseSettings):
     env: Literal["dev", "staging", "prod"] = "dev"
     anthropic_api_key: SecretStr | None = None
     thumb_signing_secret: SecretStr
-    admin_token: SecretStr
     target_fps: float = 2.0
 
     @model_validator(mode="after")

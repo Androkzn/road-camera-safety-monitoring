@@ -59,7 +59,7 @@ The case for extracting inline pieces in `SettingsPage` and `MultiSourceGrid` is
 
 **Trade-offs.**
 - (a) one PR, ~5 model files, low blast radius. Doesn't reach the other 48 routes.
-- (b) permanent fix, removes most of `shared/lib/adminApi.ts` boilerplate, but every backend handler needs `response_model=`. Bigger change.
+- (b) permanent fix, removes most of `shared/lib/fetchClient.ts` boilerplate, but every backend handler needs `response_model=`. Bigger change.
 - (c) keeps silent drift bugs.
 
 **Recommendation.** **(a)** in Plan A; **(b)** in Plan B once backend handlers are decomposed.
@@ -68,7 +68,7 @@ The case for extracting inline pieces in `SettingsPage` and `MultiSourceGrid` is
 
 **Observed.**
 - `validate(diff: Record<string, unknown>)` in [features/settings/api.ts](../../frontend/src/features/settings/api.ts).
-- `body: unknown` in `AdminApiError` in [shared/lib/adminApi.ts:69](../../frontend/src/shared/lib/adminApi.ts).
+- `body: unknown` in `AdminApiError` in [shared/lib/fetchClient.ts:69](../../frontend/src/shared/lib/fetchClient.ts).
 - `setQueryData` callbacks lose their generic in a few places.
 
 **Why it matters.** Acceptable at the network boundary, but `Record<string, unknown>` for the settings draft means key-typo bugs survive the type checker. The value of the strict tsconfig is partially undermined here.
@@ -85,8 +85,6 @@ The case for extracting inline pieces in `SettingsPage` and `MultiSourceGrid` is
 
 **Observed.** [frontend/src/features/settings/SettingsPage.tsx](../../frontend/src/features/settings/SettingsPage.tsx) is **431 lines**. The page header docstring brags it was previously 1,564 (good progress!) but at 431 it still owns:
 
-- Three feature hooks (`useSettings`, `useImpact`, `useSettingsTemplates`) plus three cross-cutting hooks (`useAdminToken`, `useLiveStatus`, `useLiveSources`, `useWatchdogCtx`, `useDriftCount`).
-- Three dialog flows: `doApply` (lines 112–216), `doRollback` (218–255), `doApplyTemplate` (257–300). Each is ~50–100 lines with `setSubmitting`/`setApplyResult`/`setValidationErrors`/`setWarnings` orchestration plus error-class branching (`isPrivacyConfirmRequired`, `isAdminAuthFailure`, status 409, status 429).
 - Draft state (`draft`, `setDraft`), validation state (`validationErrors`, `warnings`, `applyResult`).
 - The `dirtyKeys` and `errorByKey` and `groupedSpecs` `useMemo`s.
 - Three `console.groupCollapsed` / `console.info` / `console.warn` blocks inline.
@@ -326,7 +324,6 @@ Components don't re-render on count changes — only via `events`. The fact that
 ### 6.1 Cross-feature client state via `localStorage` + `CustomEvent`
 
 **Observed.**
-- [shared/lib/adminApi.ts:35, 46](../../frontend/src/shared/lib/adminApi.ts) — `setAdminToken` and `clearAdminToken` dispatch `admin-token-changed`; consumers subscribe via `window.addEventListener` (see `shared/hooks/useAdminToken.ts`).
 - [features/admin/AdminPage.tsx:60](../../frontend/src/features/admin/AdminPage.tsx) — dispatches `admin-focused-id-changed` on every change; nobody subscribes to it as far as the search shows (vestigial?).
 
 **Why it matters.** Works, but is an ad-hoc event bus. Surprising to new contributors. No way to introspect the bus.

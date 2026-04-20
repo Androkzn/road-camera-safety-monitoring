@@ -4,7 +4,7 @@
  */
 import { useCallback, useState } from "react";
 
-import { adminFetch } from "../../../shared/lib/adminApi";
+import { apiFetch } from "../../../shared/lib/fetchClient";
 import { useDialog } from "../../../shared/ui";
 
 interface UseClearEventsOpts {
@@ -30,7 +30,7 @@ export function useClearEvents({ clearEvents, clearAllFindings, hasFindings }: U
     if (!ok) return;
     setClearing(true);
     try {
-      await adminFetch<{ cleared: number }>("/api/events", {
+      await apiFetch<{ cleared: number }>("/api/events", {
         method: "DELETE",
       });
       clearEvents();

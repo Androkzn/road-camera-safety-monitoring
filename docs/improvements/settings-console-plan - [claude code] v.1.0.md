@@ -10,7 +10,6 @@ Findings against the actual codebase:
 2. **Logical contradiction.** `TARGET_FPS` was flagged `requires_restart=true` and simultaneously described as "read from snapshot per loop iteration". Resolved: it is read **once at loop start**; mutations queue for next restart.
 3. **Scene-context coupling (biggest architectural gap).** `SceneContextClassifier.adaptive_thresholds()` multiplies `TTC_*` and `DIST_*` at runtime based on urban/highway/parking. Without capturing scene in baseline/after, A/B impact comparisons are confounded by scene drift. Added `scene_distribution` to `WindowStats` and an "effective value" display next to each operator tunable.
 4. **Session lifecycle gaps.** `_last_good` behavior across coalesce, archive, and server restart was undefined. Specified below.
-5. **SSE auth smell.** Admin token in query string leaks to access logs, browser history, and `Referer`. Replaced with short-lived ticket exchange.
 6. **Subscriber robustness.** Store never guarded against subscriber exceptions — one bad callback would tear down the apply thread. Added try/except isolation + warning propagation back to the caller.
 7. **Template schema drift.** Applying an old template after a spec change could violate new cross-field validators or reference dropped keys. Added re-validation + spec migration at apply time.
 8. **Privacy audit symmetry.** `settings.privacy_change` now fires for `on→off` *and* `off→on` (both change posture).
@@ -51,7 +50,6 @@ User explicitly chose: full-scope v1, recharts, manual revert (no auto-revert).
                 │  │          │                │  + AI text)    │ │
                 │  └──────────┴───────────────┴────────────────┘ │
                 └──────┬──────────────────────────────────┬──────┘
-                       │  HTTPS + Bearer (admin)          │  SSE (Bearer via ?token=)
                        ▼                                  ▼
         ┌────────────────────────┐        ┌────────────────────────────┐
         │ /api/settings (router) │        │ /api/settings/impact/stream│
@@ -80,7 +78,6 @@ Key invariants preserved:
 - LLM calls go through `_complete()` in `backend/services/llm.py` — preserves provider failover, shared `_HAIKU_BUCKET`, circuit breaker, `llm_observer` cost tracking.
 - All hot-path gates remain unchanged in *behavior* — only their *constants* become snapshot reads.
 - Privacy invariant intact: `enrich_event()` still scrubs plate at ingest.
-- All write endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>` via existing `backend/security.py::require_bearer_token`.
 
 ---
 
@@ -357,7 +354,7 @@ On connect, replay the latest snapshot of the active session. Keepalive every 15
 ### 3.1 Routing & nav
 
 - [frontend/src/App.tsx](frontend/src/App.tsx) — add `<Route path="/settings" element={<SettingsPage />} />` after the Monitoring route (~line 75).
-- [frontend/src/components/layout/TopBar.tsx](frontend/src/components/layout/TopBar.tsx) — add `<Link to="/settings" className={pathname === "/settings" ? styles.active : ""}>Settings</Link>` after the Monitoring `<Link>` (~line 125). Add `{adminTokenCached && <span className={styles.adminBadge}>admin</span>}` between the Pill and `{children}`.
+- [frontend/src/components/layout/TopBar.tsx](frontend/src/components/layout/TopBar.tsx) — add a Settings nav link next to the other primary routes.
 
 ### 3.2 Page layout (3-column desktop)
 
@@ -424,31 +421,17 @@ Hooks under `frontend/src/hooks/`:
 | `useSettings.ts` | `usePolling(api.getSettings, 15_000)` + `applyChanges(diff)` with 400 ms debounce + optimistic update + rollback on error |
 | `useSettingsTemplates.ts` | CRUD via `api.*Template*`; refetch on success |
 | `useImpactStream.ts` | SSE wrapper for `/api/settings/impact/stream`; falls back to 20 s polling after 3 reconnect failures |
-| `useAdminToken.ts` | `sessionStorage` get/set/clear + custom event for cross-component refresh |
 
 Lib:
 
 | File | Responsibility |
 |---|---|
-| `lib/adminAuth.ts` | `withAdminAuth(init)` injects `Authorization: Bearer …`; throws `MissingAdminTokenError`. `adminUrl(path)` appends `?token=…` for SSE (EventSource cannot set headers) |
 | `lib/api.ts` (extend) | Add `getSettings`, `putSettings`, `previewSettings`, `resetSettings`, `listTemplates`, `createTemplate`, `updateTemplate`, `deleteTemplate`, `applyTemplate`, `revertLast`, `getBaseline`, `getImpact` |
 | `types.ts` (extend) | Add `Tunable`, `SettingsResponse`, `Template`, `BaselineSnapshot`, `ImpactPayload`, `ImpactConfidence`, `Recommendation` |
 
-### 3.4 Admin token handling
+### 3.4 Authentication (historical)
 
-Prompt-on-first-write + **sessionStorage** (auto-clears on tab close, smaller XSS window than localStorage). On `MissingAdminTokenError`, mount `<TokenPromptDialog>` (uses `<ConfirmDialog>` styles); user pastes token → stash → re-run original write. "Forget token" link in SettingsPage header. TopBar shows small `admin` badge when token cached.
-
-Document the localStorage-vs-sessionStorage tradeoff in a comment block at the top of `adminAuth.ts`.
-
-**▲ v1.1: SSE auth via ephemeral ticket (not query-string token).** `EventSource` cannot set headers, but putting `ROAD_ADMIN_TOKEN` in `?token=` leaks it into access logs, browser history, and any `Referer` a subsequent navigation sends. Instead:
-
-1. Frontend calls `POST /api/settings/impact/ticket` with the admin bearer header → server returns `{ticket: "<opaque 32-byte hex>", expires_in: 30}`.
-2. Frontend opens `new EventSource("/api/settings/impact/stream?ticket=<ticket>")`.
-3. Server validates ticket on connect, consumes it (single-use), keeps the SSE open until drop.
-4. Tickets stored in a `{ticket: (actor, exp)}` dict in-memory; janitor sweeps expired every 60 s.
-5. Access-log middleware strips `?ticket=` query params (belt-and-suspenders) — but even if not stripped, the ticket is single-use and 30-second-TTL, so log leakage is nearly harmless compared to leaking the long-lived admin token.
-
-Audit log: `settings.impact.ticket_issued` (per issuance), `settings.impact.ticket_rejected` (on replay or expired-use). Rate limit: 30 ticket requests / min / actor.
+This POC ships **without** browser-stored secrets. The operator UI calls `/api/settings/*` with plain `fetch`. Re-introduce tickets or bearer checks only when moving beyond lab deployments.
 
 ### 3.5 Optimistic update + debounce
 
@@ -461,7 +444,7 @@ Audit log: `settings.impact.ticket_issued` (per issuance), `settings.impact.tick
 - Pre-after-window-fill → "Gathering data… N/20 events observed" with thin progress bar.
 - PUT failure → row red ring + inline error + toast. No page crash.
 - LLM unavailable → render numbers + "AI analysis unavailable."
-- 401 → toast "Token rejected", clear token, re-prompt (no silent retry — per `.claude/rules/frontend.md`).
+- HTTP errors → inline toast + retry affordances (no credential prompts in POC).
 - SSE drop → fall back to 20 s polling, show "live updates paused" pill.
 
 ### 3.7 Revert flow (per user choice)
@@ -514,8 +497,7 @@ No auto-revert. No timer. Operator stays in control.
 ### NEW frontend
 - `frontend/src/pages/SettingsPage.tsx` + `.module.css`
 - `frontend/src/components/settings/` — 11 components (see 3.3)
-- `frontend/src/hooks/useSettings.ts`, `useSettingsTemplates.ts`, `useImpactStream.ts`, `useAdminToken.ts`
-- `frontend/src/lib/adminAuth.ts`
+- `frontend/src/shared/lib/fetchClient.ts` (`apiFetch`)
 
 ### MODIFY frontend
 - [frontend/src/App.tsx](frontend/src/App.tsx) — add `/settings` route.
@@ -549,10 +531,8 @@ No auto-revert. No timer. Operator stays in control.
 | Operator abandons monitoring | At 10 min idle, set `session_state="monitoring_unattended"` + advisory banner. Never auto-revert. |
 | **▲ v1.1:** Subscriber raises during apply | Wrap each dispatch in try/except; log `settings.apply.subscriber_failed` audit; surface in `AppliedResult.warnings`; never propagate to a 500. |
 | **▲ v1.1:** Scene drift confounds A/B impact | `WindowStats.scene_distribution` captured for baseline and after; LLM prompt explicitly flags when distribution shifts >20 pp; UI shows scene pie next to comparison chart. |
-| **▲ v1.1:** Admin token leaks via SSE query param | Ephemeral single-use ticket exchange (§3.4); access-log middleware strips `?ticket=`. |
 | **▲ v1.1:** Old template violates new spec | Template apply re-validates + migrates (drop unknown keys, fill with defaults, 422 on cross-field violation). Never partial apply. |
 | **▲ v1.1:** Impact history empty after restart | Archive writes to `data/settings_history.jsonl`; history endpoint tails that file. |
-| **▲ v1.1:** CSRF on admin PUT/POST | Bearer token in `Authorization` header is not auto-attached by browsers (unlike cookies), so CSRF is structurally mitigated. Document this explicitly in `adminAuth.ts` header comment so a future switch to cookie-auth doesn't silently regress it. |
 
 ---
 
@@ -571,7 +551,7 @@ No auto-revert. No timer. Operator stays in control.
 6. **End-to-end smoke**
    - `python start.py` (builds FE + runs tests + boots server on :8000).
    - Navigate to `http://localhost:8000/settings`.
-   - First write → token prompt → paste `ROAD_ADMIN_TOKEN`.
+   - First write → token prompt → paste —.
    - Drag `TTC_HIGH_SEC` slider 0.5 → 0.8 → confirm row turns dirty, PUT fires after 400 ms, baseline captures.
    - Wait ~60 s → confirm `<ImpactPanel>` shows numeric deltas.
    - Wait ~5 min or until `≥20` after-window events → confirm AI narrative arrives.
@@ -588,7 +568,6 @@ No auto-revert. No timer. Operator stays in control.
 ## Out of scope (v2 candidates)
 
 - Hot-reload `TARGET_FPS` without restart (timer rebuild).
-- Per-role admin tokens (currently single shared `ROAD_ADMIN_TOKEN`).
 - Cookie-based auth (httpOnly) instead of `sessionStorage` bearer.
 - A 6th "Impact Deep Dive" agent (Sonnet, ≤5 tools) for operator-initiated drill-downs — keeps us under the agent tool-cap rule.
 - Cloud receiver mirror of `data/settings_history.jsonl` for fleet-wide settings analytics.

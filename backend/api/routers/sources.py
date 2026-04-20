@@ -51,7 +51,7 @@ def live_source_start(source_id: str, request: Request):
     """Resume capture for a paused source.
 
     HTTP: POST /api/live/sources/{source_id}/start
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
+    AUTH: POC (open)
     """
     require_admin_if_flagged(request, realm="source start")
     slot = state.slots.get(source_id)
@@ -77,7 +77,7 @@ def live_source_pause(source_id: str, request: Request):
     """Pause capture for a running source (slot is preserved for restart).
 
     HTTP: POST /api/live/sources/{source_id}/pause
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
+    AUTH: POC (open)
     """
     require_admin_if_flagged(request, realm="source pause")
     slot = state.slots.get(source_id)
@@ -94,7 +94,7 @@ def live_source_restart_all(request: Request):
     """Restart every slot from the beginning (full reset).
 
     HTTP: POST /api/live/sources/restart_all
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
+    AUTH: POC (open)
     """
     require_admin_if_flagged(request, realm="source restart_all")
     results: list[dict] = []
@@ -146,7 +146,7 @@ async def live_source_add(request: Request, body: AddSourceBody):
     HTTP: POST /api/live/sources
     Body (JSON): ``{"url": "<stream url>", "name"?: "<display name>",
                    "id"?: "<explicit slot id>", "autostart"?: bool}``
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12); SSRF-guarded.
+    AUTH: POC (open); SSRF-guarded.
     """
     require_admin_if_flagged(request, realm="source add")
     url = body.url.strip()
@@ -190,7 +190,7 @@ def live_source_remove(source_id: str, request: Request):
     """Stop the slot and drop it from the registry.
 
     HTTP: DELETE /api/live/sources/{source_id}
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
+    AUTH: POC (open)
     """
     require_admin_if_flagged(request, realm="source remove")
     slot = state.slots.get(source_id)
@@ -207,7 +207,7 @@ def live_source_set_detection(source_id: str, request: Request, enabled: bool = 
     """Toggle whether YOLO + event emission runs for a source.
 
     HTTP: POST /api/live/sources/{source_id}/detection?enabled=true|false
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
+    AUTH: POC (open)
     """
     require_admin_if_flagged(request, realm="source detection toggle")
     slot = state.slots.get(source_id)

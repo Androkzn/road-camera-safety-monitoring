@@ -313,7 +313,6 @@ artifacts.
 
 ### API rules
 
-- all `/api/settings/*` routes are admin-tier
 - schema version is mandatory on write payloads
 - unknown or deprecated fields return structured validation output
 - write responses return both durable state and activation state

@@ -166,8 +166,7 @@ image relay is opt-in via `SLACK_ENABLE_IMAGE_RELAY=1`.
 - **Client-side rate budget:** a token-bucket limiter (3 req/min) refuses LLM
   calls *before* they 429, cheaper than absorbing failures.
 - **Cost observability:** `backend/services/llm_obs.py` tracks per-call token counts, latency
-  percentiles, and estimated USD cost. Exposed via `/api/llm/stats`
-  behind `ROAD_ADMIN_TOKEN`.
+  percentiles, and estimated USD cost. Exposed via `/api/llm/stats` (open in the POC build).
 
 ## AI Agent Orchestration
 
@@ -194,8 +193,8 @@ Max iteration cap (5 steps) prevents runaway loops.
 - **Optional signed public access:** when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`,
   `_public` thumbnails also require valid `exp`/`token` query params and are
   audit-logged on allow/deny.
-- **Operational endpoint guard:** audit, LLM observability, retention, road summary,
-  and agent endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>`.
+- **Operational routes:** audit, LLM observability, retention, road summary,
+  and agent endpoints are reachable without browser credentials in this POC (do not expose WAN-wide).
 
 ## Multi-Vehicle Road Model
 
@@ -206,4 +205,4 @@ Max iteration cap (5 steps) prevents runaway loops.
   controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (set `0` to disable).
 - `/api/road/summary` provides road-wide aggregation; `/api/road/drivers`
   ranks drivers by safety score (worst-first for manager attention). These
-  endpoints are admin-protected.
+  endpoints are open in this POC; add auth before any production deployment.

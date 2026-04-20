@@ -103,7 +103,7 @@ async def admin_detections_sse(request: Request):
     """SSE stream of per-frame detection snapshots for the admin dashboard.
 
     HTTP: GET /admin/detections
-    AUTH: signed URL (BE-D13) OR admin bearer when ROAD_REQUIRE_AUTH=1.
+    AUTH: POC (open).
           Signature key is the constant ``"detections:all"`` because this
           SSE is not source-scoped. Falls through to public when the flag
           is off (pre-cutover).

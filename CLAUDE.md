@@ -57,20 +57,17 @@ Detection works with zero LLM calls. The LLM layer has multi-provider failover (
 - `backend/api/feedback.py` and `backend/api/settings.py` — feature mounts that need shared callbacks/state during registration.
 - `backend/config.py` — **single source of truth** for paths and env vars. Every module imports from here; never compute `Path(__file__).parent` in modules.
 - `backend/logging.py` — JSON-line logger setup (`setup()` called once from the FastAPI lifespan hook). Deliberately has no dependency on `config.py` so it can import early in bootstrap. `ROAD_LOG_FORMAT=text` switches to human-readable output for local dev.
-- `backend/security.py` — shared `require_bearer_token()` helper used by both the edge server and the cloud receiver. Constant-time token comparison, fail-closed on unset env var (503), 401/403 on missing/wrong token. Use this for any new admin-tier endpoint instead of rolling a fresh auth check.
+- `backend/security/` — POC: `require_bearer_token()` is a no-op stub (stable signature only). The cloud receiver still uses bearer checks for its own read token where configured.
 - `tools/` — offline utilities: `analyze.py` (batch event extraction from a video file), `eval_detect.py` (detection precision/recall harness), `eval_enrich.py` (LLM enrichment scorer). See [tools/README.md](tools/README.md).
 - `cloud/receiver.py` — separate FastAPI app; verifies HMAC, dedupes by `event_id` (`INSERT OR IGNORE`), stores in `data/cloud.db`.
 - `frontend/` — React 19 + Vite + TypeScript + react-router. Pages: `AdminPage` (live detections), `DashboardPage` (fleet overview), `MonitoringPage` (incident-queue watchdog).
 
-### Auth model
+### Access model (POC)
 
-Three tiers of access are enforced across the router and mount modules:
+- **Open API** — JSON routes and live media used by the operator UI are not authenticated; do not expose this build to the public internet.
+- **`X-DSAR-Token`** (env: `ROAD_DSAR_TOKEN`) — still gates *unredacted* thumbnails when set. Denied attempts are audit-logged.
 
-- **Public** — SSE stream, public thumbnails, dashboard.
-- **`X-DSAR-Token`** (env: `ROAD_DSAR_TOKEN`) — unredacted thumbnails. Denied attempts are audit-logged.
-- **`Authorization: Bearer <ROAD_ADMIN_TOKEN>`** — `/api/audit`, `/api/llm/*`, `/api/road/*`, `/api/agents/*`, `/api/retention/*`.
-
-When adding endpoints that read sensitive state, pick the right tier and audit-log through `backend/compliance/audit.py`.
+When adding endpoints that read sensitive state, audit-log through `backend/compliance/audit.py` and plan a real auth layer before any production use.
 
 ### Fleet identity
 

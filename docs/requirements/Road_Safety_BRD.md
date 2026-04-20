@@ -246,8 +246,6 @@ See `docs/requirements/Road_Safety_TRD.md` §9 for the endpoint contract and aut
 | Metric | Source | Alert Threshold |
 |---|---|---|
 | Detection precision | `/api/drift` | < 70% over 50 labels |
-| LLM error rate | `/api/llm/stats` (admin token) | > 20% |
-| LLM cost/hour | `/api/llm/stats` (admin token) | > $1.00/hour |
 | Event emission rate | `/api/live/status` | 0 events in 30 minutes (if stream is active) |
 | Perception state | `/api/live/perception` | Degraded state > 10 minutes |
 | Active learning queue | `data/active_learning/pending/` | > 500 pending samples |

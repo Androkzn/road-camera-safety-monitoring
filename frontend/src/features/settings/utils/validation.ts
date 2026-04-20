@@ -5,16 +5,16 @@
  * `body.errors` discriminators; these helpers narrow them to typed
  * shapes the page can render.
  */
-import type { AdminApiError } from "../../../shared/lib/adminApi";
+import type { HttpApiError } from "../../../shared/lib/fetchClient";
 
 export function isPrivacyConfirmRequired(exc: unknown): boolean {
   return (
     !!exc &&
     typeof exc === "object" &&
-    (exc as AdminApiError).status === 400 &&
-    (exc as AdminApiError).body !== null &&
-    typeof (exc as AdminApiError).body === "object" &&
-    ((exc as AdminApiError).body as { error?: string }).error === "privacy_confirm_required"
+    (exc as HttpApiError).status === 400 &&
+    (exc as HttpApiError).body !== null &&
+    typeof (exc as HttpApiError).body === "object" &&
+    ((exc as HttpApiError).body as { error?: string }).error === "privacy_confirm_required"
   );
 }
 
@@ -24,11 +24,11 @@ export function extractValidationErrors(
   if (
     exc &&
     typeof exc === "object" &&
-    (exc as AdminApiError).status === 422 &&
-    (exc as AdminApiError).body !== null &&
-    typeof (exc as AdminApiError).body === "object"
+    (exc as HttpApiError).status === 422 &&
+    (exc as HttpApiError).body !== null &&
+    typeof (exc as HttpApiError).body === "object"
   ) {
-    const body = (exc as AdminApiError).body as {
+    const body = (exc as HttpApiError).body as {
       errors?: Array<{ key: string; reason: string }>;
     };
     return body.errors ?? null;

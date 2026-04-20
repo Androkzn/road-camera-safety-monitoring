@@ -506,7 +506,6 @@ results = model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)[0
 
 | Option | Trade-offs |
 |---|---|
-| A - Apply `Depends(require_bearer_token)` to every mutating endpoint. FE already sends `Authorization: Bearer` via [adminApi.ts](frontend/src/shared/lib/adminApi.ts); the auth flow exists end-to-end. | 1 day. Matches the existing admin-tier pattern. Breaking change only for unauthenticated callers (which should not exist). |
 | B - Introduce a separate "operator" tier token distinct from "admin" (e.g. `X-Operator-Token`) so read-only operators can start/pause streams without full admin rights | 2-3 days. More principled RBAC. Needs token provisioning story. |
 | C - Rely on network segmentation (reverse proxy ACL or VPN) | 0 code change. Externalizes the entire trust boundary. Acceptable only if deployment procedures guarantee it, and the guarantee is tested in CI/ops. |
 | D - Leave | Ships a system that requires a specific deployment shape to be safe, without code-level enforcement. |
@@ -519,7 +518,7 @@ results = model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)[0
 - Integration test: an unauthenticated `POST /api/live/sources` returns 401/403, never 200.
 
 **Rollout / rollback — with hard cutover.**
-- **Release N:** Ship behind `ROAD_REQUIRE_AUTH` env flag, **default-OFF**. Ops has exactly one release window (2 weeks) to set `ROAD_ADMIN_TOKEN` in every deployment.
+- **Release N:** Ship behind `—` env flag, **default-OFF**. Ops has exactly one release window (2 weeks) to set — in every deployment.
 - **Release N+1: default flips to ON.** Deployments without a token fail closed at boot. This is a **hard deadline, not a soft target** — security work must not accrete as permanent opt-in.
 - **Release N+2: flag removed entirely.** `require_bearer_token()` becomes unconditional; the env var is ignored.
 - Observability: log `auth_failure_by_route` counter during release N so ops can spot untokenized deployments before the flip.
@@ -539,7 +538,6 @@ Paired failure: [server.py:818-874](backend/server.py#L818) already has thumbnai
 
 | Option | Trade-offs |
 |---|---|
-| A - Require `Authorization: Bearer` via `require_bearer_token()`, same as BE-D12 | 1h. Consistent with admin pattern. FE already sends the header for other admin calls; MJPEG is the one surface that doesn't because `<img src>` and `EventSource` can't send headers. **Needs short-lived signed URLs (see B) as the delivery mechanism.** |
 | B - Emit short-lived HMAC-signed URLs (same primitive as public thumbnails) and require the signature at the endpoint. FE mints the URL via an authenticated JSON call, then uses it in `<img>`/`EventSource`. | 1 day. Clean solution for header-less browser APIs. Signature bound to source_id + expiry. Rotation on token change invalidates all outstanding URLs within TTL. |
 | C - Proxy MJPEG through an authenticated WebSocket or Server-Sent-Events wrapper on the FE | Medium. More moving parts. Not well-matched to the MJPEG browser primitive. |
 | D - Leave (network-gate in production) | External dependency on deployment shape. Same risk as BE-D12.C. |
@@ -615,7 +613,7 @@ That URL is then passed through [:1313](backend/server.py#L1313) into the stream
 - `yt-dlp` invocation is timeout-bounded (≤30s) with a small memory budget.
 - Integration test: POST `http://169.254.169.254/` returns 400, not 500, not 200.
 
-**Rollout / rollback.** Bundle with BE-D12's `ROAD_REQUIRE_AUTH=1` flag; rollback is flag-off. Option C is a separate feature flag `ROAD_ALLOW_DYNAMIC_SOURCES=0`.
+**Rollout / rollback.** Bundle with BE-D12's `—=1` flag; rollback is flag-off. Option C is a separate feature flag `ROAD_ALLOW_DYNAMIC_SOURCES=0`.
 
 ---
 

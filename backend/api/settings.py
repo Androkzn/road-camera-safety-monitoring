@@ -2,7 +2,7 @@
 
 Routes registered by :func:`mount`:
 
-* Reads (admin-bearer):
+* Reads (POC: open):
     - ``GET  /api/settings/effective``
     - ``GET  /api/settings/schema``
     - ``GET  /api/settings/templates``
@@ -12,7 +12,7 @@ Routes registered by :func:`mount`:
     - ``GET  /api/settings/impact/history``
     - ``GET  /api/settings/apply_log``
     - ``GET  /api/settings/observability``
-* Writes (admin-bearer):
+* Writes (POC: open):
     - ``POST /api/settings/validate``
     - ``POST /api/settings/apply``
     - ``POST /api/settings/rollback``
@@ -40,7 +40,6 @@ from pydantic import BaseModel, Field
 
 from backend import settings_spec
 from backend.compliance import audit
-from backend.config import ADMIN_TOKEN
 from backend.security import require_bearer_token
 from backend.services import settings_db
 from backend.services import templates as template_svc
@@ -134,16 +133,11 @@ class StreamTicketBody(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 def _bearer(request: Request) -> None:
-    require_bearer_token(
-        request,
-        ADMIN_TOKEN,
-        realm="settings",
-        env_var="ROAD_ADMIN_TOKEN",
-    )
+    require_bearer_token(request, None, realm="settings", env_var="")
 
 
 def _actor(request: Request, label: str | None = None) -> str:
-    """Best-effort operator id under the single shared admin token."""
+    """Best-effort operator label from the request (POC has no user accounts)."""
     if label:
         return label.strip()[:120]
     fwd = request.headers.get("x-operator-label")

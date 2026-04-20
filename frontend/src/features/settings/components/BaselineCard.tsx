@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 
-import { MissingAdminTokenError, type AdminApiError } from "../../../shared/lib/adminApi";
+import type { HttpApiError } from "../../../shared/lib/fetchClient";
 
 import { settingsApi } from "../api";
 
@@ -40,22 +40,7 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
             setStatus({ kind: "ok", auditId: res.audit_id });
             onCaptured();
           } catch (exc) {
-            if (exc instanceof MissingAdminTokenError) {
-              setStatus({
-                kind: "err",
-                message: "Admin token missing. Reload the page and paste your ROAD_ADMIN_TOKEN.",
-              });
-              return;
-            }
-            const status = (exc as AdminApiError).status;
-            if (status === 401 || status === 403) {
-              setStatus({
-                kind: "err",
-                message: `HTTP ${status} — token rejected. Re-paste your ROAD_ADMIN_TOKEN and try again.`,
-              });
-              return;
-            }
-            const body = (exc as AdminApiError).body as {
+            const body = (exc as HttpApiError).body as {
               detail?: string;
               error?: string;
             } | null;

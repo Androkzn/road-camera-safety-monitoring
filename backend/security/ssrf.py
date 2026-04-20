@@ -1,7 +1,7 @@
 """SSRF guard for operator-supplied stream URLs.
 
 ``validate_public_url`` rejects URLs that resolve to a private / loopback /
-link-local / multicast / cloud-metadata IP, so a caller with the admin token
+link-local / multicast / cloud-metadata IP, so a caller
 still can't point the edge node at internal services like the AWS IMDS
 (``http://169.254.169.254/``). Implements BE-D15 from the 2026-04-20 backend
 audit.
@@ -38,7 +38,7 @@ def validate_public_url(url: str) -> None:
 
     Implements BE-D15 from the 2026-04-20 backend audit. Applied to
     ``POST /api/live/sources`` before the slot is created so an operator (or
-    attacker with the admin token) can't paste ``http://169.254.169.254/...``
+    attacker on the same network) can't paste ``http://169.254.169.254/...``
     (AWS IMDS) or any RFC1918 address the edge node might reach.
 
     Args:

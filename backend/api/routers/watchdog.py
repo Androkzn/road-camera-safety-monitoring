@@ -3,7 +3,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.config import ADMIN_TOKEN
 from backend.logging import get_logger
 from backend.security import require_bearer_token
 from backend.security.auth import require_admin_if_flagged
@@ -56,7 +55,7 @@ async def validator_toggle(request: Request, body: ValidatorToggleBody):
     """Enable or disable the shadow validator at runtime.
 
     HTTP: POST /api/validator/toggle
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12).
+    AUTH: POC (open).
     """
     require_admin_if_flagged(request, realm="validator toggle")
     if state.validator is None:
@@ -88,9 +87,9 @@ def watchdog_delete_findings(request: Request, clear_all: bool = False):
     """Delete specific findings by composite key or clear all.
 
     HTTP: DELETE /api/watchdog/findings
-    AUTH: admin Bearer (Settings Console S0 prereq hardening)
+    AUTH: POC (open)
     """
-    require_bearer_token(request, ADMIN_TOKEN, realm="watchdog", env_var="ROAD_ADMIN_TOKEN")
+    require_bearer_token(request, None, realm="watchdog", env_var="")
     if clear_all:
         removed = watchdog_delete(indices=None)
         return {"deleted": removed}
@@ -102,9 +101,9 @@ async def watchdog_delete_selected(request: Request, body: DeleteFindingsBody):
     """Delete selected findings by snapshot_id + ts composite keys.
 
     HTTP: POST /api/watchdog/findings/delete
-    AUTH: admin Bearer (Settings Console S0 prereq hardening)
+    AUTH: POC (open)
     """
-    require_bearer_token(request, ADMIN_TOKEN, realm="watchdog", env_var="ROAD_ADMIN_TOKEN")
+    require_bearer_token(request, None, realm="watchdog", env_var="")
     keys = list(body.keys)
     if not keys:
         return {"deleted": 0}

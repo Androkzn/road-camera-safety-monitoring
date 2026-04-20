@@ -170,9 +170,9 @@ Routes are registered from `backend/server.py` by including feature routers in
 - `POST /chat` — RAG-style copilot over recent events + corpus
 - Feedback: `POST /api/feedback` (and related routes from `api/feedback.py`)
 
-### Admin-token gated (`Authorization: Bearer` + `ROAD_ADMIN_TOKEN`)
+### Operational JSON routes (POC: open)
 
-Examples: `/api/llm/*`, `/api/audit*`, `/api/retention/sweep`, `/api/active_learning/export`, `/api/road/*`, `/api/agents/*`.
+Examples: `/api/llm/*`, `/api/audit*`, `/api/retention/sweep`, `/api/active_learning/export`, `/api/road/*`, `/api/agents/*` — reachable without client credentials in this demo build.
 
 ### Thumbnails
 
@@ -233,7 +233,7 @@ Dev: **pytest** and plugins for tests in `tests/`.
 
 - **Plate text** must not live in buffers: enforced at enrichment (`services/llm.py` / redaction path); see `CLAUDE.md`.
 - **Audit** — `compliance/audit.py` logs sensitive actions.
-- **Three access tiers** — public SSE/dashboard vs `X-DSAR-Token` vs `Bearer` admin (detailed in integration doc).
+- **Access** — POC treats most operator JSON routes as open on the LAN; `X-DSAR-Token` still gates unredacted thumbnails when set (see integration doc).
 
 ---
 

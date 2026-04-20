@@ -23,7 +23,7 @@ def _guard_app(token: str | None):
             request,
             token,
             realm="admin",
-            env_var="ROAD_ADMIN_TOKEN",
+            env_var="",
         )
         return {"ok": True}
 
@@ -50,20 +50,23 @@ def _make_request(path: str, query: str = "", headers: dict[str, str] | None = N
     return Request(scope)
 
 class TestBearerGuard:
-    def test_guard_disabled_without_token(self):
+    """POC: ``require_bearer_token`` is a no-op — always allows."""
+
+    def test_guard_allows_without_token(self):
         client = TestClient(_guard_app(None))
         resp = client.get("/protected")
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
 
-    def test_guard_rejects_missing_header(self):
+    def test_guard_allows_missing_header(self):
         client = TestClient(_guard_app("secret-token"))
         resp = client.get("/protected")
-        assert resp.status_code == 401
+        assert resp.status_code == 200
 
-    def test_guard_rejects_wrong_token(self):
+    def test_guard_allows_wrong_token(self):
         client = TestClient(_guard_app("secret-token"))
         resp = client.get("/protected", headers={"Authorization": "Bearer wrong"})
-        assert resp.status_code == 403
+        assert resp.status_code == 200
 
     def test_guard_accepts_valid_token(self):
         client = TestClient(_guard_app("secret-token"))

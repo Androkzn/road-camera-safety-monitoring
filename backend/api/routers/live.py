@@ -226,7 +226,7 @@ def event_clip(
     """Serve a ±N-second MP4 clip centred on the event's timestamp.
 
     HTTP: GET /api/events/{event_id}/clip?before=3&after=3&annotated=1
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D14).
+    AUTH: POC (open).
     """
     import shlex
     import subprocess

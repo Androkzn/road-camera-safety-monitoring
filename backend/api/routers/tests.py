@@ -23,7 +23,7 @@ def api_test_run(request: Request):
     """Trigger a new test run (if not already running).
 
     HTTP: POST /api/tests/run
-    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12). Triggers a
+    AUTH: POC (open). Triggers a
         pytest subprocess; script-abuse would pin the CPU.
     Returns: ``{"ok": True}`` when started, or ``{"ok": False,
         "reason": "already running"}`` when a run is already in flight.

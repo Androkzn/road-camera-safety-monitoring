@@ -41,7 +41,7 @@
       "Bash(kill 28475 28476 28614)",
       "Bash(curl -s -o /dev/null -w \"health=%{http_code}\\\\n\" http://localhost:8000/api/live/status)",
       "Bash(kill 39166 39167 39340)",
-      "Bash(curl -s -H \"Authorization: Bearer demo-admin-token\" http://localhost:8000/api/llm/stats)",
+      "Bash(curl -s http://localhost:8000/api/llm/stats)",
       "Bash(ROAD_LOG_FORMAT=text python start.py --skip-tests --no-browser)",
       "Bash(curl -sv http://localhost:8000/api/watchdog)",
       "Bash(xargs -r kill)",

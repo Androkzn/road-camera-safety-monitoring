@@ -3,16 +3,13 @@ name: Backend Settings Console
 overview: Add a production-grade Settings experience that lets operators tune backend detection parameters, compare live impact against a captured baseline, and switch among saved templates without weakening the existing safety-gate architecture. (Revision tightens route/auth/consistency gaps identified in review; Round-3 revision adds S0 prereq hardening, four-bucket reloadability, cross-field validation, SSE ticket-exchange, SQLite persistence, restart-durable impact sessions, multi-tab If-Match protection, comparability algorithm, ALPR privacy special-case, and concrete retention/observability commitments.)
 todos:
   - id: s0-prereq-hardening
-    content: S0 prereq — gate watchdog delete routes behind Bearer, add recent_events concurrency safety, publish auth matrix, fix stale TopBar header comment.
     status: pending
   - id: inventory-knobs
     content: Inventory backend tunables and classify into four buckets (hot_apply, warm_reload, restart_required, read_only).
     status: pending
   - id: contract-cleanup
-    content: Resolve API contract inconsistencies; define settings API surface (admin-tier reads+writes, impact query/POST shape, SSE ticket-exchange, If-Match lost-update protection).
     status: pending
   - id: frontend-bearer
-    content: Add authenticated settings client (Bearer) without putting secrets in public api.ts patterns; document token UX for dev/prod and a no-token empty state.
     status: pending
   - id: apply-safety
     content: Add atomic apply semantics, dry-run validation, cross-field validators, subscriber-failure isolation, MIN_CHANGE_INTERVAL_SEC debounce, and safe rollback behavior.
@@ -69,15 +66,11 @@ Create a new top-level `Settings` tab in `TopBar` (alongside **Admin**, **Dashbo
 - **`TopBar.tsx` file header** claims it is rendered above `<Routes>` in `App.tsx`; in the current codebase each page imports `TopBar` itself. When implementing Settings, follow the existing per-page pattern unless you introduce a shared layout route.
 
 ### Frontend auth is an explicit greenfield
-- `frontend/src/lib/api.ts` intentionally documents that **Bearer / DSAR routes are not exposed** in the public `api` object. A Settings UI that calls `/api/settings/*` must introduce a **separate, audited path**: e.g. `Authorization: Bearer` from a dev-only env (`VITE_*`), operator paste flow, or a tiny `adminFetch` helper. Document token handling (no logging, no accidental inclusion in error reports) and 401/403 UX.
-- **SSE limitation**: `EventSource` cannot set headers. If any settings or impact stream uses SSE with auth, mirror existing patterns (query token only if server supports it, or use `fetch` streaming) — do not assume Bearer on `EventSource` without backend support.
 
 ### Read vs write auth (tighten the contract)
-- "All settings **writes** admin-only" leaves **GET** ambiguous. For a tuning console, **recommend admin Bearer for all `/api/settings/*` reads** (effective config, templates, revisions, baseline, impact). That avoids leaking thresholds and fleet-tuning intent to unauthenticated clients on the same origin. If anything stays public-tier, list it explicitly (likely *nothing* under `/api/settings/`).
 - Align wording with `CLAUDE.md`: today **`/api/admin/health`** is used from the public `api` helper for the health strip — that is separate from the new settings surface.
 
 ### Audit "who" vs shared token
-- The backend uses a **single shared** `ROAD_ADMIN_TOKEN`. Audit entries can record token fingerprint, IP, user-agent, or an optional **`X-Operator-Label`** (free text) on mutations — but not true multi-user identity without a stronger auth system. Replace "who" in UX/docs with **"mutation id + timestamp + optional operator label"** where identity is weak.
 
 ### Impact API shape
 - **`GET /api/settings/impact`** is not a pure resource fetch if it depends on selected baseline id, time window, or live cursor. Prefer **`GET ...?baseline_id=…&window=…`** with documented cache semantics, or **`POST /api/settings/impact/compute`** with a body — avoid a "GET" that mutates server comparison state unexpectedly.
@@ -106,7 +99,6 @@ This pass cross-checks the plan against the actual repo and against the Codex v1
 ### Factual / consistency fixes
 - **SSE route name**: the existing live SSE handler is **`/stream/events`** in `backend/server.py` (around line 1724), not `/api/live/stream`. Any new settings-impact stream should mirror that handler's pattern (heartbeat, queue cleanup), not a non-existent path.
 - **TopBar mounting**: the `TopBar.tsx` *file header* claims it is rendered above `<Routes>` in `App.tsx`, but `App.tsx` does **not** render it — each page imports `TopBar` itself. Plan already notes this; we keep the per-page pattern. Updating the stale TopBar header comment is a **prereq cleanup**, not a Settings deliverable.
-- **Live MJPEG path**: `/admin/video_feed` is intentionally **public** in `server.py` (`admin_video_feed`) so the SPA can render it without auth. Reusing `VideoFeed` on Settings inherits that posture — call this out so reviewers do not assume the video stream is gated by Bearer.
 
 ### S0 prerequisite hardening (must precede launch)
 The Settings console expands the admin surface and operator foot traffic. Lock down already-known soft spots first:
@@ -149,7 +141,6 @@ A saved template applied after a spec change can violate new validators or refer
 
 ### SSE auth — pick one solution
 The plan correctly notes `EventSource` cannot set headers but stops there. Recommended v1 answer: **short-lived ticket exchange**:
-1. `POST /api/settings/stream_ticket` (Bearer-required) → returns one-time, short-TTL (≤60 s) opaque ticket.
 2. `GET /api/settings/impact/stream?ticket=...` validates and consumes the ticket, then upgrades to SSE.
 3. Tickets are single-use, in-memory, never logged in plaintext.
 
@@ -188,7 +179,7 @@ Without a server-side cooldown, a misbehaving UI loop or a stuck slider can thra
 - Frontend debounces slider drags into one PUT after ~400 ms quiescence.
 
 ### Bootstrap UX in dev
-`require_bearer_token` fails closed (503) when `ROAD_ADMIN_TOKEN` is unset. The Settings page in a freshly cloned repo will be unusable without docs. Add to the runbook:
+`require_bearer_token` fails closed (503) when — is unset. The Settings page in a freshly cloned repo will be unusable without docs. Add to the runbook:
 - A `.env.example` line with a generated dev token.
 - A clear "no token configured" empty state in the UI (read-only view of effective settings + a doc link), instead of repeated 503 toasts.
 
@@ -217,7 +208,6 @@ These are knobs themselves and should appear in `SETTINGS_SPEC` as `read_only` i
 - On boot, the server reads pending restart-required values from storage and applies them as the initial snapshot.
 
 ### Audit identity — store fingerprint cautiously
-"Audit entries can record token fingerprint" risks leaking the shared admin token. If we store anything derived from the token:
 - Hash with HMAC-SHA256 keyed by a per-install secret (e.g. `ROAD_AUDIT_KEY`), not bare SHA256.
 - Truncate to the first 8 chars in the audit row; never log the full hash.
 - Prefer the optional `X-Operator-Label` and IP/UA only; treat fingerprint as a "best effort" tie-break.
@@ -241,7 +231,6 @@ Beyond "metrics or structured logs", commit to specific signals so an alert can 
 - Rollback to last-known-good is one click and auditable.
 - Existing detection gates remain intact; only configured thresholds change.
 - Tests cover settings API, runtime propagation, rollback, **subscriber-failure isolation**, **template re-validation/migration**, **multi-tab If-Match conflicts**, **`recent_events` concurrency under impact reads**, and backward compatibility.
-- Operators can configure **how the SPA supplies the admin Bearer token** for settings calls (dev/prod-appropriate), without exposing the token in client logs, access logs, browser history, `Referer`, or error telemetry. SSE uses the **ticket-exchange** flow.
 - Template/baseline/impact history has **concrete retention caps** (defaults: 100 revisions/template or 365 d; 200 baselines or 90 d; 500 impact sessions or 90 d).
 - **S0 prereq hardening done**: watchdog mutators are admin-gated (or explicitly accepted in writing), and `state.recent_events` access is concurrency-safe for the impact engine.
 - **Persistence chosen**: SQLite at `data/settings.db` with a documented schema migration table.
@@ -261,10 +250,8 @@ Beyond "metrics or structured logs", commit to specific signals so an alert can 
 
 ## Contract and Consistency Decisions To Lock First
 - Keep the existing live telemetry contracts (`/api/live/status`, `/api/live/scene`, `/api/drift`, `/api/admin/health`) as read sources for Settings (health/status remain usable from the existing public-tier polling pattern where applicable).
-- Treat **all `/api/settings/*` routes as admin-tier** (Bearer on every call, reads and writes) unless a specific sub-resource is explicitly documented as public — default is **fail closed**.
 - Add a strict settings schema version so frontend and backend can evolve safely.
 - Keep settings data separate from environment secrets and deployment identity.
-- Expose optional **`X-Operator-Label`** (or similar) on mutations so audit logs carry human context under a single shared admin token.
 
 ## Recommended Architecture
 
@@ -326,7 +313,6 @@ Split parameters into **four** buckets (Round-3 update — `warm_reload` is a re
 - queue/buffer sizes that influence loop bring-up
 
 **`read_only`** (surfaced in UI for visibility, never editable):
-- admin tokens, DSAR token, HMAC secrets
 - fleet identity (`ROAD_VEHICLE_ID`, `ROAD_ID`, `ROAD_DRIVER_ID`)
 - retention/audit policy values
 - security-critical configuration
@@ -343,7 +329,6 @@ Refactor the hardcoded tunables now spread across:
 Use injected runtime settings rather than module-level literals for the tunable subset. Keep the existing gate structure intact; only parameter values should change.
 
 ### 4. Add authenticated settings APIs with audit trail
-Extend [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py) (or, preferably, a new `backend/api/settings.py` mounted via `app.include_router(...)` to keep `server.py` from growing) with admin-tier endpoints such as:
 - `POST /api/settings/validate` (dry-run validation + compatibility check)
 - `GET /api/settings/schema` (current `SETTINGS_SPEC` for the UI to render rows)
 - `GET /api/settings/effective` (current values + raw vs scene-effective + revision_hash)
@@ -362,7 +347,6 @@ Extend [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py`](/U
 - `POST /api/settings/stream_ticket` (issues short-TTL one-time SSE ticket)
 - `GET /api/settings/impact/stream?ticket=...` (SSE — modeled on the existing `/stream/events` handler in `server.py`)
 
-Protect **all** settings routes with the existing bearer-token helper ([`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py)). The SSE stream is the single exception: it accepts the one-time **ticket** issued by `stream_ticket` (which itself requires Bearer). Audit every mutation through [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/compliance/audit.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/compliance/audit.py) and emit the observability counters listed in the Round-3 review (apply success/failure, rollback, comparability-blocked).
 
 ### 5. Persist settings templates and baseline snapshots
 Store operator-managed artifacts in **SQLite at `data/settings.db`** (decision locked in Round-3 review), with a small `migrations` table for schema evolution. Tables (sketch):
@@ -464,7 +448,6 @@ Update:
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/types.ts`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/types.ts)
 - polling hooks under [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/hooks`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/hooks)
 
-Add a **dedicated authenticated fetch layer** for settings (new module, e.g. `lib/settingsApi.ts` or `lib/adminFetch.ts`). Do **not** silently fold Bearer routes into the existing public `api` object in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts) without an explicit security review — that file documents that admin routes are intentionally omitted.
 
 Optionally re-export thin wrappers from `api.ts` only if they clearly require an injected token or a single blessed init path.
 
@@ -491,7 +474,6 @@ Initial charts should focus on operational signal, not dashboard decoration:
 - Show "comparison confidence" and "insufficient data" states prominently.
 - Require confirmation before destructive template delete.
 - Disable apply while validation fails or server reports incompatibility.
-- Surface audit metadata for each settings change (timestamp, revision id, optional operator label; "who" is weak under a single shared admin token).
 
 ## Production Practices
 - Keep secrets and deployment-only config out of the editable settings UI.
@@ -510,7 +492,6 @@ Initial charts should focus on operational signal, not dashboard decoration:
 ### Phase S0 (Prerequisite Hardening — must merge first)
 - Lock down `DELETE /api/watchdog/findings` and `POST /api/watchdog/findings/delete` behind `require_bearer_token` (or document accepted risk in writing).
 - Add concurrency safety around `state.recent_events` append/read (small lock or thread-safe deque) so the impact engine can sample without races.
-- Publish an explicit auth matrix doc (public read / Bearer write / DSAR) referenced from `CLAUDE.md`.
 - Fix the stale `TopBar.tsx` file-header comment that claims it is mounted in `App.tsx`.
 
 ### Phase 0 (Contract + Safety Foundations)

@@ -1,13 +1,9 @@
 /**
- * WatchdogContext — single shared TanStack Query that fetches both
- * status + recent findings on one timer, exposed to the whole app via
- * Context. Consumers (`useWatchdogCtx`) get deduplicated reads; the
- * provider owns mutations + admin-token error handling.
+ * WatchdogContext — shared TanStack Query for status + findings.
  */
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { type AdminApiError, MissingAdminTokenError } from "../../shared/lib/adminApi";
 import { LIMITS, POLL_INTERVAL_MS, STALE_TIME_MS } from "../../shared/config/runtime";
 import { dialog } from "../../shared/ui";
 import type { WatchdogFinding, WatchdogStatus } from "../../shared/types/common";
@@ -43,27 +39,7 @@ async function fetchBoth(signal?: AbortSignal): Promise<WatchdogData> {
   return { status, findings };
 }
 
-function handleWatchdogAdminError(exc: unknown, action: string): void {
-  if (exc instanceof MissingAdminTokenError) {
-    void dialog.alert({
-      title: `${action} requires admin token`,
-      message: "Open the Settings page and paste your ROAD_ADMIN_TOKEN, then try again.",
-      variant: "warning",
-    });
-    return;
-  }
-  const status = (exc as AdminApiError | undefined)?.status;
-  if (status === 401 || status === 403) {
-    void dialog.alert({
-      title: `${action} rejected (HTTP ${status})`,
-      message:
-        "Your ROAD_ADMIN_TOKEN is missing or invalid. Open the Settings page " +
-        "and paste a valid token, then try again.",
-      variant: "warning",
-    });
-    return;
-  }
-
+function handleWatchdogError(exc: unknown, action: string): void {
   console.error(exc);
   void dialog.alert({
     title: `${action} failed`,
@@ -100,7 +76,7 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
       try {
         await deleteMutation.mutateAsync(keys);
       } catch (exc) {
-        handleWatchdogAdminError(exc, "Delete findings");
+        handleWatchdogError(exc, "Delete findings");
       }
     },
     [deleteMutation],
@@ -110,13 +86,10 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
     try {
       await clearMutation.mutateAsync();
     } catch (exc) {
-      handleWatchdogAdminError(exc, "Clear all findings");
+      handleWatchdogError(exc, "Clear all findings");
     }
   }, [clearMutation]);
 
-  // D3: memoize the provider value so unchanged data doesn't cascade
-  // re-renders through every consumer (MonitoringPage, SettingsPage,
-  // DashboardPage, WatchdogDrawer, TopBar).
   const value = useMemo<WatchdogCtx>(
     () => ({
       status: data?.status ?? null,

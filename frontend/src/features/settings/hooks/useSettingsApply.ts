@@ -1,32 +1,12 @@
 /**
  * useSettingsApply — owns the Settings Console draft lifecycle.
  *
- * Composes on top of `useSettings` (queries + apply/rollback/validate
- * primitives), `useSettingsTemplates` (template mutations) and
- * `useImpact` (impact-card refresh after successful writes), and turns
- * them into a single page-shaped state object:
- *
- *   draft / setDraft        — pending edits, seeded from effective values
- *   dirtyKeys               — keys in draft that diverge from effective
- *   validationErrors        — 422 body from the server, rendered per key
- *   warnings                — apply / rollback / template soft warnings
- *   applyResult             — banner payload for the last success
- *   submitting              — any apply/rollback/template in flight
- *   apply()                 — runs apply + all error branches (privacy
- *                             confirm, 401/403 auth-drop via MissingAdminTokenError,
- *                             409 revision conflict, 429 rate limit)
- *   rollback()              — confirm + rollback + banner
- *   applyTemplate(id)       — template-apply with privacy-confirm retry
- *   discardDraft()          — drop pending edits
- *
- * This hook owns no JSX — the page still renders the dialogs, banners
- * and error lists. It is callable in unit tests by stubbing the two
- * injected state objects (`settings`, `templates`, `impact`) and the
- * `dialog` API.
+ * Composes on top of `useSettings`, `useSettingsTemplates`, `useImpact`,
+ * and turns them into a single page-shaped state object.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type AdminApiError, MissingAdminTokenError } from "../../../shared/lib/adminApi";
+import type { HttpApiError } from "../../../shared/lib/fetchClient";
 import type { DialogApi } from "../../../shared/ui";
 
 import type { ApplyResultPayloadView } from "../components/ApplyResultBanner";
@@ -47,7 +27,6 @@ interface UseSettingsApplyArgs {
 export type ApplyErrorKind =
   | "validation"
   | "privacy_confirm"
-  | "missing_token"
   | "revision_conflict"
   | "rate_limited"
   | "unknown";
@@ -55,8 +34,7 @@ export type ApplyErrorKind =
 export function classifyApplyError(exc: unknown): ApplyErrorKind {
   if (extractValidationErrors(exc)) return "validation";
   if (isPrivacyConfirmRequired(exc)) return "privacy_confirm";
-  if (exc instanceof MissingAdminTokenError) return "missing_token";
-  const status = (exc as AdminApiError).status;
+  const status = (exc as Partial<HttpApiError>).status;
   if (status === 409) return "revision_conflict";
   if (status === 429) return "rate_limited";
   return "unknown";
@@ -91,8 +69,6 @@ export function useSettingsApply({
   const [submitting, setSubmitting] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResultPayloadView | null>(null);
 
-  // Re-seed the draft from effective values whenever they appear and the
-  // operator hasn't started editing.
   useEffect(() => {
     if (settings.effective && Object.keys(draft).length === 0) {
       setDraft(settings.effective.values as Record<string, DraftValue>);
@@ -119,7 +95,6 @@ export function useSettingsApply({
           };
         }
       }
-      // Structured console log for operators tuning from DevTools.
 
       console.groupCollapsed(`[settings] apply → ${Object.keys(diff).length} key(s)`);
 
@@ -171,7 +146,6 @@ export function useSettingsApply({
           }
           return;
         }
-        if (kind === "missing_token") return;
         if (kind === "revision_conflict") {
           await dialog.alert({
             title: "Settings changed elsewhere",

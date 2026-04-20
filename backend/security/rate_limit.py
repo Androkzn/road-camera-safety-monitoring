@@ -27,7 +27,7 @@ def clip_caller_key(request: Request) -> str:
 
     Prefers a SHA-256 hash of the bearer token (so different operators get
     independent buckets); falls back to ``request.client.host`` for
-    unauthenticated callers during the ``REQUIRE_AUTH=False`` window.
+    callers that do not send a bearer token (bucket falls back to client IP).
     """
     auth = (request.headers.get("Authorization") or "").strip()
     if auth.lower().startswith("bearer "):

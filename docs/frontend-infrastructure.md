@@ -219,7 +219,7 @@ flowchart LR
 
 - No direct WebSocket usage (SSE is enough for server→client push).
 - No client-side routing to backend microservices — only paths the FastAPI app exposes.
-- No embedding of secrets: admin-only APIs require `Authorization: Bearer ...` on the server; the stock UI does not attach those headers (those endpoints are for operators/tools).
+- No embedding of secrets in the browser: this POC calls open JSON routes on the same origin (`fetchJson` / `apiFetch`). Do not expose the stack to untrusted networks.
 
 ---
 

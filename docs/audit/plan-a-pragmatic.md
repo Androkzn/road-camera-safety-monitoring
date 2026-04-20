@@ -99,7 +99,6 @@ Each work item carries:
 **Files touched.**
 - New: `shared/events/EventStreamProvider.tsx`, `shared/events/useEventStreamCtx.ts`.
 - Modified: `app/providers.tsx`, `features/admin/AdminPage.tsx`, `features/dashboard/DashboardPage.tsx`, `features/monitoring/MonitoringPage.tsx`.
-- Drive-by: also wrap the `admin-token-changed` `CustomEvent` bus in a small `AdminTokenProvider` Context (same pattern, removes one DOM-event leak).
 
 **Depends on.** None.
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { MissingAdminTokenError } from "../../frontend/src/shared/lib/adminApi";
 import { classifyApplyError } from "../../frontend/src/features/settings/hooks/useSettingsApply";
 
 describe("classifyApplyError", () => {
@@ -20,10 +19,6 @@ describe("classifyApplyError", () => {
       body: { error: "privacy_confirm_required" },
     };
     expect(classifyApplyError(exc)).toBe("privacy_confirm");
-  });
-
-  it("classifies missing token errors", () => {
-    expect(classifyApplyError(new MissingAdminTokenError())).toBe("missing_token");
   });
 
   it("classifies revision conflicts", () => {

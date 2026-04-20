@@ -30,7 +30,6 @@ This section records what has actually landed after the original audit snapshot.
 - **D4.A / D4.B:** shared `cx`, `ErrorList`, `EventFilterBar`, and `PageChrome` patterns are in place and adopted at key call sites.
 - **D5.A:** `useLiveSources` responsibilities split into `useLiveSourcesList`, `useStreamControl`, and `useStreamRegistry`; `StreamTile` extracted.
 - **D6 + D8:** SSE hoisted into app-level `EventStreamProvider`; stale ref-count trap removed.
-- **D10:** admin token cross-tab sync fixed with `BroadcastChannel` while preserving session-scoped storage.
 - **DV1:** validation panel split with `EventRow` + `utils/verdict.ts`.
 
 ### Additional Improvements Landed (Beyond Original Plan)
@@ -65,7 +64,7 @@ A follow-up review of hooks usage, magic numbers, reusable component adoption, a
 - `HistoryPanel` error display converted from inline-styled `<div>` to `<ErrorList>`.
 
 **Business-logic / view separation:**
-- `DashboardPage`: extracted `handleClearEvents` (direct `adminFetch` + watchdog coordination) into `useClearEvents` hook. Page no longer makes raw API calls.
+- `DashboardPage`: extracted `handleClearEvents` (direct `apiFetch` + watchdog coordination) into `useClearEvents` hook. Page no longer makes raw API calls.
 - `MonitoringPage`: extracted filtering, selection, severity counts, and bulk delete/clear orchestration into `useMonitoringIncidents` hook. Page dropped from 206 → ~125 LOC of pure composition.
 
 **Shared formatting helpers:**
@@ -85,7 +84,6 @@ A follow-up review of hooks usage, magic numbers, reusable component adoption, a
 
 The original audit was strongest on hooks, state, SSE ownership, query usage, and structural decomposition. A follow-up pass against common React review traps surfaced a few areas that deserve to be tracked explicitly as additional FE work:
 
-- **D11:** accessibility and keyboard/focus semantics for custom interaction primitives (`Tabs`, `EventDialog`, admin-token input).
 - **D12:** mutation failure UX parity for admin controls (detection-toggle rollback currently has no operator-visible error).
 - **D13:** stable React keys in monitoring lists (`IncidentCard` uses index-based keys in repeated collections).
 - **D14:** dead-hook cleanup for latent stale-state traps (`useLastVisit` reads from `localStorage` once and never updates state; appears unused).
@@ -155,7 +153,7 @@ Findings:
 - Bulk start/pause loops call per-source mutation, which compounds request count (`frontend/src/features/admin/components/MultiSourceGrid.tsx:242-250`).
 - Polling image mode creates one 400ms interval per tile (`frontend/src/features/admin/components/StreamImage.tsx:133-136`) and forces fresh frame requests (`:150`).
 - `useSettings` and `useImpact` still do manual interval polling rather than single Query-driven strategy (`frontend/src/features/settings/hooks/useSettings.ts:99-104`, `frontend/src/features/settings/hooks/useImpact.ts:46-52`).
-- Fetch wrappers do not expose/forward `AbortSignal`; stale requests cannot be canceled cleanly (`frontend/src/shared/lib/fetchClient.ts:11-14`, `frontend/src/shared/lib/adminApi.ts:94-115`).
+- Fetch wrappers do not expose/forward `AbortSignal`; stale requests cannot be canceled cleanly (`frontend/src/shared/lib/fetchClient.ts:11-14`, `frontend/src/shared/lib/fetchClient.ts:94-115`).
 - `HistoryPanel` triggers mount refresh through empty-deps effect instead of delegating fully to query lifecycle (`frontend/src/features/admin/components/HistoryPanel.tsx:72-74`).
 
 Recommendations:
@@ -213,7 +211,6 @@ Findings:
 
 - `Tabs` uses the right ARIA roles, but not the full keyboard model expected of a custom tabs primitive: no roving `tabIndex`, no arrow/Home/End handling, and no `aria-labelledby` connection from the panel back to the active tab (`frontend/src/shared/ui/Tabs.tsx`).
 - `EventDialog` sets `role="dialog"` + `aria-modal="true"`, but there is no focus trap, initial-focus handoff, focus-restore on close, or explicit dialog labeling (`frontend/src/shared/events/EventDialog.tsx`).
-- `TokenPrompt` relies on placeholder text for the admin token input, with no explicit label or `aria-label` on a security-sensitive control (`frontend/src/features/settings/components/TokenPrompt.tsx`).
 
 Recommendations:
 
@@ -257,10 +254,7 @@ Recommendations:
 | FE-6 | Low | Reusable UI primitives missing for repeated patterns | multiple view files |
 | FE-7 | High | SSE connection is per-page, not per-app — two pages = two EventSources | `shared/hooks/useEventStream.ts`; see §D6 |
 | FE-8 | High | `useEventStream` returns a `ref.current` as state (silent stale-count bug) | `shared/hooks/useEventStream.ts:17,49`; see §D8 |
-| FE-9 | Medium | Admin-token "cross-tab sync" is broken — `window.dispatchEvent` + `sessionStorage` is same-tab only | `useAdminToken.ts:4-6`; `adminApi.ts:35,44` — see §D10 |
 | FE-10 | Low | Dead `admin-focused-id-changed` CustomEvent, exhaustive-deps audit drive-by | `AdminPage.tsx:60`; see §D9 |
-| FE-11 | Blocker | Admin-tier endpoints used by FE assume BE-side auth — today most BE mutations are `AUTH: public`. **Cross-doc issue.** | See [backend audit BE-D12](backend-audit-2026-04-20.md#be-d12---control-endpoints-unauthenticated-be-12-critical) |
-| FE-12 | Medium | Custom tabs/dialog/input flows are under-reviewed for keyboard/focus/label accessibility | `shared/ui/Tabs.tsx`; `shared/events/EventDialog.tsx`; `features/settings/components/TokenPrompt.tsx` |
 | FE-13 | Medium | Detection-toggle mutations roll back silently instead of giving operator-visible failure feedback | `features/admin/hooks/useStreamControl.ts`; `features/admin/hooks/useLiveSources.ts` |
 | FE-14 | Low | Monitoring lists use index-based keys, which weakens React identity guarantees if items reorder | `features/monitoring/components/IncidentCard.tsx` |
 | FE-15 | Low | Unused `useLastVisit` hook captures a stale local-storage snapshot and invites latent bugs | `features/monitoring/hooks/useIncidentState.ts` |
@@ -288,7 +282,6 @@ Each decision below follows the same shape: **Observation** (what the code shows
 
 ### D1 - Shrink `SettingsPage.tsx` (god file, 431 LOC)
 
-**Observation.** [SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx) mounts `TokenPrompt`, `SettingsHeader`, `Tunables`, `Templates`, `Baseline`, `Impact`, and `LivePreview`, and owns draft state + validate/apply/rollback + token-prompt flow in one file. The apply/rollback lifecycle spans L112-255; the token empty-state is L305-316. Layout is small; **orchestration is what's large.**
 
 **Why it matters.** Every new settings feature lands here. Review load scales with file size, not diff size. Testing the apply lifecycle currently requires mounting the full page.
 
@@ -386,7 +379,6 @@ Additional patterns:
 - **41 hand-composed className sites** using `.filter(Boolean).join(" ")` - MultiSourceGrid:57-64, EventCard:60, EventsPanel:248-275, AdminEventCard, etc. No `cx()` utility.
 - **`RiskBadge` underused** - 5+ components rebuild the risk->color mapping inline despite `RiskBadge` existing in `shared/ui/`.
 - **`EventCard` (170 LOC) + `AdminEventCard` (176 LOC)** share ~80% structure (thumbnail + RiskBadge + event-type + time + kinematic tags + narration). They diverge on enrichment row + `FeedbackButtons` (public) vs. orientation + taxonomy badges (admin).
-- **Error-list rendering** repeated in [SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx), `TokenPrompt`, validation dialogs.
 - **Open-coded form controls**: filter bar in [DashboardPage:161-217](frontend/src/features/dashboard/DashboardPage.tsx#L161) uses raw `<select>` + checkbox + clear button; detection toggle in [MultiSourceGrid:158-168](frontend/src/features/admin/components/MultiSourceGrid.tsx#L158) is a raw `<input type="checkbox">`. The same "show low risk" checkbox appears in AdminPage/DashboardPage/MonitoringPage independently. No `<Select>`, `<Toggle>`, or `<EventFilterBar>` composite.
 - **`TopBar` props recomputed per page**: every page does `const { status: wdStatus } = useWatchdogCtx(); const driftCount = useDriftCount();` and passes `errorCount={wdStatus?.by_severity?.error ?? 0}` - adding a new TopBar metric means editing all four pages.
 
@@ -517,7 +509,6 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 
 ### D10 - Admin-token "cross-tab sync" is broken
 
-**Observation.** [useAdminToken.ts:4-6](frontend/src/shared/hooks/useAdminToken.ts#L4) advertises: *"Listens for the `admin-token-changed` custom event so two SettingsPage instances open in different tabs (or any other consumer) stay in sync."* The implementation [adminApi.ts:35,44](frontend/src/shared/lib/adminApi.ts#L35) does `window.dispatchEvent(new CustomEvent("admin-token-changed"))`.
 
 **Two independent problems.**
 1. `window.dispatchEvent` fires **only in the current window**. Cross-tab synchronization requires either the `storage` event (which only fires for `localStorage`, not `sessionStorage`) or a `BroadcastChannel`.
@@ -531,13 +522,11 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 |---|---|
 | A - Fix the docstring. Accept per-tab token entry as the current behaviour. | 5 min. Honest. Operator still pastes twice. |
 | B - Use `localStorage` + listen to the `storage` event for real cross-tab sync | 30 min. Token persists across tabs *and* across browser restarts (security trade-off: longer exposure window for a compromised token). Consider pairing with an explicit expiry. |
-| C - Use `sessionStorage` + `BroadcastChannel("admin-token")` for cross-tab sync within a single browser session | 30 min. Preserves the session-scoped lifetime; fixes the sync bug. |
 | D - Leave the buggy comment and code | Invites surprise. |
 
 **Recommended: C.** Preserves the "session-scoped token" property (which is a real security property - a closed tab doesn't leak credentials) and delivers the cross-tab sync the comment promises. B is acceptable if the ops team prefers persistence and has a separate rotation story.
 
 **Acceptance criteria.**
-- Setting the token in tab A causes tab B's `useAdminToken()` to update within 100ms.
 - Clearing in either tab clears the other.
 - Closing all tabs and reopening starts with no token (preserves session scope if C is chosen).
 - Docstring matches behaviour.
@@ -548,7 +537,6 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 
 ### DSec - Cross-doc dependency on BE auth boundary
 
-**Observation.** The FE already sends `Authorization: Bearer` for endpoints wrapped by [adminApi.ts](frontend/src/shared/lib/adminApi.ts). However, many of the endpoints the FE mutates (`POST /api/live/sources`, `POST /api/live/sources/{id}/start`, `POST /api/validator/toggle`, `POST /api/tests/run`, MJPEG feeds) are currently `AUTH: public` on the BE side - see [backend audit BE-D12, BE-D13](backend-audit-2026-04-20.md#be-d12---control-endpoints-unauthenticated-be-12-critical).
 
 **FE-side implications once BE-D12/D13 land.**
 - `<img src="/admin/video_feed/...">` and `<EventSource("/admin/detections")>` cannot send an `Authorization` header. FE must migrate to the signed-URL flow (BE-D13.B): fetch a short-lived URL via an authenticated JSON call, then use it in `<img>` / `EventSource`.
@@ -564,7 +552,6 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 **Observation.**
 - [Tabs.tsx](frontend/src/shared/ui/Tabs.tsx) uses `role="tablist"` / `role="tab"` / `role="tabpanel"` and `aria-controls`, but lacks roving `tabIndex`, arrow-key navigation, and a panel-to-tab label association.
 - [EventDialog.tsx](frontend/src/shared/events/EventDialog.tsx) sets `role="dialog"` / `aria-modal="true"`, but does not appear to move focus into the dialog, trap focus, restore focus on close, or label the dialog with `aria-labelledby`.
-- [TokenPrompt.tsx](frontend/src/features/settings/components/TokenPrompt.tsx) uses placeholder-only labeling for the admin token field.
 
 **Why it matters.** These are common "looks fine in visual QA" React misses that break keyboard use, screen readers, and high-confidence admin workflows. Custom primitives need stricter standards than ordinary markup because the browser does less for you.
 
@@ -572,7 +559,6 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 
 | Option | Trade-offs |
 |---|---|
-| A - Fix the existing primitives in place (`Tabs`, `EventDialog`, `TokenPrompt`) and add explicit keyboard/focus acceptance criteria | 0.5-1 day. Best value; no dependency churn. |
 | B - Replace custom interactions with a headless UI library | Larger refactor and API churn. Only worth it if more custom primitives are planned. |
 | C - Leave and rely on manual visual QA | Lowest effort; leaves the exact class of bugs React apps often miss. |
 
@@ -581,7 +567,6 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 **Acceptance criteria.**
 - Tabs support arrow-key navigation plus Home/End, and only the active tab is in the normal tab order.
 - Dialog opens with focus inside, traps focus while open, restores focus on close, and is labeled by its heading.
-- The admin token input has a visible label or an explicit accessible name.
 - A manual keyboard pass on Settings/Admin succeeds without mouse-only traps.
 
 ---
@@ -655,7 +640,6 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 Ordered by **correctness -> cleanup -> structure**, not by file.
 
 **~1 week of FE capacity:**
-D3 (15 min, correctness bug) -> D6.A (hoist SSE provider, 2-3h) + D8.A folded in -> D2.A+B+C (slow polls + ticker + migrate manual-polling hooks, half day) -> D4.A+B (cx, ErrorList, RiskBadge adoption, EventFilterBar, PageChrome, ~1 day) -> D1.A (SettingsPage hook extraction, 1 day) -> D2.D (bulk-action invalidation, 4h) -> D11 (a11y pass on Tabs/Dialog/TokenPrompt, 0.5-1 day) -> D12 + D13 + D14 drive-bys.
 
 **~3 weeks of FE capacity:**
 The above, then D5.A + `StreamTile` extraction (1 day) -> D7.B or C depending on BE timeline (types from OpenAPI or zod at the boundary) -> D1.B only if settings keeps growing -> D4.C only if a third event-card variant appears.
@@ -687,7 +671,6 @@ The decisions above are cross-cutting. For clarity, here's how they group per fe
 - **D1.A — Extract `useSettingsApply` + `TokenEmptyState`.** [SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx) drops from 431 → ~280 LOC. Apply/rollback/template-apply lifecycle becomes unit-testable without the page. 1 day.
 - **D2.A — Slow `useLiveStatus`/`useAdminHealth` polls on Settings.** Settings mounts both just to feed the TopBar uptime pill - slow them to 15s/10s on this page. 1 line change per hook. This is the single biggest "too many API calls for not important UI" fix.
 - **D2.B — Migrate [useSettings:99-104](frontend/src/features/settings/hooks/useSettings.ts#L99) and [useImpact:46-52](frontend/src/features/settings/hooks/useImpact.ts#L46) from hand-rolled `setInterval` to React Query** with `refetchIntervalInBackground: false`. Stops background-tab traffic. 2h.
-- **D4.A — Adopt `<ErrorList>`** for the repeated error-array rendering in SettingsPage / TokenPrompt.
 - **D7.C — Consume generated types from BE once BE-D6 lands;** drop the hand-mirrored slice of [shared/types/common.ts](frontend/src/shared/types/common.ts).
 
 **Definition of done:**
@@ -734,9 +717,7 @@ One row per actionable FE decision. **Depends-on** cites backend IDs where cross
 | D1.A | `useSettingsApply` + `TokenEmptyState` | 1 day | - | §D1 | 1 |
 | D2.D | `useLiveSources` → `useMutation` + single invalidation | 0.5 day | - | §D2 | 1 |
 | D9 | Drive-by cleanups (dead CustomEvent, exhaustive-deps audit) | drive-by | - | §D9 | 1 |
-| D10 | Fix admin-token cross-tab sync (`BroadcastChannel`) + doc | 30 min | - | §D10 | 1 |
 | DSec | Migrate `<img>`/`EventSource` consumers to signed-URL flow | 1 day | [BE-D13](backend-audit-2026-04-20.md#be-d13---live-mediadetection-streams-unauthenticated-be-13-critical) | §DSec | 0/1 (follows BE-D13) |
-| D11 | A11y pass on `Tabs`, `EventDialog`, and `TokenPrompt` | 0.5-1 day | - | §D11 | 1 |
 | D12 | Standardize mutation failure feedback for detection toggles | 30-60 min | - | §D12 | 1 |
 | D13 | Replace index-based keys in monitoring repeated collections | 15-30 min | - | §D13 | 1 |
 | D14 | Delete or refactor `useLastVisit` | 10-30 min | - | §D14 | 1 |

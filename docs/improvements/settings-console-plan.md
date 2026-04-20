@@ -25,9 +25,7 @@ the existing safety gates.
 5. Atomic apply: validate the whole payload, swap snapshot, run subscribers
    under per-callback `try/except`. Never partial.
 6. Rollback to last-known-good is one click and audit-logged.
-7. All `/api/settings/*` routes are **admin-tier** (Bearer required) — `GET`
    reads included. The single exception is the SSE stream, which uses a
-   short-lived ticket exchange (Bearer-required to issue, single-use to consume).
 8. Existing detection gates remain in place; only their *constants* become
    live snapshot reads.
 
@@ -42,7 +40,6 @@ the existing safety gates.
 - Add a small lock around `state.recent_events` append/read so the impact
   engine can sample without races with the perception loop.
 - Document the auth matrix in `CLAUDE.md`: public read (telemetry, MJPEG),
-  Bearer admin (everything under `/api/settings/*`, `/api/audit`, `/api/llm/*`,
   watchdog mutations), DSAR (unredacted thumbnails).
 
 ### S1 — Runtime settings core
@@ -199,7 +196,6 @@ Writes:
 - `POST /api/settings/templates/{id}/apply` → re-validate, migrate, apply.
 - `POST /api/settings/baseline/capture` → freeze a new baseline window.
 - `POST /api/settings/stream_ticket` → returns `{ticket, expires_in}`,
-  single-use, 30 s TTL. Requires Bearer.
 - `GET  /api/settings/impact/stream?ticket=…` → SSE; mirrors the existing
   `/stream/events` handler pattern.
 
@@ -219,13 +215,9 @@ Writes:
   - `useSettings` — polled effective + schema; debounced apply (400 ms).
   - `useImpact` — polls `/impact?audit_id=…` every 15 s; falls back from
     SSE → polling on disconnect.
-  - `useAdminToken` — `sessionStorage`-backed; pasted via a small dialog on
     first 401 / 503; "Forget token" link in the page header.
 - Auth:
-  - `frontend/src/lib/adminApi.ts` — `withAdminAuth(init)` injects
-    `Authorization: Bearer …`; throws `MissingAdminTokenError`. Comment block
     documents the localStorage-vs-sessionStorage trade-off and CSRF posture
-    (Bearer header is not auto-attached, so CSRF is structurally mitigated).
   - SSE never carries the long-lived bearer; uses the ticket exchange.
 - UX rules:
   - Disable apply while validation fails.
@@ -269,7 +261,6 @@ in v1, by tailing audit + structured logs):
 ### S9 — Out of scope (v2 candidates)
 
 - `TARGET_FPS` mid-run timer rebuild (kept as `restart_required` in v1).
-- Per-role admin tokens (currently single shared `ROAD_ADMIN_TOKEN`).
 - Cookie-based auth instead of `sessionStorage` bearer.
 - Cloud-receiver mirror of impact history for fleet-wide settings analytics.
 - Auto-revert on AI recommendation (v1 is operator-driven only).
@@ -326,8 +317,6 @@ documented here flow through `settings_spec.SETTINGS_SPEC`.
 
 ### New frontend
 - `frontend/src/pages/SettingsPage.tsx` (+ `.module.css`)
-- `frontend/src/components/settings/` — `TunableControl`, `TemplateManager`, `BaselinePanel`, `ImpactPanel`, `ImpactBars`, `ContextBadge`, `TokenPromptDialog`.
-- `frontend/src/hooks/useSettings.ts`, `useImpact.ts`, `useAdminToken.ts`.
 - `frontend/src/lib/adminApi.ts`.
 
 ### Modified frontend

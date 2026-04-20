@@ -232,9 +232,7 @@ class SettingsStore:
             diff: ``{key: new_value}`` for each key the caller wants to
                 change. Unknown keys are ignored (with a warning) so that
                 stale UI clients don't 422 on retired knobs.
-            actor: Free-text label for audit logs. Under the single shared
-                admin token we cannot establish true identity — see plan
-                §S5 for the operator-label convention.
+            actor: Free-text label for audit logs (POC has no user accounts).
             expected_revision_hash: Pass the ``revision_hash`` the operator
                 saw when they opened the page. If the live snapshot has
                 advanced, raises :class:`RevisionConflict`.

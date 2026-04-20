@@ -1,10 +1,7 @@
 /**
- * Settings API surface — every endpoint that requires
- * `Authorization: Bearer <ROAD_ADMIN_TOKEN>`. Routed through the
- * `adminFetch` wrapper so missing-token errors propagate as a typed
- * `MissingAdminTokenError`.
+ * Settings API — `/api/settings/*` (POC: unauthenticated).
  */
-import { adminFetch } from "../../shared/lib/adminApi";
+import { apiFetch } from "../../shared/lib/fetchClient";
 
 import type {
   ApplyResultPayload,
@@ -35,20 +32,20 @@ interface RequestOptions {
 
 export const settingsApi = {
   getSchema: (opts: RequestOptions = {}) =>
-    adminFetch<SettingsSchema>("/api/settings/schema", { signal: opts.signal }),
+    apiFetch<SettingsSchema>("/api/settings/schema", { signal: opts.signal }),
   getEffective: (opts: RequestOptions = {}) =>
-    adminFetch<EffectiveSettings>("/api/settings/effective", {
+    apiFetch<EffectiveSettings>("/api/settings/effective", {
       signal: opts.signal,
     }),
 
   validate: (diff: Record<string, unknown>) =>
-    adminFetch<unknown>("/api/settings/validate", {
+    apiFetch<unknown>("/api/settings/validate", {
       method: "POST",
       body: JSON.stringify({ diff }),
     }),
 
   apply: (diff: Record<string, unknown>, opts: ApplyOptions = {}) =>
-    adminFetch<ApplyResultPayload>("/api/settings/apply", {
+    apiFetch<ApplyResultPayload>("/api/settings/apply", {
       method: "POST",
       body: JSON.stringify({
         diff,
@@ -60,35 +57,34 @@ export const settingsApi = {
     }),
 
   rollback: () =>
-    adminFetch<ApplyResultPayload>("/api/settings/rollback", {
+    apiFetch<ApplyResultPayload>("/api/settings/rollback", {
       method: "POST",
     }),
 
   captureBaseline: () =>
-    adminFetch<{ ok: boolean; audit_id: string }>("/api/settings/baseline/capture", {
+    apiFetch<{ ok: boolean; audit_id: string }>("/api/settings/baseline/capture", {
       method: "POST",
     }),
 
   getImpact: (opts: RequestOptions = {}) =>
-    adminFetch<ImpactResponse>("/api/settings/impact", { signal: opts.signal }),
+    apiFetch<ImpactResponse>("/api/settings/impact", { signal: opts.signal }),
 
-  // --- Templates ---
   listTemplates: (opts: RequestOptions = {}) =>
-    adminFetch<TemplatesResponse>("/api/settings/templates", {
+    apiFetch<TemplatesResponse>("/api/settings/templates", {
       signal: opts.signal,
     }),
 
   createTemplate: (name: string, description: string, payload: Record<string, unknown>) =>
-    adminFetch<SettingsTemplate>("/api/settings/templates", {
+    apiFetch<SettingsTemplate>("/api/settings/templates", {
       method: "POST",
       body: JSON.stringify({ name, description, payload }),
     }),
 
   deleteTemplate: (id: string) =>
-    adminFetch<unknown>(`/api/settings/templates/${id}`, { method: "DELETE" }),
+    apiFetch<unknown>(`/api/settings/templates/${id}`, { method: "DELETE" }),
 
   applyTemplate: (id: string, opts: { confirm_privacy_change?: boolean } = {}) =>
-    adminFetch<ApplyResultPayload>(`/api/settings/templates/${id}/apply`, {
+    apiFetch<ApplyResultPayload>(`/api/settings/templates/${id}/apply`, {
       method: "POST",
       body: JSON.stringify({
         confirm_privacy_change: !!opts.confirm_privacy_change,

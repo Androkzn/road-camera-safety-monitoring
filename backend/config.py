@@ -260,24 +260,6 @@ EPISODE_IDLE_FLUSH_SEC = 1.5
 # Data-Subject-Access-Request token. Required to download *unredacted*
 # thumbnails through ``/api/thumb?internal=1``. Unset → those routes 503.
 DSAR_TOKEN = os.getenv("ROAD_DSAR_TOKEN")
-# Admin bearer token for operational endpoints (``/api/audit``,
-# ``/api/llm/*``, ``/api/retention/*``, ...). Unset → those routes 503.
-# See ``backend/security.py`` for the enforcement helper.
-ADMIN_TOKEN = os.getenv("ROAD_ADMIN_TOKEN")
-# ``ROAD_REQUIRE_AUTH`` — hard-cutover flag for the Sprint 0 auth-boundary
-# hardening (BE-D12..D15 in the 2026-04-20 backend audit).
-#
-# When ``False`` (default, release N): previously-public mutating /
-# media endpoints remain reachable without a bearer token, **but**
-# ``server.py`` logs a rate-limited WARN each time a route would have
-# been denied. This gives ops one release window to stamp a token into
-# every deployment.
-#
-# When ``True`` (release N+1): ``_require_admin`` is enforced on the
-# gated handlers; unauthenticated callers get 401. This is the hard
-# cutover - flipping the flag is the release signal, not a per-route
-# config knob. See audit §BE-D12 rollout notes.
-REQUIRE_AUTH = os.getenv("ROAD_REQUIRE_AUTH", "0").lower() not in ("0", "false", "no", "")
 # Salt for hashing ALPR plate text before it enters any buffer. Generated
 # per-process via ``secrets.token_hex(16)`` if not set — fine for
 # single-host dev, **must be set explicitly in production** so hashes stay

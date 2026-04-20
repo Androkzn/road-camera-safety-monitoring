@@ -48,7 +48,6 @@ Items:
 1. Enforce admin authorization on all watchdog mutation endpoints.
 2. Add rate limits on LLM-costly endpoints (`/chat`, `/api/agents/*`).
 3. Define and enforce header-only auth policy for admin surfaces.
-4. Plan transition from static admin token to JWT/JWKS model.
 
 Why needed:
 

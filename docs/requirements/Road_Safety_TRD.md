@@ -468,19 +468,19 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | Feedback submit | POST | `/api/feedback` | Operator | None | Submit tp/fp verdict | BR-05 |
 | Coaching queue | GET | `/api/coaching_queue` | Operator | None | Pending medium-risk review queue | BR-05 |
 | Drift report | GET | `/api/drift` | ML engineer | None | Rolling precision + trends | BR-10 |
-| Active learning export | POST | `/api/active_learning/export` | ML engineer | Bearer `ROAD_ADMIN_TOKEN` | Zip of pending samples | BR-09 |
+| Active learning export | POST | `/api/active_learning/export` | ML engineer | Open (POC) | Zip of pending samples | BR-09 |
 | Chat | POST | `/chat` | Operator | None | RAG-based Q&A | BR-07 |
-| LLM stats | GET | `/api/llm/stats` | ML engineer | Bearer `ROAD_ADMIN_TOKEN` | Token cost, latency, error rate | BR-11 |
-| LLM recent | GET | `/api/llm/recent` | ML engineer | Bearer `ROAD_ADMIN_TOKEN` | Last N LLM call records | BR-11 |
-| Audit trail | GET | `/api/audit` | Compliance | Bearer `ROAD_ADMIN_TOKEN` | Recent audit records | BR-12 |
-| Audit stats | GET | `/api/audit/stats` | Compliance | Bearer `ROAD_ADMIN_TOKEN` | Audit event counts | BR-12 |
-| Retention sweep | POST | `/api/retention/sweep` | Ops | Bearer `ROAD_ADMIN_TOKEN` | Trigger manual retention sweep | BR-13 |
-| Road summary | GET | `/api/road/summary` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | Aggregate road stats | BR-14 |
-| Road vehicle | GET | `/api/road/vehicle/{id}` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | Per-vehicle detail | BR-14 |
-| Road drivers | GET | `/api/road/drivers` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | Driver leaderboard | BR-14 |
-| Agent coaching | POST | `/api/agents/coaching` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | AI coaching note | BR-15 |
-| Agent investigation | POST | `/api/agents/investigation` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | AI root-cause analysis | BR-16 |
-| Agent report | POST | `/api/agents/report` | Road manager | Bearer `ROAD_ADMIN_TOKEN` | AI safety summary | BR-17 |
+| LLM stats | GET | `/api/llm/stats` | ML engineer | Open (POC) | Token cost, latency, error rate | BR-11 |
+| LLM recent | GET | `/api/llm/recent` | ML engineer | Open (POC) | Last N LLM call records | BR-11 |
+| Audit trail | GET | `/api/audit` | Compliance | Open (POC) | Recent audit records | BR-12 |
+| Audit stats | GET | `/api/audit/stats` | Compliance | Open (POC) | Audit event counts | BR-12 |
+| Retention sweep | POST | `/api/retention/sweep` | Ops | Open (POC) | Trigger manual retention sweep | BR-13 |
+| Road summary | GET | `/api/road/summary` | Road manager | Open (POC) | Aggregate road stats | BR-14 |
+| Road vehicle | GET | `/api/road/vehicle/{id}` | Road manager | Open (POC) | Per-vehicle detail | BR-14 |
+| Road drivers | GET | `/api/road/drivers` | Road manager | Open (POC) | Driver leaderboard | BR-14 |
+| Agent coaching | POST | `/api/agents/coaching` | Road manager | Open (POC) | AI coaching note | BR-15 |
+| Agent investigation | POST | `/api/agents/investigation` | Road manager | Open (POC) | AI root-cause analysis | BR-16 |
+| Agent report | POST | `/api/agents/report` | Road manager | Open (POC) | AI safety summary | BR-17 |
 
 ### 9.2 Request/Response Schemas
 
@@ -583,10 +583,10 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | Redacted thumbnails (`*_public.*`) | Optional | If enabled: `exp`/`token` query params (`ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`) | Audit-logged on success and denial |
 | Unredacted thumbnails | Yes | `X-DSAR-Token` header vs `ROAD_DSAR_TOKEN` env | Audit-logged on success and denial |
 | Feedback submission | Recommended | Reverse-proxy auth or API key (deployment-specific) | Audit-logged |
-| Active learning export | Yes | Bearer `ROAD_ADMIN_TOKEN` | Audit-logged |
+| Active learning export | Yes | Open (POC) | Audit-logged |
 | Chat copilot | No | — | Audit-logged |
-| Agent invocations | Yes | Bearer `ROAD_ADMIN_TOKEN` | Audit-logged |
-| LLM observability / audit / retention / road summary | Yes | Bearer `ROAD_ADMIN_TOKEN` | Operational control plane |
+| Agent invocations | Yes | Open (POC) | Audit-logged |
+| LLM observability / audit / retention / road summary | Yes | Open (POC) | Operational control plane |
 | Cloud ingest | Yes | HMAC-SHA256 signature verification | `Signature` header |
 
 ### 10.2 Privacy Requirements
@@ -851,7 +851,6 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 - **Restart server:** `uvicorn backend.server:app --host 0.0.0.0 --port 8000`
 - **Flush edge queue:** Delete `data/outbound_queue.jsonl`
 - **Reset drift state:** Restart server (in-memory state resets)
-- **Force retention sweep:** `POST /api/retention/sweep` with `Authorization: Bearer <ROAD_ADMIN_TOKEN>`
 - **Export active learning:** `POST /api/active_learning/export` with bearer token → returns zip path
 
 ### 16.3 Support/CS Notes

@@ -36,8 +36,8 @@ frontend/src/
   shared/             ← cross-feature building blocks
     ui/               ← primitives: Button, Card, Dialog, EmptyState, ErrorBoundary,
                         Input, Pill, Section, Skeleton, Spinner, Tabs, …
-    hooks/            ← useSSE, useEventStream, useLiveStatus, useAdminToken, useUptimeTicker
-    lib/              ← queryClient, fetchClient, adminApi, format
+    hooks/            ← useSSE, useEventStream, useLiveStatus, useUptimeTicker
+    lib/              ← queryClient, fetchClient, format
     layout/           ← TopBar, PageLayout
     events/           ← EventCard, FeedbackButtons (shared across admin/dashboard)
     types/            ← truly global types only
@@ -51,7 +51,7 @@ frontend/src/
 - Data fetching goes through **TanStack Query** (`useQuery` / `useMutation`). Polling hooks wrap `useQuery` with `refetchInterval` (+ `refetchIntervalInBackground: false` for non-critical UI), not hand-rolled `setInterval`. The legacy `shared/hooks/usePolling.ts` was deleted; do not reintroduce it.
 - SSE is owned by `<EventStreamProvider>` (mounted in [app/providers.tsx](frontend/src/app/providers.tsx)); consumers read via `useEventStreamCtx()` (or the back-compat `useEventStream` alias). One `EventSource` per app — never mount the SSE primitive directly in a feature.
 - Public thumbnails only — never call endpoints requiring `X-DSAR-Token` from the frontend without an explicit privileged path.
-- Admin endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>`; UI must surface auth failures, not retry silently.
+- POC builds use open JSON APIs (`fetchJson` / `apiFetch` in `shared/lib/fetchClient.ts`); there is no browser-stored credential.
 
 ## Routing
 

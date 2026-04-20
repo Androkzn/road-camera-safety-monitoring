@@ -158,7 +158,7 @@ A complete commercial fleet-safety product does more than this. Calling that out
 | **Telematics fusion** — GPS, IMU, CAN-bus, harsh-brake | Most commercial signals come from IMU + GPS, not vision. Ego-speed here is an optical-flow *proxy* | Ingest NMEA + accelerometer via USB GPS / OBD-II; set `speed_source="gps"` on events |
 | **ELD / DVIR / HOS** | FMCSA-mandated for trucking | Adapters for Motive/Samsara/Geotab ELD APIs |
 | **Driver coaching UX + consent lifecycle** | Real coaching is in-cab / on-phone, not a web dashboard | In-cab app, enrollment flow, off-duty mute |
-| **Multi-tenant RBAC** | Operators, safety managers, DPOs, drivers all need different data rights | JWT + per-tenant rate limits; today we have DSAR + admin tokens |
+| **Multi-tenant RBAC** | Operators, safety managers, DPOs, drivers all need different data rights | JWT + per-tenant rate limits; this POC is single-tier with DSAR-gated imagery only |
 
 See [`docs/challenges.md §8`](docs/challenges.md#8-out-of-scope-deliberately) for more detail.
 
@@ -191,7 +191,7 @@ python start.py
 
 Or with Docker: `docker compose up --build`
 
-Set `ROAD_ADMIN_TOKEN` if you want to access protected operational endpoints such as `/api/audit`, `/api/llm/*`, `/api/road/*`, and `/api/agents/*`.
+This POC runs **without authentication**; the UI and JSON APIs are reachable on the local network you bind the server to.
 
 ---
 
@@ -204,7 +204,7 @@ All runtime settings are environment-driven via `.env`. Key groups:
 | **Camera calibration** | `ROAD_CAMERA_FOCAL_PX`, `ROAD_CAMERA_HEIGHT_M`, `ROAD_CAMERA_HORIZON_FRAC` | Global single-camera fallback. Defaults target a coarse observation camera — **calibrate per-install** for real deployments; wrong values bias every distance / speed signal downstream. |
 | **Per-slot camera calibration** | `ROAD_CAMERA_FOCAL_PX__<SLOT>`, `ROAD_CAMERA_HEIGHT_M__<SLOT>`, `ROAD_CAMERA_HORIZON_FRAC__<SLOT>`, `ROAD_CAMERA_ORIENTATION__<SLOT>` (`forward`/`rear`/`side`), `ROAD_CAMERA_BUMPER_OFFSET_M__<SLOT>` | Multi-camera vehicles set these per slot id (e.g. `__PRIMARY`, `__REAR`, `__LEFT`). The bundled Nissan Rogue demo ships sensible defaults: front 1× wide ≈ 600 px / 1.25 m mount / +1.7 m bumper offset; rear & left 0.5× ultra-wide ≈ 260 px / 1.10 m / +0.3 m and 1.00 m / +0.1 m respectively. Side cams skip the ground-plane prior (it degenerates) and report distances as **lateral** rather than longitudinal range. |
 | **Vehicle identity** | `ROAD_VEHICLE_ID`, `ROAD_ID`, `ROAD_DRIVER_ID`, `ROAD_LOCATION` | Required for fleet-scale deployments; every event is attributed to a specific vehicle + driver. |
-| **Privacy + access** | `ROAD_DSAR_TOKEN`, `ROAD_ADMIN_TOKEN`, `ROAD_PLATE_SALT`, `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN`, `ROAD_THUMB_SIGNING_SECRET` | DSAR token gates unredacted-thumbnail access. Optional signed-token mode can also gate `_public` thumbnails. Salt/signing secrets should be per deployment. |
+| **Privacy + access** | `ROAD_DSAR_TOKEN`, `ROAD_PLATE_SALT`, `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN`, `ROAD_THUMB_SIGNING_SECRET` | DSAR token gates unredacted-thumbnail access. Optional signed-token mode can also gate `_public` thumbnails. Salt/signing secrets should be per deployment. |
 | **LLM** | `ANTHROPIC_API_KEY`, optional `AZURE_OPENAI_*`, `ROAD_ALPR_MODE` | Fully optional. System runs end-to-end with zero LLM calls — narration, ALPR, and agents degrade silently. External ALPR is disabled by default (`ROAD_ALPR_MODE=off`). |
 | **Road scoring** | `ROAD_SCORE_DECAY_INTERVAL_SEC` | Controls periodic safety-score recovery loop (set `0` to disable scheduled decay). |
 | **Cloud delivery** | `ROAD_CLOUD_ENDPOINT`, `ROAD_CLOUD_HMAC_SECRET` | Edge→cloud HMAC-signed batched delivery. Without these, events stay local. |
@@ -220,7 +220,7 @@ make test    # or: pytest tests/ -v
 ```
 
 The pytest suite covers detection pipeline logic, services, API routes,
-compliance, auth guards, and integrations.
+compliance, API routes, and integrations.
 
 ## License
 
