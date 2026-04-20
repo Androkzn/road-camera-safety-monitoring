@@ -34,7 +34,10 @@
 //        the *dependency array*: React compares each item to the
 //        previous render's values and re-runs the effect only if
 //        something changed. `[]` = "run once, after the first mount".
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+import { EventDialog } from "../../../shared/events";
+import type { SafetyEvent } from "../../../shared/types/common";
 // TEACH: `useHistory` is a *custom hook* — a plain function whose name
 //        starts with `use` and which calls other hooks. Encapsulates
 //        "fetch + filter + reload" logic so pages can just consume it.
@@ -53,6 +56,10 @@ export function HistoryPanel() {
   //        We destructure everything we need in one line. If you want
   //        to know what each field is, open hooks/useHistory.ts.
   const { events, loading, error, filters, updateFilters, refresh } = useHistory();
+  // Event-detail modal: clicking any AdminEventCard pops the same dialog
+  // the validation page uses, so admins can scrub the annotated clip
+  // straight from the history list.
+  const [selectedEvent, setSelectedEvent] = useState<SafetyEvent | null>(null);
 
   // --- Effects ---
 
@@ -133,8 +140,18 @@ export function HistoryPanel() {
              and is unique per event — an ideal `key`. Avoid index-based
              keys here: the list can reorder when filters change. */}
         {!loading &&
-          events.map((ev) => <AdminEventCard key={ev.event_id} event={ev} />)}
+          events.map((ev) => (
+            <AdminEventCard
+              key={ev.event_id}
+              event={ev}
+              onSelect={setSelectedEvent}
+            />
+          ))}
       </div>
+      <EventDialog
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+      />
     </div>
   );
 }

@@ -22,9 +22,13 @@ import styles from "./EventCard.module.css";
 interface EventCardProps {
   event: SafetyEvent;
   isNew?: boolean;
+  // When supplied, the card becomes a button that opens the parent's
+  // event-detail dialog. Optional so callers that just want a static
+  // card (reports, embed contexts) keep their existing behaviour.
+  onSelect?: (event: SafetyEvent) => void;
 }
 
-export function EventCard({ event: e, isNew }: EventCardProps) {
+export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
   const [flash, setFlash] = useState(isNew);
 
   useEffect(() => {
@@ -36,6 +40,7 @@ export function EventCard({ event: e, isNew }: EventCardProps) {
   const thumb = normalizeThumbnail(e.thumbnail);
   const objs = e.objects?.length ? e.objects.join(" · ") : "—";
   const enr = e.enrichment;
+  const interactive = typeof onSelect === "function";
 
   // Friendly copy for per-event skip reasons. The backend only stamps
   // per-event reasons here (policy-level skipping is a deployment
@@ -51,7 +56,23 @@ export function EventCard({ event: e, isNew }: EventCardProps) {
     : undefined;
 
   return (
-    <div className={`${styles.card} ${flash ? styles.flash : ""}`}>
+    <div
+      className={`${styles.card} ${flash ? styles.flash : ""} ${interactive ? styles.interactive ?? "" : ""}`.trim()}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? () => onSelect?.(e) : undefined}
+      onKeyDown={
+        interactive
+          ? (ke) => {
+              if (ke.key === "Enter" || ke.key === " ") {
+                ke.preventDefault();
+                onSelect?.(e);
+              }
+            }
+          : undefined
+      }
+      aria-label={interactive ? `Open details for ${humanEventType(e.event_type)}` : undefined}
+    >
       <div className={styles.thumb}>
         {thumb ? (
           <img
@@ -138,7 +159,11 @@ export function EventCard({ event: e, isNew }: EventCardProps) {
           <Tag>{e.video_id || ""}</Tag>
         </div>
 
-        <FeedbackButtons eventId={e.event_id} />
+        {/* stopPropagation keeps thumbs-up/down from bubbling into the
+            card-level click handler that opens the event-detail dialog. */}
+        <div onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => ev.stopPropagation()}>
+          <FeedbackButtons eventId={e.event_id} />
+        </div>
       </div>
     </div>
   );

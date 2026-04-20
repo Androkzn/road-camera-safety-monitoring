@@ -27,6 +27,20 @@
 .card:hover {
   border-color: #2d3748;
 }
+/* .interactive is added when the parent passes an onSelect handler so
+ * the whole card becomes a button that opens the event-detail dialog.
+ * Visual: pointer cursor + a slightly stronger hover/focus border so the
+ * affordance reads as "click me" without screaming. */
+.interactive {
+  cursor: pointer;
+}
+.interactive:hover {
+  border-color: var(--accent);
+}
+.interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 /* .flash is briefly added by the .tsx when a new event arrives,
  * producing a subtle cyan glow so the user notices it. */
 .flash {

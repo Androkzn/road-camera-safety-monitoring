@@ -14,7 +14,8 @@ import { adminFetch } from "../../shared/lib/adminApi";
 import { humanEventType } from "../../shared/lib/format";
 import { TopBar } from "../../shared/layout/TopBar";
 import { useDialog } from "../../shared/ui";
-import { EventCard } from "../../shared/events";
+import { EventCard, EventDialog } from "../../shared/events";
+import type { SafetyEvent } from "../../shared/types/common";
 import { TestBadge, TestDrawer, useTests } from "../tests";
 import { useDriftCount } from "../validation";
 import { useWatchdogCtx } from "../watchdog";
@@ -77,6 +78,10 @@ export function DashboardPage() {
   const [filterRisk, setFilterRisk] = useState("");
   const [filterType, setFilterType] = useState("");
   const [showLow, setShowLow] = useState(false);
+  // Event-detail modal: clicking any EventCard opens the same dialog
+  // already used by the validation page, so reviewers can scrub the
+  // annotated \u00b13s clip without leaving the dashboard.
+  const [selectedEvent, setSelectedEvent] = useState<SafetyEvent | null>(null);
 
   // Auto-open the TestDrawer when tests flip running → failed.
   useEffect(() => {
@@ -220,13 +225,22 @@ export function DashboardPage() {
               <div className={styles.empty}>No events match filters</div>
             )}
             {filtered.map((ev, i) => (
-              <EventCard key={ev.event_id} event={ev} isNew={i === 0} />
+              <EventCard
+                key={ev.event_id}
+                event={ev}
+                isNew={i === 0}
+                onSelect={setSelectedEvent}
+              />
             ))}
           </div>
         </section>
 
         <CopilotPanel />
       </div>
+      <EventDialog
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+      />
     </>
   );
 }

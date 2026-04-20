@@ -70,6 +70,20 @@ _PLATE_SALT = PLATE_SALT
 # empirical sampling of dashcam frames; adjust with care - the goal is to
 # always OVER-cover real plates/faces, never under-cover.
 # -----------------------------------------------------------------------------
+# Class-coloured palette for the "context" (non-pair) detections drawn
+# in the public thumbnail. Mirrors the live admin tile's colour map in
+# server.py::_render_annotated_frame so reviewers see the same colours
+# whether they're looking at the live feed or the post-hoc thumbnail.
+# OpenCV is BGR.
+_CONTEXT_COLOR_MAP: dict[str, tuple[int, int, int]] = {
+    "person": (0, 220, 100),
+    "car": (255, 160, 0),
+    "truck": (255, 100, 0),
+    "bus": (200, 80, 200),
+    "motorcycle": (0, 180, 255),
+    "bicycle": (0, 180, 255),
+}
+
 FACE_BAND_TOP = 0.00     # face = top ~35% of person bbox
 FACE_BAND_BOTTOM = 0.35
 PLATE_BAND_TOP = 0.55    # plate = lower-middle strip of vehicle bbox
@@ -250,9 +264,23 @@ def write_thumbnails(
     # PUBLIC: blur first on the raw frame, then draw fresh (label-free)
     # bboxes so the reviewer still knows which cars are implicated.
     redacted = redact_for_egress(frame, detections)
+    # Identify the pair via object identity so we can draw "everyone else"
+    # in a thinner, neutral colour underneath the highlighted pair. Without
+    # this all non-pair detections were invisible in the public thumb,
+    # which made every event look like "two objects in an empty scene"
+    # even when the camera saw a busy intersection.
+    pair_ids = {id(primary), id(secondary)}
+    others = [d for d in detections if id(d) not in pair_ids]
+    for det in others:
+        # Class-coloured thin box for context detections. Same palette the
+        # live admin tile uses (_render_annotated_frame), dimmed by going
+        # 1-px instead of 2-px so the pair-of-interest still pops.
+        color = _CONTEXT_COLOR_MAP.get(det.cls, (180, 180, 180))
+        cv2.rectangle(redacted, (det.x1, det.y1), (det.x2, det.y2), color, 1)
     for det, color in [(primary, (0, 0, 255)), (secondary, (0, 200, 255))]:
         # OpenCV uses BGR: (0, 0, 255) = red for primary,
-        # (0, 200, 255) = amber for secondary. Line thickness 2 px.
+        # (0, 200, 255) = amber for secondary. Line thickness 2 px so the
+        # pair stays visually dominant over the context boxes above.
         cv2.rectangle(redacted, (det.x1, det.y1), (det.x2, det.y2), color, 2)
     # ``cv2.imwrite`` picks encoding by extension. JPEG quality defaults
     # apply; no per-path override here - the on-disk size is dominated by

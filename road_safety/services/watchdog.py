@@ -1260,7 +1260,9 @@ def _rule_checks(snapshot: dict, prev_snapshot: dict | None) -> list[WatchdogFin
     # Detects: a bug in drift window bookkeeping where the start and end
     # timestamps are identical even though the window contains labels.
     # This makes trend math meaningless, so we flag it for the owner.
-    if drift.get("window_start_ts") and drift.get("window_start_ts") == drift.get("window_end_ts") and (tp + fp) > 0:
+    # Requires > 1 label: with a single label, start == end is tautological
+    # (first and last operator_ts are the same entry), not a bookkeeping bug.
+    if drift.get("window_start_ts") and drift.get("window_start_ts") == drift.get("window_end_ts") and (tp + fp) > 1:
         findings.append(_make_finding(
             severity="warning",
             category="drift",
@@ -1543,7 +1545,12 @@ _ANALYSIS_SYSTEM = (
     "Focus on actionable issues with operator impact. Do NOT report normal or healthy metrics as findings. "
     "Do not emit more than 3 findings. Prefer symptom-level issues over generic commentary. "
     "If everything looks healthy, return an empty array []. "
-    "Be concise — title under 10 words, detail under 50 words, suggestion under 30 words."
+    "Be concise — title under 10 words, detail under 50 words, suggestion under 30 words. "
+    "IMPORTANT: the pipeline subsamples by design. `frames_read` is the source-rate pull (native fps, typically 25–60); "
+    "`frames_processed` is throttled to `target_fps` (default 2). A large read/processed gap is expected and NOT a bottleneck — "
+    "only flag perception throughput issues when `frames_processed` itself falls below `target_fps`. "
+    "Similarly, `llm` skips are the rate-budget back-pressure working as designed; only flag them when error_rate is high "
+    "or the bucket is plainly misconfigured."
 )
 
 
@@ -1603,7 +1610,10 @@ async def _ai_analyze(snapshot: dict, prev_snapshot: dict | None) -> list[Watchd
     try:
         # ``await`` suspends this coroutine until ``_complete`` returns
         # — the event loop is free to run other tasks in the meantime.
-        raw = await _complete(_ANALYSIS_SYSTEM, user_msg, MODEL_CHAT, max_tokens=1000)
+        raw, _inp, _out = await _complete(
+            _ANALYSIS_SYSTEM, user_msg, MODEL_CHAT, max_tokens=1000,
+            call_type="watchdog_analysis",
+        )
         raw = raw.strip()
         # Defensive: strip markdown fencing if the model wrapped its
         # JSON in ```json blocks despite instructions.

@@ -392,7 +392,10 @@ async def _complete_azure(system, user: str, max_tokens: int) -> tuple[str, int,
     return resp.choices[0].message.content.strip(), inp, out
 
 
-async def _complete(system, user: str, model_hint: str, max_tokens: int) -> str:
+async def _complete(
+    system, user: str, model_hint: str, max_tokens: int,
+    *, call_type: str = "completion", event_id: str | None = None,
+) -> tuple[str, int, int]:
     """LLM completion with automatic provider failover and observability.
 
     Primary backend runs first. On failure the secondary backend is tried
@@ -419,8 +422,12 @@ async def _complete(system, user: str, model_hint: str, max_tokens: int) -> str:
 
     Returns
     -------
-    str
-        Completion text (trimmed).
+    tuple[str, int, int]
+        ``(text, input_tokens, output_tokens)`` from the provider that
+        served the request. Tokens are used by callers for cost tracking
+        — returning them (rather than hiding them) is what lets
+        ``llm_observer`` attribute tokens to the semantic ``call_type``
+        rather than a bare "completion" bucket.
 
     Raises
     ------
@@ -458,10 +465,12 @@ async def _complete(system, user: str, model_hint: str, max_tokens: int) -> str:
                 text, inp, out = await _complete_anthropic(system, user, model_hint, max_tokens)
             elapsed = (time.monotonic() - t0) * 1000
             llm_observer.record(
-                call_type="completion", model=model_hint if provider == "anthropic" else (_AZURE_DEPLOYMENT or "azure"),
+                call_type=call_type,
+                model=model_hint if provider == "anthropic" else (_AZURE_DEPLOYMENT or "azure"),
                 input_tokens=inp, output_tokens=out, latency_ms=elapsed, success=True,
+                event_id=event_id,
             )
-            return text
+            return text, inp, out
         except Exception as exc:
             # Any failure is recorded and we try the next provider. We
             # intentionally catch broad ``Exception`` here because the SDKs
@@ -470,9 +479,10 @@ async def _complete(system, user: str, model_hint: str, max_tokens: int) -> str:
             # the same.
             elapsed = (time.monotonic() - t0) * 1000
             llm_observer.record(
-                call_type="completion",
+                call_type=call_type,
                 model=model_hint if provider == "anthropic" else (_AZURE_DEPLOYMENT or "azure"),
                 latency_ms=elapsed, success=False, error=f"{provider}: {exc}",
+                event_id=event_id,
             )
             last_exc = exc
             if len(providers) > 1:
@@ -513,23 +523,18 @@ async def narrate_event(event: dict) -> str | None:
     if not await _HAIKU_BUCKET.try_acquire(1.0):
         llm_observer.record_skip("narration", MODEL_NARRATION, "rate_budget_exhausted", event_id=evt_id)
         return None
-    t0 = time.monotonic()
     try:
-        text = await _complete(NARRATION_SYSTEM, json.dumps(event), MODEL_NARRATION, 80)
-        llm_observer.record(
-            call_type="narration", model=MODEL_NARRATION,
-            latency_ms=(time.monotonic() - t0) * 1000, success=True, event_id=evt_id,
+        # ``_complete`` records latency/tokens/errors itself under
+        # call_type="narration"; we just unpack the text.
+        text, _inp, _out = await _complete(
+            NARRATION_SYSTEM, json.dumps(event), MODEL_NARRATION, 80,
+            call_type="narration", event_id=evt_id,
         )
         return text
-    except Exception as exc:
-        # Silent-failure path: record the error for observability but
-        # return None. The caller (_emit_event) is responsible for the
-        # fallback narration string.
-        llm_observer.record(
-            call_type="narration", model=MODEL_NARRATION,
-            latency_ms=(time.monotonic() - t0) * 1000, success=False,
-            error=str(exc), event_id=evt_id,
-        )
+    except Exception:
+        # Silent-failure path: the error was already recorded inside
+        # ``_complete`` per-provider. ``_emit_event`` will fall back to
+        # a templated narration string.
         return None
 
 
@@ -931,19 +936,12 @@ async def chat(query: str, recent_events: list[dict]) -> str:
             {"type": "text", "text": CORPUS_TEXT, "cache_control": {"type": "ephemeral"}}]
     else:
         system_blocks = [{"type": "text", "text": SYSTEM_INSTRUCTIONS}]
-    t0 = time.monotonic()
     try:
-        result = await _complete(system_blocks, user_msg, MODEL_CHAT, 500)
-        llm_observer.record(
-            call_type="chat", model=MODEL_CHAT,
-            latency_ms=(time.monotonic() - t0) * 1000, success=True,
+        result, _inp, _out = await _complete(
+            system_blocks, user_msg, MODEL_CHAT, 500, call_type="chat",
         )
         return result
     except Exception as e:
-        llm_observer.record(
-            call_type="chat", model=MODEL_CHAT,
-            latency_ms=(time.monotonic() - t0) * 1000, success=False, error=str(e),
-        )
         return f"Chat error: {e}"
 
 
@@ -1005,12 +1003,10 @@ async def analyze_settings_impact(
         "after": after,
         "operator_hint": operator_hint or "",
     }
-    t0 = time.monotonic()
     try:
-        text = await _complete(SETTINGS_IMPACT_SYSTEM, json.dumps(payload), MODEL_NARRATION, 200)
-        llm_observer.record(
-            call_type="settings_impact", model=MODEL_NARRATION,
-            latency_ms=(time.monotonic() - t0) * 1000, success=True,
+        text, _inp, _out = await _complete(
+            SETTINGS_IMPACT_SYSTEM, json.dumps(payload), MODEL_NARRATION, 200,
+            call_type="settings_impact",
         )
         try:
             parsed = json.loads(text)
@@ -1030,11 +1026,7 @@ async def analyze_settings_impact(
             "recommendation": rec,
             "confidence": str(parsed.get("confidence", "low")).lower(),
         }
-    except Exception as exc:  # noqa: BLE001 — advisory; never propagate.
-        llm_observer.record(
-            call_type="settings_impact", model=MODEL_NARRATION,
-            latency_ms=(time.monotonic() - t0) * 1000, success=False, error=str(exc),
-        )
+    except Exception:  # noqa: BLE001 — advisory; never propagate.
         return None
 
 

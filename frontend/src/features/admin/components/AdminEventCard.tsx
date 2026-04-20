@@ -38,6 +38,10 @@ import styles from "./AdminEventCard.module.css";
 // `event`; TypeScript will flag them if they forget.
 interface AdminEventCardProps {
   event: SafetyEvent;
+  // When supplied, the whole card becomes a button that opens the parent's
+  // event-detail dialog. Optional so the card stays a pure presentational
+  // row anywhere it's shown without a dialog (e.g. compact reports).
+  onSelect?: (event: SafetyEvent) => void;
 }
 
 // --- Render ---
@@ -62,7 +66,7 @@ function orientationLabel(e: SafetyEvent): string | null {
   return o.toUpperCase();
 }
 
-export function AdminEventCard({ event: e }: AdminEventCardProps) {
+export function AdminEventCard({ event: e, onSelect }: AdminEventCardProps) {
   // Pre-compute display values once. Keeping them above the return keeps the
   // JSX below cleaner.
   const thumb = normalizeThumbnail(e.thumbnail);
@@ -76,8 +80,30 @@ export function AdminEventCard({ event: e }: AdminEventCardProps) {
     ? styles[`taxonomy_${taxonomy}`] ?? styles.taxonomyBadge
     : "";
 
+  // Card is keyboard-accessible only when an onSelect handler is wired —
+  // otherwise it stays a plain div so screen-readers don't announce a
+  // useless button.
+  const interactive = typeof onSelect === "function";
+  const cardClass = interactive ? `${styles.card} ${styles.interactive ?? ""}`.trim() : styles.card;
+
   return (
-    <div className={styles.card}>
+    <div
+      className={cardClass}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? () => onSelect?.(e) : undefined}
+      onKeyDown={
+        interactive
+          ? (ke) => {
+              if (ke.key === "Enter" || ke.key === " ") {
+                ke.preventDefault();
+                onSelect?.(e);
+              }
+            }
+          : undefined
+      }
+      aria-label={interactive ? `Open details for ${humanEventType(e.event_type)}` : undefined}
+    >
       {/* Thumbnail area. */}
       <div className={styles.thumb}>
         {/* TEACH: Ternary for "either-or" rendering. If there's a thumbnail URL,

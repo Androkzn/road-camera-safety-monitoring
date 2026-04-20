@@ -25,6 +25,16 @@
   border-color: var(--accent);
   box-shadow: 0 0 8px rgba(56, 189, 248, 0.06);
 }
+/* .interactive is added when the parent passes an onSelect handler so
+ * the card becomes a button. Pointer cursor + a focus-visible outline
+ * round out the affordance for keyboard users. */
+.interactive {
+  cursor: pointer;
+}
+.interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* Thumbnail box. `flex-shrink: 0` prevents it from collapsing
  * when the info column is too wide. */

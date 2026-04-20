@@ -131,14 +131,19 @@ class SecondaryDetector:
         """Load the underlying weights. Safe to call once at worker start."""
         if self._model is not None:
             return
-        if self.backend != "rtdetr":
+        if self.backend not in ("rtdetr", "yolo"):
             raise NotImplementedError(
                 f"validator backend {self.backend!r} is not wired up; "
-                "set ROAD_VALIDATOR_BACKEND=rtdetr"
+                "set ROAD_VALIDATOR_BACKEND=rtdetr (or yolo)"
             )
-        # ultralytics.YOLO loads RT-DETR weights transparently when the
-        # file stem starts with ``rtdetr``. Same API for .predict()/.track().
-        from ultralytics import YOLO  # lazy — keep cold-start cheap
+        # IMPORTANT: ``ultralytics.YOLO("rtdetr-l.pt")`` does NOT correctly
+        # post-process RT-DETR outputs in ultralytics ≥ 8.3 — the boxes
+        # carry decoder-query indices (e.g. 166, 256) instead of COCO-80
+        # class IDs, so almost every detection is dropped by the
+        # in-range/class-allowlist filter and the secondary effectively
+        # goes blind. Use the dedicated ``RTDETR`` task class for those
+        # weights; it owns the matching head + post-processing.
+        from ultralytics import RTDETR, YOLO  # lazy — keep cold-start cheap
 
         log.info(
             "validator: loading secondary detector backend=%s path=%s device=%s",
@@ -146,7 +151,8 @@ class SecondaryDetector:
             self.model_path,
             self.device or "auto",
         )
-        model = YOLO(self.model_path)
+        model_cls = RTDETR if self.backend == "rtdetr" else YOLO
+        model = model_cls(self.model_path)
         if self.device:
             try:
                 model.to(self.device)
@@ -176,7 +182,16 @@ class SecondaryDetector:
         if boxes is None:
             return out
         for box in boxes:
-            cls = names[int(box.cls)]
+            # Some ultralytics RT-DETR builds emit class indices beyond the
+            # COCO-80 ``names`` dict (decoder-query ids / wrong-head check-
+            # point). Skip instead of crashing so the comparator still runs.
+            cls_id = int(box.cls)
+            cls = (
+                names.get(cls_id) if isinstance(names, dict)
+                else (names[cls_id] if 0 <= cls_id < len(names) else None)
+            )
+            if cls is None:
+                continue
             if cls not in VEHICLE_CLASSES and cls not in PEDESTRIAN_CLASSES:
                 continue
             conf = float(box.conf)
