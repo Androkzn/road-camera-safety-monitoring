@@ -13,12 +13,64 @@
  */
 
 const STORAGE_KEY = "road_admin_token";
+const CHANNEL_NAME = "admin-token";
 
 export class MissingAdminTokenError extends Error {
   constructor() {
     super("missing admin bearer token");
     this.name = "MissingAdminTokenError";
   }
+}
+
+// BroadcastChannel is the only way to sync `sessionStorage`-scoped state
+// across tabs within the same browser session: `storage` events fire only
+// for `localStorage`, and a `window.dispatchEvent` hits only the current
+// window. Broadcasting on set/clear means a second tab opened during the
+// same session hears the change and updates its cached token immediately.
+// If the browser disables BroadcastChannel (older Safari, locked-down
+// extensions) we gracefully fall back to the same-tab dispatch only.
+const _channel: BroadcastChannel | null = (() => {
+  try {
+    return typeof BroadcastChannel !== "undefined"
+      ? new BroadcastChannel(CHANNEL_NAME)
+      : null;
+  } catch {
+    return null;
+  }
+})();
+
+/** Notify listeners (current tab + other same-origin tabs) that the token changed. */
+function _notifyTokenChanged(): void {
+  try {
+    window.dispatchEvent(new CustomEvent("admin-token-changed"));
+  } catch {
+    /* ignore */
+  }
+  try {
+    _channel?.postMessage({ type: "admin-token-changed" });
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Subscribe to admin-token changes in the current tab *and* across tabs
+ * in the same browser session. `listener` fires immediately if the token
+ * was cleared / set elsewhere.
+ *
+ * Returns an unsubscribe callback.
+ */
+export function subscribeToAdminTokenChanges(listener: () => void): () => void {
+  const same = () => listener();
+  window.addEventListener("admin-token-changed", same);
+  const onMessage = (ev: MessageEvent) => {
+    if (ev?.data?.type === "admin-token-changed") listener();
+  };
+  _channel?.addEventListener("message", onMessage);
+  return () => {
+    window.removeEventListener("admin-token-changed", same);
+    _channel?.removeEventListener("message", onMessage);
+  };
 }
 
 export function getAdminToken(): string | null {
@@ -32,7 +84,7 @@ export function getAdminToken(): string | null {
 export function setAdminToken(token: string): void {
   try {
     sessionStorage.setItem(STORAGE_KEY, token);
-    window.dispatchEvent(new CustomEvent("admin-token-changed"));
+    _notifyTokenChanged();
   } catch {
     // sessionStorage can be denied by privacy modes; ignore.
   }
@@ -41,7 +93,7 @@ export function setAdminToken(token: string): void {
 export function clearAdminToken(): void {
   try {
     sessionStorage.removeItem(STORAGE_KEY);
-    window.dispatchEvent(new CustomEvent("admin-token-changed"));
+    _notifyTokenChanged();
   } catch {
     /* ignore */
   }

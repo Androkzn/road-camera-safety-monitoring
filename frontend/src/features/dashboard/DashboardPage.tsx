@@ -33,7 +33,20 @@ import { useScene } from "./hooks/useScene";
 import styles from "./DashboardPage.module.css";
 
 export function DashboardPage() {
-  const { events, perception, connected, counts, clearEvents } = useEventStream();
+  const { events, perception, connected, clearEvents } = useEventStream();
+  // D8: derive counts from the current `events` buffer instead of a ref —
+  // the prior `counts: ref.current` shape silently stopped re-rendering
+  // when a count changed without a new event pushing. `events` is capped
+  // at ~100 in the provider so this is always O(100) at most.
+  const counts = useMemo(() => {
+    let high = 0;
+    let medium = 0;
+    for (const ev of events) {
+      if (ev.risk_level === "high") high++;
+      else if (ev.risk_level === "medium") medium++;
+    }
+    return { total: events.length, high, medium };
+  }, [events]);
   const { data: liveStatus } = useLiveStatus();
   const { data: scene } = useScene();
   const { data: drift, refetch: refreshDrift } = useDrift();

@@ -1,4 +1,4 @@
-.PHONY: install dev test lint typecheck run docker-build docker-up docker-down clean
+.PHONY: install dev test test-be test-fe test-all lint typecheck run docker-build docker-up docker-down clean
 
 install:
 	pip install -e .
@@ -6,8 +6,15 @@ install:
 dev:
 	pip install -e ".[dev]"
 
-test:
-	pytest tests/ -v --tb=short
+test: test-be
+
+test-be:
+	.venv/bin/python -m pytest tests/ -v --tb=short
+
+test-fe:
+	cd frontend && npm run test
+
+test-all: test-be test-fe
 
 lint:
 	python -m py_compile backend/server.py

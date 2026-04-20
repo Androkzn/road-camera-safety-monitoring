@@ -60,8 +60,12 @@ export function SettingsPage() {
   const settings = useSettings(token);
   const templates = useSettingsTemplates(token);
   const impact = useImpact(token);
-  const { data: live, error: liveError } = useLiveStatus(5000);
-  const liveSources = useLiveSources(5000);
+  // D2.A: Settings only uses live/liveSources to feed the TopBar uptime
+  // pill — not a second-by-second indicator. Drop the poll frequency from
+  // 5 s to 15 s on this page. Other pages that mount these hooks keep
+  // their defaults.
+  const { data: live, error: liveError } = useLiveStatus(15_000);
+  const liveSources = useLiveSources(15_000);
   const { status: wdStatus } = useWatchdogCtx();
   const driftCount = useDriftCount();
   const dialog = useDialog();

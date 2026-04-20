@@ -1,52 +1,16 @@
 /**
- * useEventStream — subscribes to `/stream/events` (SSE) and exposes a
- * rolling list of recent SafetyEvents plus the latest PerceptionState.
+ * useEventStream — thin wrapper around the app-wide `EventStreamProvider`.
  *
- * Used cross-feature (admin / dashboard / monitoring) so it lives in
- * `shared/hooks/`.
+ * The underlying SSE connection lives in the provider (see
+ * `shared/events/EventStreamProvider.tsx`). This hook exists for
+ * source-compat with existing consumers (AdminPage, DashboardPage,
+ * MonitoringPage, ValidationPage). New code may prefer
+ * `useEventStreamCtx()` directly to make the dependency on the provider
+ * explicit.
+ *
+ * Prior D6 regression: each consumer opened its own `EventSource`, so
+ * two visible pages = two connections + two drifting event buffers.
+ * This hook now always reads the one shared buffer.
  */
-import { useState, useCallback, useRef } from "react";
-import { useSSE } from "./useSSE";
-import type { SafetyEvent, PerceptionState } from "../types/common";
 
-const MAX_EVENTS = 100;
-
-export function useEventStream() {
-  const [events, setEvents] = useState<SafetyEvent[]>([]);
-  const [perception, setPerception] = useState<PerceptionState | null>(null);
-  const countsRef = useRef({ total: 0, high: 0, medium: 0 });
-
-  const onMessage = useCallback((msg: SafetyEvent | PerceptionState) => {
-    if ("_meta" in msg && msg._meta === "perception_state") {
-      setPerception(msg as PerceptionState);
-      return;
-    }
-    const ev = msg as SafetyEvent;
-    countsRef.current.total++;
-    if (ev.risk_level === "high") countsRef.current.high++;
-    else if (ev.risk_level === "medium") countsRef.current.medium++;
-
-    setEvents((prev) => {
-      const next = [ev, ...prev];
-      return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next;
-    });
-  }, []);
-
-  const { connected } = useSSE<SafetyEvent | PerceptionState>({
-    url: "/stream/events",
-    onMessage,
-  });
-
-  const clearEvents = useCallback(() => {
-    setEvents([]);
-    countsRef.current = { total: 0, high: 0, medium: 0 };
-  }, []);
-
-  return {
-    events,
-    perception,
-    connected,
-    counts: countsRef.current,
-    clearEvents,
-  };
-}
+export { useEventStreamCtx as useEventStream } from "../events/EventStreamProvider";

@@ -4,7 +4,13 @@
  * Context. Consumers (`useWatchdogCtx`) get deduplicated reads; the
  * provider owns mutations + admin-token error handling.
  */
-import { createContext, useCallback, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -117,19 +123,21 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
     }
   }, [clearMutation]);
 
-  return (
-    <Ctx.Provider
-      value={{
-        status: data?.status ?? null,
-        findings: data?.findings ?? null,
-        refresh,
-        deleteFindings,
-        clearAll,
-      }}
-    >
-      {children}
-    </Ctx.Provider>
+  // D3: memoize the provider value so unchanged data doesn't cascade
+  // re-renders through every consumer (MonitoringPage, SettingsPage,
+  // DashboardPage, WatchdogDrawer, TopBar).
+  const value = useMemo<WatchdogCtx>(
+    () => ({
+      status: data?.status ?? null,
+      findings: data?.findings ?? null,
+      refresh,
+      deleteFindings,
+      clearAll,
+    }),
+    [data?.status, data?.findings, refresh, deleteFindings, clearAll],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useWatchdogCtx() {
