@@ -254,6 +254,14 @@ class StreamReader:
         self.started_at: float | None = None
         self.frames_read = 0
         self.frames_processed = 0
+        # Demo-mode: current playback position inside the MP4 (seconds) and
+        # the MP4's total duration (seconds). Populated by ``_loop_opencv``
+        # only when ``self.loop`` is True — live feeds don't have a finite
+        # duration. Readers expose these through ``playback_position()`` so
+        # the frontend map overlay can sync its GPS marker to the actual
+        # video loop instead of wallclock.
+        self._video_pos_sec: float = 0.0
+        self._video_duration_sec: float = 0.0
 
     def start(self, on_frame: Callable[[float, object], None]) -> None:
         """Spawn the capture thread. Returns immediately; capture runs in background.
@@ -300,6 +308,16 @@ class StreamReader:
         stream has been up for 12 minutes" at a glance.
         """
         return 0.0 if self.started_at is None else time.time() - self.started_at
+
+    def playback_position(self) -> tuple[float, float]:
+        """Return ``(current_pos_sec, duration_sec)`` of the backing file.
+
+        Only meaningful for looped local-file sources; live feeds return
+        ``(0.0, 0.0)``. The values are refreshed by the capture loop after
+        every successful ``cap.read()`` — reading them from another thread
+        is safe because Python float assignment is atomic in CPython.
+        """
+        return self._video_pos_sec, self._video_duration_sec
 
     def _loop(self, on_frame: Callable[[float, object], None]) -> None:
         """Thread entry point — dispatch to the right capture implementation.
@@ -355,7 +373,16 @@ class StreamReader:
         # ``max(..., 1)`` guards against step=0 when target_fps > native_fps,
         # which would cause a ZeroDivisionError in ``i % step`` below.
         step = max(int(native_fps / self.target_fps), 1)
-        print(f"[stream] opened  native_fps={native_fps:.1f}  step={step}  target_fps={self.target_fps}")
+        # For finite files, compute total duration once so the frontend can
+        # align its GPS loop with the MP4 loop. ``CAP_PROP_FRAME_COUNT`` is
+        # 0/negative for live sources, which we detect and ignore.
+        total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        if self.loop and total_frames > 0 and native_fps > 0:
+            self._video_duration_sec = total_frames / native_fps
+        print(
+            f"[stream] opened  native_fps={native_fps:.1f}  step={step}  "
+            f"target_fps={self.target_fps}  duration={self._video_duration_sec:.1f}s"
+        )
 
         i = 0
         consecutive_fail = 0
@@ -399,6 +426,13 @@ class StreamReader:
                     continue
             consecutive_fail = 0
             self.frames_read += 1
+            # Track the MP4 playback head so consumers can sync to the
+            # actual video loop. ``CAP_PROP_POS_MSEC`` is 0 on live feeds
+            # and on rewind, which is exactly the semantics we want (the
+            # map marker snaps back when the video loops).
+            if self.loop:
+                pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC) or 0.0
+                self._video_pos_sec = pos_msec / 1000.0
             if i % step == 0:
                 # This is the handoff to the asyncio side. The callback
                 # implementation in server.py is a non-blocking ``queue.put_nowait``

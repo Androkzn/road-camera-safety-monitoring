@@ -143,6 +143,9 @@ export function DetectionsPanel({ frames }: DetectionsPanelProps) {
                   {o.track_id != null && (
                     <span className={styles.detTrack}>#{o.track_id}</span>
                   )}
+                  {o.distance_m != null && (
+                    <span className={styles.detDist}>{o.distance_m.toFixed(1)} m</span>
+                  )}
                   <span className={styles.detBbox}>
                     {w}×{h}
                   </span>

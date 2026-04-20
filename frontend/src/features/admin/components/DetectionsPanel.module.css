@@ -106,6 +106,18 @@
   border-radius: 3px;
 }
 
+/* Ego→object distance chip (metres). Cyan pill so it reads as kinematic
+ * info distinct from the purple track id. */
+.detDist {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #67e8f9;
+  background: rgba(8, 47, 73, 0.7);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Bounding-box coordinates, shown faded at row end.
  * `margin-left: auto` pushes this flex child to the far right. */
 .detBbox {

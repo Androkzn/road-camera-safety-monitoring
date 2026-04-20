@@ -21,6 +21,7 @@ import {
   SelectionBar,
   SummaryGrid,
   SummaryHeader,
+  ValidatorControl,
 } from "./components";
 import { buildIncidents } from "./utils/incidents";
 import type { SevFilter } from "./types";
@@ -134,6 +135,8 @@ export function MonitoringPage() {
             filteredCount={filtered.length}
             repeatingIncidents={repeatingIncidents}
           />
+
+          <ValidatorControl />
         </div>
 
         {selectMode && (

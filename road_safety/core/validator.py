@@ -504,12 +504,18 @@ class ValidatorWorker:
         self.jobs_dropped = 0
         self.findings_emitted = 0
         self._running = False
+        # Operator pause: when True, ``enqueue()`` short-circuits so no new
+        # shadow jobs are accepted. The background worker keeps running so
+        # we don't pay the model-reload cost when the operator flips it back
+        # on. Defaults False so behaviour matches pre-toggle releases.
+        self._paused = False
 
     # ---- status (operator-facing) -----------------------------------
     def status(self) -> dict:
         """Snapshot of worker health for the ``/api/validator/status`` route."""
         return {
             "running": self._running,
+            "paused": self._paused,
             "backend": self.detector.backend,
             "model_path": self.detector.model_path,
             "device": self.detector.device or "auto",
@@ -521,6 +527,10 @@ class ValidatorWorker:
             "jobs_dropped": self.jobs_dropped,
             "findings_emitted": self.findings_emitted,
         }
+
+    def set_paused(self, paused: bool) -> None:
+        """Flip the operator pause flag. Thread-safe (bool write is atomic)."""
+        self._paused = bool(paused)
 
     # ---- producer API (called from primary thread / loop) -----------
     def should_sample(self, slot_id: str, wall_ts: float) -> bool:
@@ -536,12 +546,23 @@ class ValidatorWorker:
         self._last_primary_event_ts[slot_id] = wall_ts
 
     def enqueue(self, job: ValidatorJob) -> bool:
-        """Non-blocking put. Returns False when the queue is full."""
+        """Non-blocking put. Returns False when the queue is full or paused."""
+        if self._paused:
+            # Dropped on the floor without counting as a real drop (the
+            # queue isn't backed up, the operator just turned us off).
+            return False
         try:
             self.queue.put_nowait(job)
             return True
         except asyncio.QueueFull:
             self.jobs_dropped += 1
+            log.debug(
+                "validator: queue full, dropping %s job for slot=%s (drops=%d, max=%d)",
+                job.kind,
+                job.slot_id,
+                self.jobs_dropped,
+                self.queue.maxsize,
+            )
             if self._observer_record_skip is not None:
                 try:
                     self._observer_record_skip("validator", "queue_full")
@@ -565,7 +586,12 @@ class ValidatorWorker:
             log.warning("validator backend failed to load, disabling: %s", exc)
             self._running = False
             return
-        log.info("validator worker started")
+        log.info(
+            "validator worker started queue_max=%d sample_sec=%.1f iou_threshold=%.2f",
+            self.queue.maxsize,
+            self.sample_sec,
+            self.comparator.iou_threshold,
+        )
         try:
             while True:
                 job = await self.queue.get()
@@ -640,6 +666,13 @@ class ValidatorWorker:
             )
             self._write_finding(finding)
             self.findings_emitted += 1
+            log.info(
+                "validator finding emitted kind=%s severity=%s slot=%s fingerprint=%s",
+                disc.kind,
+                disc.severity,
+                job.slot_id,
+                disc.fingerprint,
+            )
         except Exception as exc:  # noqa: BLE001
             log.warning("validator: failed to emit finding: %s", exc)
 

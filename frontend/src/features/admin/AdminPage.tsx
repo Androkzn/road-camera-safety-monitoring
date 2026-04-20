@@ -88,6 +88,42 @@ export function AdminPage() {
   const evtCount = liveEvents.length;
   const isDashcam = selectedSource?.stream_type === "dashcam_file";
 
+  // Pick the stream the map should follow. Preference order:
+  //   1. The focused source if it's a running dashcam_file.
+  //   2. Any running dashcam_file.
+  //   3. The primary source (even if paused, so the badge is still useful).
+  // This lets the map sync to whichever camera is actually producing frames
+  // when the primary is a placeholder / paused.
+  const mapClockSource = useMemo(() => {
+    const list = liveSources.sources;
+    if (list.length === 0) return null;
+    const focused = focusedId ? list.find((s) => s.id === focusedId) : null;
+    if (focused?.stream_type === "dashcam_file" && focused.running) {
+      return focused;
+    }
+    const runningDash = list.find(
+      (s) => s.stream_type === "dashcam_file" && s.running,
+    );
+    if (runningDash) return runningDash;
+    return selectedSource;
+  }, [liveSources.sources, focusedId, selectedSource]);
+
+  // Debug: inspect which stream is driving the map.
+  useEffect(() => {
+    if (!mapClockSource) return;
+    console.debug("[map-sync] clock source:", {
+      id: mapClockSource.id,
+      name: mapClockSource.name,
+      running: mapClockSource.running,
+      uptime_sec: mapClockSource.uptime_sec,
+      frames: mapClockSource.frames_processed,
+    });
+  }, [
+    mapClockSource?.id,
+    mapClockSource?.running,
+    mapClockSource?.uptime_sec,
+  ]);
+
   return (
     <>
       <TopBar
@@ -117,22 +153,27 @@ export function AdminPage() {
             focusedId={focusedId}
             onFocusChange={setFocusedId}
           />
-          {isDashcam && (
+          {isDashcam && mapClockSource && (
             <div className={styles.mapSlot}>
-              <VehicleMap />
+              <VehicleMap
+                clock={{
+                  // Wallclock since stream start — works for any transport
+                  // (MJPEG, polled JPEGs, file-loop). The marker advances
+                  // at real seconds-per-second and loops every ~60 s of
+                  // wallclock so it visibly traverses the GPS path.
+                  uptimeSec: mapClockSource.uptime_sec,
+                  running: mapClockSource.running,
+                  videoDurationSec: null,
+                }}
+              />
             </div>
           )}
         </div>
 
         <div className={styles.sidebar}>
           <Tabs
-            defaultTab="detections"
+            defaultTab="events"
             tabs={[
-              {
-                id: "detections",
-                label: "Detections",
-                content: <DetectionsPanel frames={frames} />,
-              },
               {
                 id: "events",
                 label: (
@@ -158,6 +199,11 @@ export function AdminPage() {
                     )}
                   </div>
                 ),
+              },
+              {
+                id: "detections",
+                label: "Detections",
+                content: <DetectionsPanel frames={frames} />,
               },
               {
                 id: "history",

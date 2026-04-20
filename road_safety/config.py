@@ -290,9 +290,28 @@ LOCATION = os.getenv("ROAD_LOCATION", "")
 #                                  horizon sits (0 = top, 1 = bottom).
 #                                  0.5 is the geometric centre; tilt the
 #                                  camera down and you want a higher value.
+# Defaults tuned for an iPhone rear-wide camera (≈26 mm equiv, f/1.6) mounted
+# on a windshield. At 1920×1080 recording, focal length in pixels ≈ 1400; at
+# 640-wide decoded (the perception default) the pinhole projection preserves
+# ratio → ~600 px. Mount height ≈ 1.25 m off the ground, horizon roughly
+# 45 % of frame height (iPhone held slightly below level). Operators with a
+# different camera / mount should override these via env — see the
+# calibration procedure in ``docs/``.
 CAMERA_FOCAL_PX = float(os.getenv("ROAD_CAMERA_FOCAL_PX", "600.0"))
-CAMERA_HEIGHT_M = float(os.getenv("ROAD_CAMERA_HEIGHT_M", "5.0"))
-CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.5"))
+CAMERA_HEIGHT_M = float(os.getenv("ROAD_CAMERA_HEIGHT_M", "1.25"))
+CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.45"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Section: DISTANCE / DEPTH ESTIMATION
+# ─────────────────────────────────────────────────────────────────────────────
+# Controls which depth estimator feeds ``estimate_distance_m``.
+#   off      — disable distance estimation entirely (skip the compute).
+#   pinhole  — default; pinhole + ground-plane geometry only, no GPU.
+#   neural   — use the neural model (see ``core/depth_neural.py``); falls
+#              back to pinhole when the neural load fails.
+#   fused    — run both and keep the more conservative (larger) estimate.
+# ``ROAD_DEPTH_BACKEND`` picks the neural weights (midas_small default).
+DEPTH_MODEL = os.getenv("ROAD_DEPTH_MODEL", "pinhole").strip().lower()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: SERVER
@@ -330,9 +349,11 @@ WATCHDOG_INTERVAL_SEC = int(os.getenv("ROAD_WATCHDOG_INTERVAL_SEC", "60"))
 # for events the primary missed. Disagreements become watchdog incidents
 # under the ``validator`` category.
 #
-# Disabled by default so production installations don't pay for it until
-# the operator explicitly enables shadow-mode validation.
-VALIDATOR_ENABLED = os.getenv("ROAD_VALIDATOR_ENABLED", "0").lower() not in ("0", "false", "no", "")
+# Enabled by default — the demo wants dual-model disagreement surfaced in
+# the watchdog out of the box. Operators who need to reclaim the CPU/GPU
+# budget can still disable it with ``ROAD_VALIDATOR_ENABLED=0`` or pause
+# it at runtime via ``POST /api/validator/toggle`` from the Monitoring UI.
+VALIDATOR_ENABLED = os.getenv("ROAD_VALIDATOR_ENABLED", "1").lower() not in ("0", "false", "no", "")
 # Which backend to use. ``rtdetr`` uses ultralytics' RT-DETR-L weights —
 # same package as YOLO, no new dependency. ``codetr``/``rfdetr`` would
 # need optional extra deps and are not implemented yet.

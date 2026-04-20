@@ -40,6 +40,7 @@ data/test_suite/results.json
 data/*.mp4
 data/*.mov
 data/*.MOV
+resourses/
 
 # Test / coverage
 .pytest_cache/

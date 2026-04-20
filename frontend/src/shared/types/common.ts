@@ -110,6 +110,10 @@ export interface LiveSourceStatus {
   frames_read: number;
   frames_processed: number;
   uptime_sec: number;
+  /** Current MP4 playback head in seconds (dashcam_file only; 0 for live). */
+  playback_pos_sec: number;
+  /** Duration of the backing MP4 in seconds (dashcam_file only; 0 for live). */
+  playback_duration_sec: number;
   started_at: number | null;
   active_episodes: number;
   perception_state: string | null;
@@ -155,8 +159,11 @@ export interface DriftReport {
 export interface DetectionObject {
   cls: string;
   conf: number;
-  track_id?: number;
+  track_id?: number | null;
   bbox: [number, number, number, number];
+  /** Ego→object distance in metres from the monocular depth estimator.
+   *  Null when estimation is disabled or the object is above the horizon. */
+  distance_m?: number | null;
 }
 
 export interface DetectionSnapshot {

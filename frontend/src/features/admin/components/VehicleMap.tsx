@@ -9,7 +9,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { useEffect, useMemo, useRef } from "react";
-import L, { type LatLngBoundsLiteral, type LatLngExpression } from "leaflet";
+import L, { type LatLngExpression } from "leaflet";
 import {
   MapContainer,
   Marker,
@@ -21,7 +21,7 @@ import {
 import {
   useDemoTrack,
   useVehiclePosition,
-  type DemoTrackBounds,
+  type PlaybackClock,
   type VehiclePosition,
 } from "../hooks/useDemoTrack";
 
@@ -31,13 +31,10 @@ const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 const LOOP_SEC = 60;
 const FOLLOW_THROTTLE_MS = 500;
-
-function boundsToLatLng(b: DemoTrackBounds): LatLngBoundsLiteral {
-  return [
-    [b.south, b.west],
-    [b.north, b.east],
-  ];
-}
+// Closer zoom — we follow the vehicle anyway, so a wide bounds-fit view
+// just blurs out the actual driving context. ~17 keeps street names
+// legible while still showing a couple of blocks of context.
+const INITIAL_ZOOM = 17;
 
 function buildArrowIcon(headingDeg: number): L.DivIcon {
   // Inline SVG keeps us free of extra assets; the outer transform rotates
@@ -75,19 +72,30 @@ function FollowVehicle({ position }: { position: VehiclePosition | null }) {
   return null;
 }
 
-export function VehicleMap() {
+export function VehicleMap({ clock }: { clock?: PlaybackClock | null }) {
   const { data, isLoading, isError } = useDemoTrack();
-  const position = useVehiclePosition(LOOP_SEC);
+  const position = useVehiclePosition(LOOP_SEC, clock);
 
+  // Trailing polyline: only the route the vehicle has already passed in
+  // the current loop. We slice the full track at the marker's current
+  // ``t_sec`` and tack the live interpolated position onto the end so the
+  // trail's head sits exactly under the arrow. When the loop wraps,
+  // ``position.point.t_sec`` resets with the playhead and the trail
+  // collapses back to the start — exactly what we want for a single-loop
+  // visualization.
   const polyline = useMemo<LatLngExpression[]>(() => {
-    if (!data?.ok || !data.points) return [];
-    return data.points.map((p) => [p.lat, p.lng] as LatLngExpression);
-  }, [data]);
-
-  const bounds = useMemo<LatLngBoundsLiteral | null>(() => {
-    if (!data?.ok || !data.bounds) return null;
-    return boundsToLatLng(data.bounds);
-  }, [data]);
+    if (!data?.ok || !data.points || data.points.length === 0 || !position) {
+      return [];
+    }
+    const cursor = position.point.t_sec;
+    const passed: LatLngExpression[] = [];
+    for (const p of data.points) {
+      if (p.t_sec > cursor) break;
+      passed.push([p.lat, p.lng]);
+    }
+    passed.push([position.lat, position.lng]);
+    return passed;
+  }, [data, position]);
 
   const icon = useMemo(
     () => buildArrowIcon(position?.heading ?? 0),
@@ -97,7 +105,10 @@ export function VehicleMap() {
   if (isLoading) {
     return <div className={styles.wrap}><div className={styles.empty}>Loading track…</div></div>;
   }
-  if (isError || !data?.ok || !bounds || polyline.length < 2) {
+  // Gate on the underlying track data, NOT the trail length — the trail
+  // is empty on first paint until the rAF loop sets ``position``, but
+  // that's a transient frame, not a "track unavailable" condition.
+  if (isError || !data?.ok || !data.points || data.points.length < 2) {
     return (
       <div className={styles.wrap}>
         <div className={styles.empty}>
@@ -108,13 +119,10 @@ export function VehicleMap() {
   }
 
   const vehicle = data.vehicle;
-  const rawBounds = data.bounds!;
+  const firstPoint = data.points![0]!;
   const center: LatLngExpression = position
     ? [position.lat, position.lng]
-    : [
-        (rawBounds.south + rawBounds.north) / 2,
-        (rawBounds.west + rawBounds.east) / 2,
-      ];
+    : [firstPoint.lat, firstPoint.lng];
 
   return (
     <div className={styles.wrap}>
@@ -133,9 +141,8 @@ export function VehicleMap() {
       )}
       <MapContainer
         className={styles.map}
-        bounds={bounds}
         center={center}
-        zoom={13}
+        zoom={INITIAL_ZOOM}
         scrollWheelZoom
       >
         <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />

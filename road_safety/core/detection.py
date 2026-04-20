@@ -576,6 +576,72 @@ def estimate_distance_m(det: Detection, frame_h: int) -> float | None:
     return round(max(candidates), 2)
 
 
+def estimate_distances_batch(
+    detections: list[Detection],
+    frame_h: int,
+    frame: Any | None = None,
+) -> list[float | None]:
+    """Compute ego → object distance for every detection in a frame.
+
+    Strategy depends on ``config.DEPTH_MODEL``:
+
+    * ``off``      — returns a list of ``None`` (skip distance compute).
+    * ``pinhole``  — default; per-detection pinhole + ground-plane only.
+    * ``neural``   — run the neural depth map once for the frame, use the
+                      pinhole estimate to scale its arbitrary units into
+                      metres, then median-pool each bbox. Falls back to
+                      pinhole when the neural model can't load.
+    * ``fused``    — run both and keep the larger (more conservative) value.
+
+    Batching matters because the neural model runs once per FRAME, not
+    once per detection — a 16-detection frame pays one inference, not 16.
+    """
+    from road_safety.config import DEPTH_MODEL
+    if DEPTH_MODEL == "off":
+        return [None] * len(detections)
+
+    pinhole = [estimate_distance_m(d, frame_h) for d in detections]
+    if DEPTH_MODEL == "pinhole" or frame is None:
+        return pinhole
+
+    # Defer the import so projects that never enable neural depth don't
+    # pay its import cost (torch.hub, numpy allocations, etc).
+    from road_safety.core.depth_neural import (
+        bbox_depth,
+        estimate_relative_depth,
+    )
+
+    depth_map = estimate_relative_depth(frame)
+    if depth_map is None:
+        # Neural path unavailable — degrade silently to pinhole.
+        return pinhole
+
+    # Calibrate the relative-depth units to metres. Pick the median ratio
+    # of ``pinhole_metres / relative_depth_units`` across detections that
+    # have a valid pinhole reading — that's the per-frame scale factor.
+    raw_depths: list[float | None] = [
+        bbox_depth(depth_map, d.x1, d.y1, d.x2, d.y2) for d in detections
+    ]
+    ratios = [
+        p / r for p, r in zip(pinhole, raw_depths)
+        if p is not None and r is not None and r > 1e-6
+    ]
+    if not ratios:
+        # Nothing to calibrate with — fall back to pinhole.
+        return pinhole
+    scale = sorted(ratios)[len(ratios) // 2]  # median
+
+    out: list[float | None] = []
+    for pin, raw in zip(pinhole, raw_depths):
+        neural_m = raw * scale if raw is not None else None
+        if DEPTH_MODEL == "neural":
+            out.append(round(neural_m, 2) if neural_m is not None else pin)
+        else:  # fused: pick the more conservative (larger) of the two
+            cands = [v for v in (pin, neural_m) if v is not None]
+            out.append(round(max(cands), 2) if cands else None)
+    return out
+
+
 def estimate_inter_distance_m(a: Detection, b: Detection, frame_h: int) -> float | None:
     """Rough inter-object distance from monocular depth difference + lateral offset.
 

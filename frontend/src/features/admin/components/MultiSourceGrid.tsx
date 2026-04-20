@@ -11,24 +11,12 @@
  */
 import { useEffect, useState } from "react";
 
-import type {
-  BusyAction,
-  UseLiveSourcesResult,
-} from "../hooks/useLiveSources";
+import type { UseLiveSourcesResult } from "../hooks/useLiveSources";
 import type { LiveSourceStatus } from "../../../shared/types/common";
 import { useDialog } from "../../../shared/ui";
 
 import styles from "./MultiSourceGrid.module.css";
 import { StreamImage } from "./StreamImage";
-
-function shortHost(url: string): string {
-  if (!url) return "—";
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url.slice(0, 32);
-  }
-}
 
 // Short label + tone for the per-tile mode badge. Kept here (not in a
 // shared util) because it's only used by the grid right now — inline a
@@ -52,22 +40,16 @@ function modeBadge(streamType: LiveSourceStatus["stream_type"]):
 
 function StreamTile({
   source,
-  busy,
   focused,
   minimized,
   onFocusToggle,
-  onStart,
-  onPause,
   onToggleDetection,
   onRemove,
 }: {
   source: LiveSourceStatus;
-  busy: BusyAction | null;
   focused: boolean;
   minimized: boolean;
   onFocusToggle: () => void;
-  onStart: () => void;
-  onPause: () => void;
   onToggleDetection: (enabled: boolean) => void;
   onRemove: () => void;
 }) {
@@ -90,16 +72,6 @@ function StreamTile({
     const id = window.setTimeout(() => setImgError(false), 1500);
     return () => window.clearTimeout(id);
   }, [imgError, running]);
-  // We render Start vs Pause based on the *action in flight* whenever busy
-  // is set — otherwise the button would flip mid-action because we
-  // optimistically swap ``running`` as soon as the user clicks. Without
-  // this guard, clicking Start renders "Pausing…" and clicking Pause
-  // renders "Starting…".
-  const showAsRunning =
-    busy === "starting" ? true :
-    busy === "pausing"  ? false :
-    running;
-  const isPending = busy === "starting" || busy === "pausing";
   const detection = source.detection_enabled;
 
   const tileClass = [
@@ -190,7 +162,6 @@ function StreamTile({
       <div className={styles.meta}>
         <div className={styles.metaTop}>
           <strong className={styles.name}>{source.name}</strong>
-          <span className={styles.host}>{shortHost(source.url)}</span>
         </div>
         <div className={styles.metaStats}>
           <span>{source.frames_processed.toLocaleString()} frames</span>
@@ -217,25 +188,6 @@ function StreamTile({
           />
           <span>Detection</span>
         </label>
-        {showAsRunning ? (
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.btnPause}`}
-            onClick={onPause}
-            disabled={isPending}
-          >
-            {busy === "pausing" ? "Pausing…" : "Pause"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.btnStart}`}
-            onClick={onStart}
-            disabled={isPending}
-          >
-            {busy === "starting" ? "Starting…" : "Start"}
-          </button>
-        )}
       </div>
     </div>
   );
@@ -407,12 +359,9 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
     <StreamTile
       key={s.id}
       source={s}
-      busy={busyById[s.id] ?? null}
       focused={opts.focused}
       minimized={opts.minimized}
       onFocusToggle={() => onFocusChange(focusedId === s.id ? null : s.id)}
-      onStart={() => start(s.id)}
-      onPause={() => pause(s.id)}
       onToggleDetection={(enabled) => setDetection(s.id, enabled)}
       onRemove={() => remove(s.id)}
     />

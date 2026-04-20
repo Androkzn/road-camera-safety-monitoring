@@ -154,6 +154,7 @@ from road_safety.core.detection import (
     classify_risk,
     detect_frame,
     estimate_distance_m,
+    estimate_distances_batch,
     estimate_inter_distance_m,
     estimate_pair_ttc,
     estimate_ttc_sec,
@@ -179,6 +180,7 @@ from road_safety.services.registry import road_registry
 from road_safety.services.drift import ActiveLearningSampler, DriftMonitor, drift_warning_message
 from road_safety.services.digest import start_schedulers as start_digest_schedulers
 from road_safety.services import demo_track as demo_track_service
+from road_safety.services import video_metadata as video_metadata_service
 from road_safety.integrations.slack import notify_event as slack_notify, slack_configured
 from road_safety.integrations.edge_publisher import EdgePublisher
 from road_safety.api.feedback import mount as mount_feedback_routes
@@ -546,6 +548,13 @@ class StreamSlot:
         """Public snapshot for ``/api/live/sources``."""
         q = self.quality.state()
         r = self.reader
+        # Playback position: populated for looped local-file sources so the
+        # frontend map overlay can sync its GPS marker to the MP4 loop. For
+        # live feeds both numbers are 0.0 and the frontend falls back to a
+        # wallclock loop.
+        pos_sec, duration_sec = (
+            r.playback_position() if r is not None else (0.0, 0.0)
+        )
         return {
             "id": self.source_id,
             "name": self.name,
@@ -557,6 +566,8 @@ class StreamSlot:
             "frames_read": r.frames_read if r else 0,
             "frames_processed": r.frames_processed if r else 0,
             "uptime_sec": round(r.uptime_sec(), 1) if r else 0.0,
+            "playback_pos_sec": round(pos_sec, 2),
+            "playback_duration_sec": round(duration_sec, 2),
             "started_at": r.started_at if r else None,
             "active_episodes": len(self.episodes),
             "perception_state": q.get("state"),
@@ -946,7 +957,7 @@ def _classify_with_scene(
     return risk
 
 
-def _render_annotated_frame(frame, detections, interactions):
+def _render_annotated_frame(frame, detections, interactions, distances_m=None):
     """Draw bounding boxes and labels on a copy of the frame for the admin feed.
 
     This is a purely visual helper — the output is fed only to the MJPEG
@@ -959,6 +970,10 @@ def _render_annotated_frame(frame, detections, interactions):
             /.x2/.y2``, ``.cls``, ``.conf``, ``.track_id``, ``.center``).
         interactions: Iterable of ``(event_type, det_a, det_b, dist_px)``
             tuples — render as coloured connecting lines between pairs.
+        distances_m: Optional list of ego→object distance estimates (metres)
+            aligned 1:1 with ``detections``. ``None`` entries are skipped;
+            non-None entries are appended to each bbox label as ``"12.3 m"``
+            so the operator sees how far every obstacle is from the ego car.
 
     Returns:
         JPEG-encoded bytes (quality 70 — small enough for MJPEG but
@@ -974,12 +989,16 @@ def _render_annotated_frame(frame, detections, interactions):
         "bus": (200, 80, 200),
         "motorcycle": (0, 180, 255),
     }
-    for det in detections:
+    for idx, det in enumerate(detections):
         color = color_map.get(det.cls, (200, 200, 200))
         cv2.rectangle(vis, (det.x1, det.y1), (det.x2, det.y2), color, 2)
         label = f"{det.cls} {det.conf:.0%}"
         if det.track_id is not None:
             label = f"#{det.track_id} {label}"
+        if distances_m is not None and idx < len(distances_m):
+            d = distances_m[idx]
+            if d is not None:
+                label = f"{label}  {d:.1f} m"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         cv2.rectangle(vis, (det.x1, det.y1 - th - 6), (det.x1 + tw + 4, det.y1), color, -1)
         cv2.putText(vis, label, (det.x1 + 2, det.y1 - 4),
@@ -1375,8 +1394,17 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # keep updating even with no video viewers.
     try:
         has_viewers = slot.has_viewers()
+        # Ego → object distance per detection (monocular pinhole + ground
+        # plane fused with optional neural depth in ``estimate_distance_m``).
+        # Computed once here and threaded into both the overlay renderer
+        # and the SSE snapshot so UI + render stay consistent.
+        per_det_distances: list[float | None] = estimate_distances_batch(
+            detections, frame_h, frame
+        )
         jpeg_bytes = (
-            _render_annotated_frame(frame, detections, interactions)
+            _render_annotated_frame(
+                frame, detections, interactions, distances_m=per_det_distances
+            )
             if has_viewers else None
         )
         det_snapshot = [
@@ -1384,8 +1412,12 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
                 "cls": d.cls, "conf": round(d.conf, 3),
                 "track_id": d.track_id,
                 "bbox": [d.x1, d.y1, d.x2, d.y2],
+                "distance_m": (
+                    round(per_det_distances[i], 1)
+                    if per_det_distances[i] is not None else None
+                ),
             }
-            for d in detections
+            for i, d in enumerate(detections)
         ]
         with slot._frame_lock:
             if jpeg_bytes is not None:
@@ -2419,6 +2451,93 @@ def demo_track():
     }
 
 
+# Videos that this endpoint knows how to probe + sync. Keyed on the short
+# ``?video=`` parameter so the frontend doesn't need to know absolute paths.
+from road_safety.config import _DEMO_DASHCAM_FILE, _DEMO_DJI_FILE  # noqa: E402
+
+_DEMO_VIDEO_SOURCES: dict[str, Path] = {
+    "iphone": _DEMO_DASHCAM_FILE,
+    "dji": _DEMO_DJI_FILE,
+}
+
+
+@app.get("/api/demo/video-track")
+def demo_video_track(video: str = "iphone"):
+    """Return a GPS track aligned to the requested video's recording window.
+
+    HTTP: GET /api/demo/video-track?video=iphone
+    AUTH: public — same as /api/demo/track.
+
+    Unlike /api/demo/track (which flattens the whole Timeline into a loop),
+    this endpoint uses the MP4's ``creation_time`` + ``duration`` as a
+    wallclock window, slices the Timeline to that window, and re-bases
+    ``t_sec`` so ``0`` == first frame of the video. The frontend can then
+    drive the map marker directly from video playback time — no wallclock
+    compression needed.
+
+    Response shape (same as /api/demo/track plus a ``video`` block)::
+
+        {
+          "ok": true,
+          "video": {
+            "key": "iphone",
+            "path": "...",
+            "creation_time": "2026-04-19T22:41:03Z",
+            "duration_sec": 653.85,
+            "width": 3840, "height": 2160,
+            "fps": 59.94, "codec": "h264"
+          },
+          "vehicle": {...},
+          "points": [...],           # t_sec is video-relative
+          "total_duration_sec": 653.85,
+          "bounds": {...}
+        }
+
+    Error cases return ``ok: false`` with an ``error`` string; HTTP 200
+    is preserved so the frontend can render a graceful fallback instead of
+    handling a 4xx path.
+    """
+    path = _DEMO_VIDEO_SOURCES.get(video)
+    if path is None:
+        return {
+            "ok": False,
+            "error": f"unknown video key {video!r}; known: {sorted(_DEMO_VIDEO_SOURCES)}",
+            "video": None,
+            "points": [],
+            "total_duration_sec": 0.0,
+            "bounds": None,
+        }
+
+    meta = video_metadata_service.probe(path)
+    if meta is None or not meta.creation_time or meta.duration_sec <= 0:
+        return {
+            "ok": False,
+            "error": (
+                f"could not extract usable metadata from {path.name!r} "
+                "(file missing, ffprobe unavailable, or no creation_time)"
+            ),
+            "video": meta.to_dict() if meta is not None else None,
+            "points": [],
+            "total_duration_sec": 0.0,
+            "bounds": None,
+        }
+
+    track = demo_track_service.load_track_for_window(
+        start_iso_utc=meta.creation_time,
+        duration_sec=meta.duration_sec,
+    )
+    return {
+        **track,
+        "video": {"key": video, **meta.to_dict()},
+        "vehicle": {
+            "plate": "XX 001 X",
+            "model": "Nissan Rogue",
+            "company": "Fox Factory",
+            "vehicle_id": RESOLVED_VEHICLE_ID,
+        },
+    }
+
+
 @app.get("/api/live/perception")
 def live_perception():
     """Return the perception-quality monitor's current state.
@@ -2844,6 +2963,36 @@ def validator_status():
     return {"enabled": True, **state.validator.status()}
 
 
+@app.post("/api/validator/toggle")
+async def validator_toggle(request: Request):
+    """Enable or disable the shadow validator at runtime.
+
+    HTTP: POST /api/validator/toggle
+    AUTH: public (read-only toggle of a background observability job;
+        does not affect live alerts).
+    Body: ``{"enabled": true|false}`` — ``true`` resumes accepting shadow
+        jobs, ``false`` pauses enqueue without tearing down the worker
+        (so model weights stay loaded for fast resume).
+    Returns: the updated ``/api/validator/status`` payload.
+    Raises:
+        409 when the validator was disabled at startup (``state.validator``
+            is ``None``) — nothing to toggle.
+    """
+    if state.validator is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "validator was disabled at startup; set ROAD_VALIDATOR_ENABLED=1 "
+                "and restart to enable runtime toggling"
+            ),
+        )
+    body = await request.json()
+    enabled = bool(body.get("enabled", True))
+    state.validator.set_paused(not enabled)
+    log.info("validator %s by operator", "resumed" if enabled else "paused")
+    return {"enabled": True, **state.validator.status()}
+
+
 @app.get("/api/watchdog/recent")
 def watchdog_recent(n: int = 50):
     """Most recent watchdog findings for investigation.
@@ -2903,9 +3052,7 @@ def admin_page():
     HTTP: GET /admin
     AUTH: public (page shell only; data endpoints enforce their own auth)
     """
-    if _REACT_BUILD:
-        return FileResponse(STATIC_DIR / "index.html")
-    return FileResponse(STATIC_DIR / "admin.html")
+    return FileResponse(STATIC_DIR / "index.html")
 
 @app.get("/dashboard")
 def dashboard_page():
@@ -2914,8 +3061,6 @@ def dashboard_page():
     HTTP: GET /dashboard
     AUTH: public
     """
-    if _REACT_BUILD:
-        return FileResponse(STATIC_DIR / "index.html")
     return FileResponse(STATIC_DIR / "index.html")
 
 @app.get("/monitoring")

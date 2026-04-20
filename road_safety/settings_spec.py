@@ -298,7 +298,7 @@ SETTINGS_SPEC: list[SettingSpec] = [
         mutability="warm_reload",
         description="Perception loop tick rate. Live streams restart to pick up the new rate.",
         min_value=0.5,
-        max_value=10.0,
+        max_value=24.0,
         step=0.5,            # half-fps snaps; finer granularity isn't useful
     ),
     # --- validator (dual-model shadow detector) ----------------------------
