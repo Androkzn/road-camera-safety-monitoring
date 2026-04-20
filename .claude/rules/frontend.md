@@ -36,7 +36,7 @@ frontend/src/
   shared/             ← cross-feature building blocks
     ui/               ← primitives: Button, Card, Dialog, EmptyState, ErrorBoundary,
                         Input, Pill, Section, Skeleton, Spinner, Tabs, …
-    hooks/            ← usePolling, useSSE, useEventStream, useLiveStatus, useAdminToken
+    hooks/            ← useSSE, useEventStream, useLiveStatus, useAdminToken, useUptimeTicker
     lib/              ← queryClient, fetchClient, adminApi, format
     layout/           ← TopBar, PageLayout
     events/           ← EventCard, FeedbackButtons (shared across admin/dashboard)
@@ -48,8 +48,8 @@ frontend/src/
 ## Data flow
 
 - Backend talks to the frontend via SSE (`/api/live/stream`) and JSON endpoints (`/api/...`). No websockets.
-- Data fetching goes through **TanStack Query** (`useQuery` / `useMutation`). New polling hooks should wrap `useQuery` with `refetchInterval`, not hand-rolled `setInterval`. `shared/hooks/usePolling.ts` is legacy and only kept for hooks not yet migrated.
-- SSE still uses the `shared/hooks/useSSE.ts` primitive; don't wrap SSE in TanStack Query.
+- Data fetching goes through **TanStack Query** (`useQuery` / `useMutation`). Polling hooks wrap `useQuery` with `refetchInterval` (+ `refetchIntervalInBackground: false` for non-critical UI), not hand-rolled `setInterval`. The legacy `shared/hooks/usePolling.ts` was deleted; do not reintroduce it.
+- SSE is owned by `<EventStreamProvider>` (mounted in [app/providers.tsx](frontend/src/app/providers.tsx)); consumers read via `useEventStreamCtx()` (or the back-compat `useEventStream` alias). One `EventSource` per app — never mount the SSE primitive directly in a feature.
 - Public thumbnails only — never call endpoints requiring `X-DSAR-Token` from the frontend without an explicit privileged path.
 - Admin endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>`; UI must surface auth failures, not retry silently.
 
