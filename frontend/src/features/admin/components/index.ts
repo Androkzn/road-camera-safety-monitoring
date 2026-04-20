@@ -10,4 +10,3 @@ export { MultiSourceGrid } from "./MultiSourceGrid";
 export { SelectedStreamHeader } from "./SelectedStreamHeader";
 export { StreamImage } from "./StreamImage";
 export { AdminEventCard } from "./AdminEventCard";
-export { VehicleMap } from "./VehicleMap";

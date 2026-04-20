@@ -28,7 +28,6 @@ import {
   HistoryPanel,
   MultiSourceGrid,
   SelectedStreamHeader,
-  VehicleMap,
 } from "./components";
 import { useAdminHealth } from "./hooks/useAdminHealth";
 import { useDetections } from "./hooks/useDetections";
@@ -38,17 +37,12 @@ import styles from "./AdminPage.module.css";
 
 export function AdminPage() {
   const { data: health } = useAdminHealth();
-  const { frames, playheads } = useDetections();
+  const { frames } = useDetections();
   const { events: liveEvents, connected, clearEvents } = useEventStream();
   const liveSources = useLiveSources(5000);
   const { status: wdStatus } = useWatchdogCtx();
   const driftCount = useDriftCount();
 
-  // Restart flow: wipe the admin event list BEFORE kicking the streams so
-  // the replayed MP4 produces a fresh timeline of detections instead of
-  // piling new-but-identical events on top of the old ones. Without this,
-  // operators perceive cleared events as "coming back" because the dashcam
-  // loop replays the same scenes and emits the same event categories.
   const handleRestart = useCallback(async () => {
     clearEvents();
     await liveSources.restartAll();
@@ -107,27 +101,6 @@ export function AdminPage() {
   );
   const hiddenLowCount = liveEvents.length - visibleEvents.length;
   const evtCount = visibleEvents.length;
-  const isDashcam = selectedSource?.stream_type === "dashcam_file";
-
-  // Pick the stream the map should follow. Preference order:
-  //   1. The focused source if it's a running dashcam_file.
-  //   2. Any running dashcam_file.
-  //   3. The primary source (even if paused, so the badge is still useful).
-  // This lets the map sync to whichever camera is actually producing frames
-  // when the primary is a placeholder / paused.
-  const mapClockSource = useMemo(() => {
-    const list = liveSources.sources;
-    if (list.length === 0) return null;
-    const focused = focusedId ? list.find((s) => s.id === focusedId) : null;
-    if (focused?.stream_type === "dashcam_file" && focused.running) {
-      return focused;
-    }
-    const runningDash = list.find(
-      (s) => s.stream_type === "dashcam_file" && s.running,
-    );
-    if (runningDash) return runningDash;
-    return selectedSource;
-  }, [liveSources.sources, focusedId, selectedSource]);
 
   return (
     <>
@@ -160,31 +133,6 @@ export function AdminPage() {
             onFocusChange={setFocusedId}
             onRestart={handleRestart}
           />
-          {isDashcam && mapClockSource && (
-            <div className={styles.mapSlot}>
-              <VehicleMap
-                videoKey="front"
-                clock={{
-                  // ``uptimeSec`` is the wallclock-since-start fallback;
-                  // useful only when the per-frame SSE playhead hasn't
-                  // arrived yet (first ~500 ms after a stream starts).
-                  uptimeSec: mapClockSource.uptime_sec,
-                  running: mapClockSource.running,
-                  videoDurationSec: null,
-                  resetToken: liveSources.restartAllToken,
-                  // Authoritative playhead pushed every frame over SSE.
-                  // When the operator pauses the stream the value stops
-                  // advancing → the marker freezes; when the MP4 loops,
-                  // the value resets → the marker snaps back to the
-                  // start of the GPS track. Tight, no 5 s polling drift.
-                  videoPosSec:
-                    playheads[mapClockSource.id]?.posSec ?? null,
-                  videoPosReceivedAtMs:
-                    playheads[mapClockSource.id]?.receivedAtMs ?? null,
-                }}
-              />
-            </div>
-          )}
         </div>
 
         <div className={styles.sidebar}>

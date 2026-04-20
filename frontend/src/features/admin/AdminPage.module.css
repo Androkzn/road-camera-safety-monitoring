@@ -71,29 +71,10 @@
   font-size: 12px;
 }
 
-/* Left column: stacks the live grid on top and (when a dashcam source
- * is primary) the vehicle map beneath it. Uses the whole column height
- * so inner scroll regions still work. */
 .leftCol {
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-}
-
-/* The map panel sits in the left column directly beneath the live grid.
- * A fixed min/max keeps it from collapsing under Leaflet's flex quirks
- * or ballooning when the viewport is tall. */
-.mapSlot {
-  flex: 0 0 360px;
-  min-height: 280px;
-  max-height: 45%;
-  padding: 0 12px 12px;
-  display: flex;
-}
-
-.mapSlot > * {
-  flex: 1;
-  min-width: 0;
 }
