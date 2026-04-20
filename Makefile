@@ -1,4 +1,4 @@
-.PHONY: install dev test lint run docker-build docker-up docker-down clean
+.PHONY: install dev test lint typecheck run docker-build docker-up docker-down clean
 
 install:
 	pip install -e .
@@ -13,6 +13,9 @@ lint:
 	python -m py_compile backend/server.py
 	python -m py_compile backend/config.py
 	python -m py_compile start.py
+
+typecheck:
+	pyright backend cloud tests start.py
 
 run:
 	python start.py

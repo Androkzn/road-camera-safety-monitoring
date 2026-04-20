@@ -145,19 +145,12 @@ def valid_media_request(stream_key: str, request: Request) -> bool:
 
 
 def require_media_auth(stream_key: str, request: Request, realm: str) -> None:
-    """Enforce media-stream auth: signed URL, admin bearer, or public fall-through.
-
-    When ``REQUIRE_AUTH`` is True: accept a valid HMAC-signed URL OR an
-    admin bearer token; reject everything else with 401.
-
-    When ``REQUIRE_AUTH`` is False: preserve the pre-Sprint-0 public
-    behaviour but emit a rate-limited WARN on the first unauthenticated
-    hit so ops can spot untokenized deployments before the flip.
+    """Enforce media-stream auth via signed URL or admin bearer token.
 
     Args:
         stream_key: ``"<stream>:<source_id>"`` used for signature validation.
         request: FastAPI request.
-        realm: Short label for the 401 body / WARN line (e.g. ``"media:mjpeg"``).
+        realm: Short label for the 401 body (e.g. ``"media:mjpeg"``).
     """
     # Signed URL? Accept regardless of flag — mint endpoint is auth-gated,
     # so presenting a valid signature is proof the caller has been through

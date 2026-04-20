@@ -34,6 +34,7 @@ dev = [
     "pytest-json-report>=1.5.0",
     "pytest-asyncio>=0.23.0",
     "httpx>=0.27.0",
+    "pyright>=1.1.400",
 ]
 
 [tool.setuptools.packages.find]
@@ -42,3 +43,9 @@ include = ["backend*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.pyright]
+include = ["backend", "cloud", "tests", "start.py"]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = "none"

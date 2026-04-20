@@ -92,7 +92,7 @@ def _configure_settings_console(app: FastAPI) -> None:
         llm_stats_fn=llm_observer.stats,
     )
     state.settings_impact = SettingsImpactMonitor(
-        events_source=lambda: list(state.recent_events),
+        events_source=state.recent_events_snapshot,
         ops_stats_fn=state.ops_sampler.window_stats,
     )
     state.settings_impact_subscribers: list[asyncio.Queue] = []

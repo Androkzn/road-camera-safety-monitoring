@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
 
     # Point drift monitor at the live in-memory buffer so it reads fresh
     # events rather than the on-disk snapshot.
-    state.drift.set_event_source(lambda: list(state.recent_events))
+    state.drift.set_event_source(state.recent_events_snapshot)
 
     # ----- Build per-source slots and start each reader -----
     if STREAM_SOURCES:
@@ -187,7 +187,7 @@ async def lifespan(app: FastAPI):
 
     state.agent_executor = AgentExecutor(
         event_lookup=find_event,
-        events_source=lambda: list(state.recent_events),
+        events_source=state.recent_events_snapshot,
         drift_monitor=state.drift,
     )
     log.info("agent executor ready (coaching, investigation, report)")
@@ -236,7 +236,7 @@ async def lifespan(app: FastAPI):
             reader = state.reader
             drift_report = state.drift.compute().as_dict()
             llm_stats = llm_observer.stats(window_sec=300)
-            recent_events = list(state.recent_events)[-25:]
+            recent_events = state.recent_events_snapshot(limit=25)
             unknown_event_types = sum(
                 1 for evt in recent_events
                 if not evt.get("event_type") or evt.get("event_type") == "unknown"
@@ -260,7 +260,7 @@ async def lifespan(app: FastAPI):
                 "pipeline": {
                     "frames_read": reader.frames_read if reader else 0,
                     "frames_processed": reader.frames_processed if reader else 0,
-                    "event_count": len(state.recent_events),
+                    "event_count": len(state.recent_events_snapshot()),
                     "active_episodes": len(state.episodes),
                 },
                 "perception": {
