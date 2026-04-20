@@ -87,7 +87,7 @@ def validate_public_url(url: str) -> None:
             sockaddr = info[4]
             if not sockaddr:
                 continue
-            ip_str = sockaddr[0]
+            ip_str = str(sockaddr[0])
             if ip_str and ip_str not in addresses:
                 addresses.append(ip_str)
 

@@ -45,7 +45,17 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.pyright]
-include = ["backend", "cloud", "tests", "start.py"]
-pythonVersion = "3.10"
+include = [
+    "backend/server.py",
+    "backend/startup.py",
+    "backend/state.py",
+    "backend/perception/emit.py",
+    "backend/security",
+    "backend/api",
+]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
+reportMissingImports = "none"

@@ -95,14 +95,15 @@ async def lifespan(app: FastAPI):
             RESOLVED_DRIVER_ID,
         )
     log.info("loading YOLO model")
-    state.model = load_model()
+    model = load_model()
+    state.model = model
 
     # Warm up the YOLO model so the first *real* frame doesn't pay the
     # JIT / MPS-kernel / ByteTrack allocation cost.
     if YOLO_WARMUP:
         try:
             await asyncio.get_running_loop().run_in_executor(
-                None, warmup_model, state.model
+                None, warmup_model, model
             )
         except Exception as exc:
             log.warning("YOLO warmup failed (non-fatal): %s", exc)
@@ -164,6 +165,8 @@ async def lifespan(app: FastAPI):
         ["TARGET_FPS"], _on_target_fps_change, name="restart_slots_for_fps"
     )
 
+    if state.ops_sampler is None:
+        raise RuntimeError("ops sampler not configured before startup")
     state.ops_sampler.start()
 
     start_digest_schedulers(state.loop)
@@ -201,7 +204,7 @@ async def lifespan(app: FastAPI):
         try:
             detector = SecondaryDetector()
             comparator = DiscrepancyComparator(iou_threshold=VALIDATOR_IOU_THRESHOLD)
-            state.validator = ValidatorWorker(
+            validator = ValidatorWorker(
                 detector=detector,
                 comparator=comparator,
                 write_finding=_watchdog_write_finding,
@@ -212,7 +215,8 @@ async def lifespan(app: FastAPI):
                 queue_max=VALIDATOR_QUEUE_MAX,
                 sample_sec=VALIDATOR_SAMPLE_SEC,
             )
-            validator_task = asyncio.create_task(state.validator.run_forever())
+            state.validator = validator
+            validator_task = asyncio.create_task(validator.run_forever())
             log.info(
                 "validator started (backend=%s, sample_sec=%.1f, queue_max=%d)",
                 detector.backend,
@@ -245,11 +249,11 @@ async def lifespan(app: FastAPI):
                 1 for evt in recent_events
                 if not evt.get("risk_level") or evt.get("risk_level") == "unknown"
             )
-            recent_confidences = [
-                float(evt.get("confidence"))
-                for evt in recent_events
-                if isinstance(evt.get("confidence"), (int, float))
-            ]
+            recent_confidences: list[float] = []
+            for evt in recent_events:
+                conf = evt.get("confidence")
+                if isinstance(conf, (int, float)):
+                    recent_confidences.append(float(conf))
             return {
                 "server": {
                     "running": reader is not None and reader._thread is not None and reader._thread.is_alive() if reader else False,
@@ -311,7 +315,8 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 log.warning("slot %s stop failed: %s", slot.source_id, exc)
     try:
-        state.ops_sampler.stop()
+        if state.ops_sampler is not None:
+            state.ops_sampler.stop()
     except Exception as exc:
         log.warning("ops_sampler stop failed: %s", exc)
     if edge_task is not None:

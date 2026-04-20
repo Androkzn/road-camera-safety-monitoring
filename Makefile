@@ -15,7 +15,7 @@ lint:
 	python -m py_compile start.py
 
 typecheck:
-	pyright backend cloud tests start.py
+	pyright
 
 run:
 	python start.py

@@ -95,7 +95,7 @@ def _configure_settings_console(app: FastAPI) -> None:
         events_source=state.recent_events_snapshot,
         ops_stats_fn=state.ops_sampler.window_stats,
     )
-    state.settings_impact_subscribers: list[asyncio.Queue] = []
+    state.settings_impact_subscribers = []
     mount_settings_routes(
         app,
         impact_monitor=state.settings_impact,

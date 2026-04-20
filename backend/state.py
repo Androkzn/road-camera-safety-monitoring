@@ -23,6 +23,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from backend.config import (
     DEFAULT_STREAM_SOURCE as DEFAULT_SOURCE,
@@ -39,6 +40,12 @@ from backend.core.stream import StreamReader, classify_source
 from backend.integrations.edge_publisher import EdgePublisher
 from backend.services.agents import AgentExecutor
 from backend.services.drift import ActiveLearningSampler, DriftMonitor
+
+if TYPE_CHECKING:
+    from backend.core.validator import ValidatorWorker
+    from backend.services.impact import ImpactMonitor
+    from backend.services.ops_sampler import OpsSampler
+    from backend.services.watchdog import Watchdog
 
 
 # ===== SECTION: CAMERA-SITE IDENTITY RESOLUTION =====
@@ -565,7 +572,7 @@ class LiveState:
     PRIMARY_ID = "primary"
 
     def __init__(self):
-        self.model = None
+        self.model: Any = None
         self.source_label: str = DEFAULT_SOURCE
         self.loop: asyncio.AbstractEventLoop | None = None
         self.recent_events: list[dict] = []
@@ -575,7 +582,11 @@ class LiveState:
         self.active_learner = ActiveLearningSampler()
         self.edge_publisher = EdgePublisher()
         self.agent_executor: AgentExecutor | None = None
+        self.watchdog: "Watchdog | None" = None
         self.admin_detection_subscribers: set[asyncio.Queue] = set()
+        self.ops_sampler: "OpsSampler | None" = None
+        self.settings_impact: "ImpactMonitor | None" = None
+        self.settings_impact_subscribers: list[asyncio.Queue[Any]] = []
         # Background validator (dual-model shadow detector). Populated in
         # ``lifespan`` when ``VALIDATOR_ENABLED`` is true; ``None`` in dev
         # and single-model deployments.
