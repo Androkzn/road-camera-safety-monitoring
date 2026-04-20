@@ -15,11 +15,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
-import { TopBar } from "../../shared/layout/TopBar";
+import { useUptimeTicker } from "../../shared/hooks/useUptimeTicker";
+import { PageChrome } from "../../shared/layout/PageChrome";
 import { Pill, Tabs } from "../../shared/ui";
 import { formatUptime } from "../../shared/lib/format";
-import { useDriftCount } from "../validation";
-import { useWatchdogCtx } from "../watchdog";
 
 import {
   AdminEventCard,
@@ -40,8 +39,6 @@ export function AdminPage() {
   const { frames } = useDetections();
   const { events: liveEvents, connected, clearEvents } = useEventStream();
   const liveSources = useLiveSources(5000);
-  const { status: wdStatus } = useWatchdogCtx();
-  const driftCount = useDriftCount();
 
   const handleRestart = useCallback(async () => {
     clearEvents();
@@ -57,6 +54,9 @@ export function AdminPage() {
     if (typeof window === "undefined") return;
     if (focusedId) window.localStorage.setItem("road_admin_focused_id", focusedId);
     else window.localStorage.removeItem("road_admin_focused_id");
+    // LivePreviewCard on SettingsPage subscribes to this CustomEvent to
+    // mirror the focused stream selection when both pages are open in the
+    // same tab. The `storage` event covers cross-tab updates.
     window.dispatchEvent(new CustomEvent("admin-focused-id-changed"));
   }, [focusedId]);
 
@@ -82,14 +82,8 @@ export function AdminPage() {
   }, [focusedId, liveSources.primaryId, liveSources.sources]);
 
   const startedAt = health?.server.started_at ?? null;
-  const [uptimeSec, setUptimeSec] = useState<number | null>(null);
-  useEffect(() => {
-    if (!startedAt) return;
-    const tick = () => setUptimeSec(Date.now() / 1000 - startedAt);
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [startedAt]);
+  const tickerSec = useUptimeTicker(startedAt);
+  const uptimeSec = startedAt === null ? null : tickerSec;
 
   const [showLowEvents, setShowLowEvents] = useState(false);
   const visibleEvents = useMemo(
@@ -104,17 +98,17 @@ export function AdminPage() {
 
   return (
     <>
-      <TopBar
+      <PageChrome
+        page="admin"
         sourceName={health?.server.source ?? "—"}
         connected={connected}
-        errorCount={wdStatus?.by_severity?.error ?? 0}
-        driftCount={driftCount}
-      >
-        <Pill style={{ marginLeft: 8 }}>
-          uptime{" "}
-          <strong style={{ marginLeft: 4 }}>{formatUptime(uptimeSec)}</strong>
-        </Pill>
-      </TopBar>
+        testBadge={
+          <Pill style={{ marginLeft: 8 }}>
+            uptime{" "}
+            <strong style={{ marginLeft: 4 }}>{formatUptime(uptimeSec)}</strong>
+          </Pill>
+        }
+      />
 
       <SelectedStreamHeader
         source={selectedSource}

@@ -1,8 +1,7 @@
 /**
  * ImpactCard — before/after deltas + ops + severity bars + recommendation.
  */
-import { useEffect, useState } from "react";
-
+import { useUptimeTicker } from "../../../shared/hooks/useUptimeTicker";
 import {
   fmt,
   humanize,
@@ -31,15 +30,12 @@ export function ImpactCard({
   onRefresh,
 }: ImpactCardProps) {
   // Tick once a second so the "Xs ago" label stays live between polls.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-  const ago =
-    lastUpdatedTs === null
-      ? null
-      : Math.max(0, Math.round((Date.now() - lastUpdatedTs) / 1000));
+  // `lastUpdatedTs` is epoch-millis; convert to the unix-seconds shape
+  // useUptimeTicker expects so the hook's "seconds since" math matches
+  // the old `Math.round((Date.now() - lastUpdatedTs) / 1000)` output.
+  const tickSeed = lastUpdatedTs === null ? null : lastUpdatedTs / 1000;
+  const ticker = useUptimeTicker(tickSeed);
+  const ago = lastUpdatedTs === null ? null : ticker;
 
   if (!r) {
     return (

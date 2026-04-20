@@ -10,14 +10,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
+import { useUptimeTicker } from "../../shared/hooks/useUptimeTicker";
 import { adminFetch } from "../../shared/lib/adminApi";
-import { humanEventType } from "../../shared/lib/format";
-import { TopBar } from "../../shared/layout/TopBar";
-import { useDialog } from "../../shared/ui";
+import { PageChrome } from "../../shared/layout/PageChrome";
+import { EventFilterBar, useDialog } from "../../shared/ui";
 import { EventCard, EventDialog } from "../../shared/events";
 import type { SafetyEvent } from "../../shared/types/common";
 import { TestBadge, TestDrawer, useTests } from "../tests";
-import { useDriftCount } from "../validation";
 import { useWatchdogCtx } from "../watchdog";
 
 import {
@@ -51,12 +50,7 @@ export function DashboardPage() {
   const { data: scene } = useScene();
   const { data: drift, refetch: refreshDrift } = useDrift();
   const { status: testStatus, rerun: rerunTests } = useTests();
-  const {
-    status: wdStatus,
-    findings,
-    clearAll: clearAllFindings,
-  } = useWatchdogCtx();
-  const driftCount = useDriftCount();
+  const { findings, clearAll: clearAllFindings } = useWatchdogCtx();
   const [clearingEvents, setClearingEvents] = useState(false);
   const hasFindings = (findings?.length ?? 0) > 0;
   const dialog = useDialog();
@@ -110,16 +104,9 @@ export function DashboardPage() {
   }, [testStatus?.status]);
 
   const sourceName = liveStatus?.source ?? "—";
-  const [uptimeSec, setUptimeSec] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!liveStatus?.started_at) return;
-    const startedAt = liveStatus.started_at;
-    const tick = () => setUptimeSec(Math.max(0, Date.now() / 1000 - startedAt));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [liveStatus?.started_at]);
+  const startedAt = liveStatus?.started_at ?? null;
+  const tickerSec = useUptimeTicker(startedAt);
+  const uptimeSec = startedAt === null ? null : tickerSec;
 
   const mergedPerception = perception ?? (liveStatus?.perception || null);
 
@@ -143,14 +130,14 @@ export function DashboardPage() {
 
   return (
     <>
-      <TopBar
+      <PageChrome
+        page="dashboard"
         sourceName={sourceName}
         connected={connected}
-        errorCount={wdStatus?.by_severity?.error ?? 0}
-        driftCount={driftCount}
-      >
-        <TestBadge status={testStatus} onClick={() => setDrawerOpen((o) => !o)} />
-      </TopBar>
+        testBadge={
+          <TestBadge status={testStatus} onClick={() => setDrawerOpen((o) => !o)} />
+        }
+      />
 
       <TestDrawer
         open={drawerOpen}
@@ -172,47 +159,20 @@ export function DashboardPage() {
           <DriftBannerRow drift={drift ?? null} onRefresh={() => refreshDrift()} />
 
           <div className={styles.filterBar}>
-            <select
-              className={styles.filterSelect}
-              value={filterRisk}
-              onChange={(e) => setFilterRisk(e.target.value)}
-            >
-              <option value="">All risks</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            <select
-              className={styles.filterSelect}
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-            >
-              <option value="">All types</option>
-              {eventTypes.map((t) => (
-                <option key={t} value={t}>
-                  {humanEventType(t)}
-                </option>
-              ))}
-            </select>
-            {hasFilters && (
-              <button
-                className={styles.clearBtn}
-                onClick={() => {
-                  setFilterRisk("");
-                  setFilterType("");
-                }}
-              >
-                Clear
-              </button>
-            )}
-            <label className={styles.showLow}>
-              <input
-                type="checkbox"
-                checked={showLow}
-                onChange={(e) => setShowLow(e.target.checked)}
-              />
-              Show low risk
-            </label>
+            <EventFilterBar
+              className={styles.filterBarInner}
+              riskLevel={filterRisk}
+              onRiskLevelChange={setFilterRisk}
+              eventType={filterType}
+              onEventTypeChange={setFilterType}
+              showLow={showLow}
+              onShowLowChange={setShowLow}
+              availableTypes={eventTypes}
+              onClear={() => {
+                setFilterRisk("");
+                setFilterType("");
+              }}
+            />
             <span className={styles.filterCount}>
               {hasFilters
                 ? `${filtered.length} / ${events.length}`

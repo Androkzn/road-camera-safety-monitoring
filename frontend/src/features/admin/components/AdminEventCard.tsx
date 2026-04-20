@@ -27,6 +27,7 @@
 
 import type { SafetyEvent } from "../../../shared/types/common";
 import { RiskBadge, Tag } from "../../../shared/ui";
+import { cx } from "../../../shared/lib/cx";
 import { formatWallTime, humanEventType, normalizeThumbnail } from "../../../shared/lib/format";
 import styles from "./AdminEventCard.module.css";
 // TEACH: `import type { ... }` imports ONLY the TypeScript type. The compiler
@@ -84,7 +85,7 @@ export function AdminEventCard({ event: e, onSelect }: AdminEventCardProps) {
   // otherwise it stays a plain div so screen-readers don't announce a
   // useless button.
   const interactive = typeof onSelect === "function";
-  const cardClass = interactive ? `${styles.card} ${styles.interactive ?? ""}`.trim() : styles.card;
+  const cardClass = cx(styles.card, interactive && (styles.interactive ?? ""));
 
   return (
     <div

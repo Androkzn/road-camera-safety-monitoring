@@ -6,8 +6,7 @@
  * see the chosen camera's identity, running state, throughput, and
  * perception health without having to scan the tile grid.
  */
-import { useEffect, useState } from "react";
-
+import { useUptimeTicker } from "../../../shared/hooks/useUptimeTicker";
 import type { LiveSourceStatus } from "../../../shared/types/common";
 
 import styles from "./SelectedStreamHeader.module.css";
@@ -48,16 +47,12 @@ export function SelectedStreamHeader({
   onClear,
 }: SelectedStreamHeaderProps) {
   // Live-ticking uptime so the operator gets a heartbeat even when the
-  // backend hasn't pushed a fresh snapshot in the last few seconds.
+  // backend hasn't pushed a fresh snapshot in the last few seconds. We
+  // only want the ticker to run while the source is actively running —
+  // paused sources should freeze on their last `uptime_sec` snapshot.
   const startedAt = source?.started_at ?? null;
-  const [now, setNow] = useState<number>(() => Date.now() / 1000);
-  useEffect(() => {
-    if (!startedAt || !source?.running) return;
-    const tick = () => setNow(Date.now() / 1000);
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [startedAt, source?.running]);
+  const tickKey = source?.running ? startedAt : null;
+  const elapsed = useUptimeTicker(tickKey);
 
   if (!source) {
     return (
@@ -67,7 +62,7 @@ export function SelectedStreamHeader({
     );
   }
 
-  const uptime = source.running && startedAt ? now - startedAt : source.uptime_sec;
+  const uptime = source.running && startedAt ? elapsed : source.uptime_sec;
   const perception = source.perception_state ?? "—";
   const perceptionWarn = perception !== "nominal" && perception !== "—";
 

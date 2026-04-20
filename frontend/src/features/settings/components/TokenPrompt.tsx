@@ -5,6 +5,7 @@
 import { useState } from "react";
 
 import { TopBar } from "../../../shared/layout/TopBar";
+import { ErrorList } from "../../../shared/ui";
 
 import styles from "../SettingsPage.module.css";
 
@@ -39,7 +40,7 @@ export function TokenPrompt({
         <section className={styles.center}>
           <div className={styles.tokenWrap}>
             <h2 className={styles.pageTitle}>Settings Console</h2>
-            {error && <div className={styles.errorList}>{error}</div>}
+            {error && <ErrorList errors={[error]} />}
             <p className={styles.subtle}>
               Settings is admin-tier. Paste your <code>ROAD_ADMIN_TOKEN</code>{" "}
               (kept in <code>sessionStorage</code>, cleared on tab close).

@@ -15,9 +15,8 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
-import { TopBar } from "../../shared/layout/TopBar";
+import { PageChrome } from "../../shared/layout/PageChrome";
 import { useDialog } from "../../shared/ui";
-import { useDriftCount } from "../validation";
 import { useWatchdogCtx } from "../watchdog";
 
 import {
@@ -37,7 +36,6 @@ export function MonitoringPage() {
   const { connected } = useEventStream();
   const { data: liveStatus } = useLiveStatus();
   const { status, findings, deleteFindings, clearAll } = useWatchdogCtx();
-  const driftCount = useDriftCount();
 
   const [filter, setFilter] = useState<SevFilter>("all");
   const [showLow, setShowLow] = useState(false);
@@ -134,11 +132,10 @@ export function MonitoringPage() {
 
   return (
     <>
-      <TopBar
+      <PageChrome
+        page="monitoring"
         sourceName={sourceName}
         connected={connected}
-        errorCount={status?.by_severity?.error ?? 0}
-        driftCount={driftCount}
       />
 
       <div className={styles.page}>

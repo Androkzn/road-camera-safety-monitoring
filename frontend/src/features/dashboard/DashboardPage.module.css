@@ -49,6 +49,19 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Override applied to the shared EventFilterBar when embedded in this
+ * wrapper so it doesn't double up on padding/borders (the outer
+ * `.filterBar` already owns that chrome). `.filterBar > &` gives the
+ * override sufficient specificity to win over EventFilterBar's own
+ * `.bar` rule regardless of stylesheet source order. The inner bar
+ * is kept at its natural width so the existing `margin-left: auto`
+ * on `.filterCount` still pushes the count + clear-all to the right. */
+.filterBar > .filterBarInner {
+  padding: 0;
+  border-top: none;
+  border-bottom: none;
+}
+
 /* Styled severity/category <select> dropdown. */
 .filterSelect {
   background: var(--card);

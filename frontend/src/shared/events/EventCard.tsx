@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from "react";
 
+import { cx } from "../lib/cx";
 import {
   formatWallTime,
   humanEventType,
@@ -57,7 +58,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
   return (
     <div
-      className={`${styles.card} ${flash ? styles.flash : ""} ${interactive ? styles.interactive ?? "" : ""}`.trim()}
+      className={cx(styles.card, flash && styles.flash, interactive && (styles.interactive ?? ""))}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
       onClick={interactive ? () => onSelect?.(e) : undefined}

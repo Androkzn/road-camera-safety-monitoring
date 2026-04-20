@@ -10,6 +10,10 @@
  *
  * The "Clear all events" action lives on the Dashboard, not here — this
  * panel is purely informational on the Validation tab.
+ *
+ * Per-row rendering lives in EventRow; verdict classification and
+ * dispute-note parsing live in utils/verdict.ts. This file only owns
+ * the list controls + dialog wiring.
  */
 import { useMemo, useState } from "react";
 
@@ -18,60 +22,17 @@ import type {
   SafetyEvent,
   WatchdogFinding,
 } from "../../../shared/types/common";
+import {
+  buildDisputesByEventId,
+  classifyEvent,
+  disputeDetail,
+  formatTime,
+  type DisputeInfo,
+  type PanelEvent,
+} from "../utils/verdict";
 
+import { EventRow } from "./EventRow";
 import styles from "./EventsPanel.module.css";
-
-const VERIFY_GRACE_MS = 5_000;
-
-type Verdict = "verified" | "disputed" | "pending";
-
-interface DisputeInfo {
-  kind: string;
-  primary?: string;
-  secondary?: string;
-}
-
-interface PanelEvent {
-  ev: SafetyEvent;
-  verdict: Verdict;
-  dispute?: DisputeInfo;
-}
-
-function humanize(value: string | undefined): string {
-  if (!value) return "—";
-  return value.replace(/_/g, " ");
-}
-
-function evidenceGet(f: WatchdogFinding, label: string): string | undefined {
-  return f.evidence?.find((e) => e.label === label)?.value;
-}
-
-function parseDispute(f: WatchdogFinding): DisputeInfo {
-  const fp = f.fingerprint ?? "";
-  let kind = "disagreement";
-  if (fp.endsWith("false-positive")) kind = "False positive";
-  else if (fp.endsWith("classification-mismatch")) kind = "Class mismatch";
-  else if (fp.endsWith("false-negative")) kind = "Missed detection";
-  return {
-    kind,
-    primary: evidenceGet(f, "primary_label") ?? evidenceGet(f, "primary_risk"),
-    secondary:
-      evidenceGet(f, "secondary_label") ?? evidenceGet(f, "secondary_risk"),
-  };
-}
-
-function formatTime(ts?: string): string {
-  if (!ts) return "—";
-  try {
-    return new Date(ts).toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return ts;
-  }
-}
 
 interface EventsPanelProps {
   events: SafetyEvent[];
@@ -102,29 +63,16 @@ export function EventsPanel({
     [findings],
   );
 
-  const disputesByEventId = useMemo(() => {
-    const map = new Map<string, WatchdogFinding>();
-    for (const f of validatorFindings) {
-      const id = evidenceGet(f, "primary_event_id");
-      if (id) map.set(id, f);
-    }
-    return map;
-  }, [validatorFindings]);
+  const disputesByEventId = useMemo(
+    () => buildDisputesByEventId(validatorFindings),
+    [validatorFindings],
+  );
 
   const panelEvents: PanelEvent[] = useMemo(() => {
     const now = Date.now();
-    return visibleEvents.map((ev) => {
-      const dispute = disputesByEventId.get(ev.event_id);
-      if (dispute) {
-        return { ev, verdict: "disputed" as const, dispute: parseDispute(dispute) };
-      }
-      const age = ev.wall_time ? now - new Date(ev.wall_time).getTime() : 0;
-      const settled = age >= VERIFY_GRACE_MS;
-      return {
-        ev,
-        verdict: validatorEnabled && settled ? ("verified" as const) : ("pending" as const),
-      };
-    });
+    return visibleEvents.map((ev) =>
+      classifyEvent(ev, disputesByEventId, validatorEnabled, now),
+    );
   }, [visibleEvents, disputesByEventId, validatorEnabled]);
 
   const shadowOnly = useMemo(
@@ -219,83 +167,10 @@ export function EventsPanel({
         event={openEvent?.ev ?? null}
         disputeLabel={openEvent?.dispute?.kind}
         disputeBody={
-          openEvent?.dispute
-            ? openEvent.dispute.primary || openEvent.dispute.secondary
-              ? `Primary said ${humanize(openEvent.dispute.primary)} · Secondary said ${humanize(openEvent.dispute.secondary)}`
-              : "Secondary detector disagreed with the primary on this frame."
-            : undefined
+          openEvent?.dispute ? disputeDetail(openEvent.dispute) : undefined
         }
         onClose={() => setOpenEvent(null)}
       />
-    </div>
-  );
-}
-
-interface EventRowProps {
-  ev: SafetyEvent;
-  verdict: Verdict;
-  dispute?: DisputeInfo;
-  onClick?: () => void;
-}
-
-function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
-  const risk = ev.risk_level;
-  const objects =
-    ev.objects?.slice(0, 3).map((o) => humanize(o)).join(" · ") ?? "";
-  const conf =
-    typeof ev.confidence === "number" ? `${Math.round(ev.confidence * 100)}%` : "—";
-
-  const badgeClass =
-    verdict === "verified"
-      ? styles.badgeVerified
-      : verdict === "disputed"
-        ? styles.badgeDisputed
-        : styles.badgePending;
-
-  const badgeLabel =
-    verdict === "verified" ? "✓ Verified" : verdict === "disputed" ? "⚠ Disputed" : "Pending";
-
-  return (
-    <div
-      className={`${styles.row} ${styles[risk] ?? ""} ${styles.rowClickable ?? ""}`}
-      onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={(e) => {
-        if (onClick && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-    >
-      <span className={styles.time}>{formatTime(ev.wall_time)}</span>
-      <div className={styles.mid}>
-        <div className={styles.midTop}>
-          <span className={styles.eventType}>{humanize(ev.event_type)}</span>
-          <span className={`${styles.riskPill} ${styles[risk] ?? ""}`}>{risk}</span>
-        </div>
-        <div className={styles.meta}>
-          {objects || "—"}
-          {ev.vehicle_id ? ` · ${humanize(ev.vehicle_id)}` : ""}
-          {typeof ev.ttc_sec === "number" ? ` · TTC ${ev.ttc_sec.toFixed(1)}s` : ""}
-        </div>
-      </div>
-      <div className={styles.conf}>
-        <span className={styles.confLabel}>Conf</span>
-        <span className={styles.confValue}>{conf}</span>
-      </div>
-      <span className={`${styles.badge} ${badgeClass}`}>{badgeLabel}</span>
-
-      {verdict === "disputed" && dispute && (
-        <div className={styles.dispute}>
-          <span className={styles.disputeLabel}>{dispute.kind}</span>
-          <span className={styles.disputeDetail}>
-            {dispute.primary || dispute.secondary
-              ? `Primary said ${humanize(dispute.primary)} · Secondary said ${humanize(dispute.secondary)}`
-              : "Secondary detector disagreed with the primary on this frame."}
-          </span>
-        </div>
-      )}
     </div>
   );
 }
