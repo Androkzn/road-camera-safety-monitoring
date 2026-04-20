@@ -41,7 +41,7 @@ def sample_vehicle():
 
 @pytest.fixture()
 def sample_event():
-    """A complete event dict matching the shape produced by server.py."""
+    """A complete event dict matching the shape produced by the emit pipeline."""
     return {
         "event_id": "evt_1700000000000_0001",
         "vehicle_id": "vehicle_01",

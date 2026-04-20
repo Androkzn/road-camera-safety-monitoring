@@ -154,7 +154,8 @@ class Episode:
         # Orientation-policy decision cached on the episode so `_flush_episode`
         # can stamp SAE J3063 family + display-type overrides onto the emitted
         # event payload without re-running the gate at flush time. Populated
-        # by the first frame that opens the episode (see `_run_loop`); later
+        # by the first frame that opens the episode (see the perception
+        # pipeline); later
         # frames never overwrite it because a pair that started as BSW cannot
         # mid-episode become FCW without a new pair key.
         self.camera_orientation: str | None = None
@@ -633,6 +634,42 @@ class LiveState:
                 primary_source_id=self.PRIMARY_ID,
                 sources=tuple(sources),
             )
+
+    def recent_events_snapshot(self, limit: int | None = None) -> list[dict]:
+        """Return a copy of recent events under ``state.lock``.
+
+        Args:
+            limit: Optional tail-length cap. ``None`` returns the full buffer.
+        """
+        with self.lock:
+            if limit is None:
+                return list(self.recent_events)
+            if limit <= 0:
+                return []
+            return list(self.recent_events[-limit:])
+
+    def append_recent_event(self, event: dict, max_items: int) -> None:
+        """Append one event and enforce max buffer size atomically."""
+        with self.lock:
+            self.recent_events.append(event)
+            overflow = len(self.recent_events) - max_items
+            if overflow > 0:
+                del self.recent_events[:overflow]
+
+    def clear_recent_events(self) -> int:
+        """Clear and return the number of removed buffered events."""
+        with self.lock:
+            cleared = len(self.recent_events)
+            self.recent_events.clear()
+            return cleared
+
+    def find_recent_event(self, event_id: str) -> dict | None:
+        """Find one event by id from newest to oldest under lock."""
+        with self.lock:
+            for ev in reversed(self.recent_events):
+                if ev.get("event_id") == event_id:
+                    return ev
+        return None
 
     # ----- Per-slot proxies (legacy single-source accessors) -----
     # Every read here delegates to the primary slot. Writes that mutate

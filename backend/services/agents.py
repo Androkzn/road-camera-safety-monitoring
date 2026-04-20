@@ -2,8 +2,9 @@
 
 ROLE IN THE SYSTEM
 ------------------
-This module sits ABOVE the perception hot path. The hot path (``core/detection.py``,
-``core/egomotion.py``, ``server._run_loop``) produces safety events. These events
+This module sits ABOVE the perception hot path. The hot path
+(``core/detection.py``, ``core/egomotion.py``, ``perception/on_frame.py``)
+produces safety events. These events
 are what the agents here consume. Agents never run in the per-frame critical
 path; they are invoked on-demand from the HTTP API:
 
@@ -59,7 +60,7 @@ PYTHON IDIOMS USED IN THIS FILE (first-time reader notes)
   * ``pathlib.Path`` — OS-agnostic paths. ``CORPUS_DIR / "file.md"`` joins paths.
   * CLOSURES — a function that captures variables from its defining scope.
     The ``event_lookup`` argument to ``AgentExecutor`` is a closure provided by
-    ``server.py`` that looks up events in the server's in-memory buffer. The
+    the app runtime that looks up events in the in-memory buffer. The
     executor holds the closure and calls it whenever a tool needs the buffer;
     this avoids a tight import coupling between agents.py and server.py.
 """

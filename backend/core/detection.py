@@ -573,7 +573,7 @@ def warmup_model(model: YOLO, imgsz: int | None = None) -> None:
       1. ``model(img, ...)`` — non-persistent inference path used by the
          on-demand validator and by ``detect_frame(persistent=False)``.
       2. ``model.track(img, persist=False, tracker=TRACKER_CFG, ...)`` —
-         the hot path from ``server.py::_run_loop``.
+         the hot path from ``backend.perception.on_frame``.
 
     ``persist=False`` on the tracker call is deliberate: we do *not* want
     the synthetic zero-frame to seed ByteTrack's Kalman state for the

@@ -3,7 +3,7 @@
 
 Role in the pipeline
 --------------------
-`backend/server.py::_run_loop` runs a single detection + TTC stack for
+`backend.perception.on_frame` runs a single detection + TTC stack for
 every stream slot, regardless of where that camera points. That stack was
 originally tuned for a camera looking along the road, so wiring it
 verbatim into a cross-road or opposing-direction slot fires "pedestrian
@@ -39,9 +39,9 @@ Gate layout (match the existing detection.py style: one gate per concern):
     * `blind_zone_dwell_sec(tid, history, w, h, orientation)` — ISO 17387
       timing gate; guards against transients.
     * `classify_event(...)` — dispatches on orientation and returns a
-      `PolicyDecision`. The caller (server.py) consults `decision.emit`
-      and, when true, uses `decision.taxonomy` + `decision.display_event_type`
-      in the emitted event payload.
+      `PolicyDecision`. The caller consults `decision.emit` and, when true,
+      uses `decision.taxonomy` + `decision.display_event_type` in the
+      emitted event payload.
 
 Testability: every helper takes plain dataclasses and primitives so the
 unit tests in `tests/` can exercise it without booting the FastAPI app
@@ -56,7 +56,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Optional
 
 # TYPE_CHECKING keeps these imports out of the runtime graph. The file is
-# imported early by server.py and we don't want a circular import via
+# imported early by the perception pipeline and we don't want a circular
+# import via
 # egomotion.py (which pulls TrackHistory from detection.py, which pulls
 # config.py, which is the same bottom-of-graph module we also live on).
 if TYPE_CHECKING:  # pragma: no cover - hints only

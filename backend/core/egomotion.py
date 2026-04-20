@@ -44,8 +44,7 @@ Caveats
 -------
 - Pure rotation / heavy rain / overcast white sky will starve the
   background of texture; we surface a `confidence` metric and the
-  caller (server.py) should skip ego-aware logic when it drops below
-  0.2.
+  caller should skip ego-aware logic when it drops below 0.2.
 - The speed_proxy_mps value is a coarse sanity gauge, not a calibrated
   reading: a properly calibrated system maps pixel flow to scene
   metres using per-site focal length + camera height.
@@ -55,8 +54,8 @@ Caveats
 
 Consumers
 ---------
-- ``backend/server.py::_run_loop`` — calls ``update`` once per frame,
-  then ``relative_motion`` per detection to decide whether to emit an event.
+- ``backend.perception.on_frame`` — calls ``update`` once per frame, then
+  ``relative_motion`` per detection to decide whether to emit an event.
 - ``backend/core/context.py`` — accepts the ``speed_proxy_mps`` from the
   returned ``EgoFlow`` to pick a coarse scene label (urban / busy /
   quiet) from the median flow magnitude across the camera site.

@@ -34,10 +34,7 @@ def find_event(event_id: str) -> dict | None:
     Returns:
         The event dict if found, else ``None``.
     """
-    for ev in reversed(state.recent_events):
-        if ev.get("event_id") == event_id:
-            return ev
-    return None
+    return state.find_recent_event(event_id)
 
 
 async def emit_event(event: dict, internal_thumb_name: str) -> None:
@@ -122,9 +119,7 @@ async def emit_event(event: dict, internal_thumb_name: str) -> None:
         enrichment.pop("plate_state", None)
         event["enrichment"] = enrichment
 
-    state.recent_events.append(event)
-    if len(state.recent_events) > MAX_RECENT_EVENTS:
-        state.recent_events.pop(0)
+    state.append_recent_event(event, MAX_RECENT_EVENTS)
 
     road_registry.record_event(event)
 

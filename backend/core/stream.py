@@ -16,8 +16,7 @@ If we called them on the event loop, every other HTTP request, SSE stream,
 watchdog tick, and Slack call would pause until the next frame came in.
 
 So we run capture in a *real OS thread* (``threading.Thread``) and hand each
-frame to the asyncio side via a thin ``on_frame`` callback (which in turn
-pushes into an asyncio queue — see ``server.py::_run_loop``). The thread does
+frame to the asyncio side via a thin ``on_frame`` callback. The thread does
 the blocking I/O; the event loop consumes frames without blocking.
 
 Supported sources
@@ -243,7 +242,7 @@ class StreamReader:
         ...                           # my_callback is invoked ~2x per second
         reader.stop()                 # signals + joins the thread
 
-    Called by ``backend/server.py::_run_loop`` which owns a single
+    Called by the live perception pipeline, which owns a single
     ``StreamReader`` instance per active stream.
     """
 

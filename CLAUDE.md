@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `python start.py --no-browser --port 8000` — headless start.
 - `make test` / `pytest tests/ -v` — full test suite.
 - `pytest tests/test_core.py::test_name -v` — run a single test.
-- `make lint` — cheap syntax check (`py_compile` on `server.py`, `config.py`, `start.py`); there is no formatter or type-checker wired up.
+- `make lint` — cheap syntax check (`py_compile` on `backend/server.py`, `backend/config.py`, `start.py`); there is no formatter or type-checker wired up.
 - `cd frontend && npm run build` — TypeScript + Vite production build into `frontend/dist/`. `start.py` does this automatically before launching the server.
 - `cd frontend && npm run dev` — Vite dev server (only needed when iterating on frontend separate from the Python server).
 - `docker compose up --build` / `make docker-up` — containerized run; `--profile cloud` or `make docker-up-cloud` adds the receiver.
@@ -25,7 +25,7 @@ This is a two-process system: an **edge node** (the main `backend.server`) that 
 
 ### Conflict-detection pipeline (the hot path)
 
-Each frame flows through an independent stack of gates in `backend/core/` and `backend/server.py::_run_loop`. A real conflict satisfies all gates; noise fails early:
+Each frame flows through an independent stack of gates in `backend/core/` and `backend/perception/on_frame.py`. A real conflict satisfies all gates; noise fails early:
 
 1. `StreamReader` pulls frames (HLS, file, webcam, or YouTube via `yt-dlp`) at `TARGET_FPS` (default 2 fps).
 2. `detect_frame` (`core/detection.py`) runs YOLOv8 + ByteTrack.
@@ -35,13 +35,13 @@ Each frame flows through an independent stack of gates in `backend/core/` and `b
 6. `find_interactions` → depth-gate → convergence-angle → ego-relative-motion → multi-gate TTC (`estimate_pair_ttc` / `estimate_ttc_sec`).
 7. `QualityMonitor` (`core/quality.py`) suppresses low-confidence events when the camera is degraded.
 8. `Episode` accumulates peak risk across frames; sustained-risk downgrade demotes peaks not supported over ≥2 frames / ≥1s.
-9. `_emit_event` redacts thumbnails, optionally narrates via LLM, broadcasts over SSE, tier-dispatches to Slack, and publishes to cloud.
+9. `emit_event()` (`backend/perception/emit.py`) redacts thumbnails, optionally narrates via LLM, broadcasts over SSE, tier-dispatches to Slack, and publishes to cloud.
 
 **Do not short-circuit these gates to "improve" detection** — each one exists to kill a specific class of false positive that was causing alert fatigue. If you change a gate, run the integration tests in `tests/test_core.py`.
 
 ### Privacy invariant (non-obvious)
 
-`enrich_event()` in [backend/services/llm.py](backend/services/llm.py) hashes the plate and strips `plate_text`/`plate_state` from the returned dict **before** it reaches any in-memory event buffer. `server.py` retains an egress `pop()` as defence in depth, but the primary invariant — **no raw plate text in any buffer** — is enforced at ingest, not at egress. Any new code path that touches vision-enrichment output must preserve this. Dual thumbnails (internal + public) are produced by `services/redact.py::write_thumbnails`; shared channels must only use the `_public` variant.
+`enrich_event()` in [backend/services/llm.py](backend/services/llm.py) hashes the plate and strips `plate_text`/`plate_state` from the returned dict **before** it reaches any in-memory event buffer. The emit path in [backend/perception/emit.py](backend/perception/emit.py) keeps a defence-in-depth `pop()`, but the primary invariant — **no raw plate text in any buffer** — is enforced at ingest, not at egress. Any new code path that touches vision-enrichment output must preserve this. Dual thumbnails (internal + public) are produced by `services/redact.py::write_thumbnails`; shared channels must only use the `_public` variant.
 
 ### LLM layer is enrichment, not critical path
 
@@ -53,7 +53,8 @@ Detection works with zero LLM calls. The LLM layer has multi-provider failover (
 - `backend/services/` — LLM, redaction, drift, watchdog, agents, registry, digest, test_runner.
 - `backend/compliance/` — `audit.py` (audit log) and `retention.py` (hourly retention sweeps).
 - `backend/integrations/` — `edge_publisher.py` (HMAC batched delivery), `slack.py`, `fnol.py`.
-- `backend/api/feedback.py` — feedback routes (others live directly in `server.py`).
+- `backend/api/routers/` — feature routers mounted by `backend/server.py`.
+- `backend/api/feedback.py` and `backend/api/settings.py` — feature mounts that need shared callbacks/state during registration.
 - `backend/config.py` — **single source of truth** for paths and env vars. Every module imports from here; never compute `Path(__file__).parent` in modules.
 - `backend/logging.py` — JSON-line logger setup (`setup()` called once from the FastAPI lifespan hook). Deliberately has no dependency on `config.py` so it can import early in bootstrap. `ROAD_LOG_FORMAT=text` switches to human-readable output for local dev.
 - `backend/security.py` — shared `require_bearer_token()` helper used by both the edge server and the cloud receiver. Constant-time token comparison, fail-closed on unset env var (503), 401/403 on missing/wrong token. Use this for any new admin-tier endpoint instead of rolling a fresh auth check.
@@ -63,7 +64,7 @@ Detection works with zero LLM calls. The LLM layer has multi-provider failover (
 
 ### Auth model
 
-Three tiers of access, enforced in `server.py`:
+Three tiers of access are enforced across the router and mount modules:
 
 - **Public** — SSE stream, public thumbnails, dashboard.
 - **`X-DSAR-Token`** (env: `ROAD_DSAR_TOKEN`) — unredacted thumbnails. Denied attempts are audit-logged.

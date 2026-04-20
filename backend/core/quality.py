@@ -12,7 +12,7 @@ the focus breathing on a dirty lens).
 This module samples three cheap per-frame features plus one slow running
 average of detector confidence, classifies the pipeline as ``nominal`` or one
 of four ``degraded_*`` states, and exposes a small ``risk_adjustment`` dict
-that the hot-path in ``backend/server.py::_run_loop`` reads to:
+that the hot-path in ``backend.perception.on_frame`` reads to:
 
   1. SUPPRESS event emission / LLM enrichment when the camera is degraded,
   2. Widen TTC and pixel-distance thresholds so borderline cases don't fire.
@@ -24,7 +24,8 @@ surfaces the state so operators can see *why* the system went quiet.
 
 Consumers
 ---------
-- ``backend/server.py`` — gates emission + feeds the health banner.
+- ``backend.perception.on_frame`` — gates emission.
+- API routes / dashboards — read the published state for the health banner.
 - ``frontend/src/pages/MonitoringPage.tsx`` — renders the live state.
 
 Python idioms used in this file (explained once):
@@ -133,7 +134,8 @@ _HYST = 1.20  # require 20% past threshold to recover to nominal
 # ---------------------------------------------------------------------------
 # Risk adjustments per state
 # ---------------------------------------------------------------------------
-# Consumed by server.py and tier-dispatch code. Every key must exist in
+# Consumed by the perception emit path and tier-dispatch code. Every key must
+# exist in
 # every state so callers can do ``adj["ttc_multiplier"]`` without guards.
 #
 # - ``skip_vision_enrichment``: if True, no LLM ALPR / scene narration for

@@ -27,8 +27,8 @@ Package contents (read these in roughly this order to understand the pipeline):
                          feed itself is degraded (blur, darkness, dropped
                          frames) so we don't alert on garbage inputs.
 
-The hot-path conflict-detection *gates* live in ``server.py::_run_loop``.
-Each module here contributes one or more gates; see ``CLAUDE.md`` for the
-full gate list. The key invariant is: **a real conflict must pass all
-gates; noise fails early.**
+The hot-path conflict-detection *gates* are orchestrated by
+``backend.perception.on_frame``. Each module here contributes one or more
+gates; see ``CLAUDE.md`` for the full gate list. The key invariant is:
+**a real conflict must pass all gates; noise fails early.**
 """

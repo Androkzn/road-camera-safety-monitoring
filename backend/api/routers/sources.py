@@ -6,7 +6,9 @@ CRUD on ``state.slots`` + per-slot start / pause / restart-all / detection-toggl
 import time
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
+from backend.api.models import LiveSourcesResponse
 from backend.compliance import audit
 from backend.logging import get_logger
 from backend.perception.slot_control import (
@@ -24,7 +26,14 @@ log = get_logger(__name__)
 router = APIRouter()
 
 
-@router.get("/api/live/sources")
+class AddSourceBody(BaseModel):
+    url: str = Field(..., min_length=1, max_length=2000)
+    name: str | None = Field(default=None, max_length=200)
+    id: str | None = Field(default=None, max_length=100)
+    autostart: bool = True
+
+
+@router.get("/api/live/sources", response_model=LiveSourcesResponse)
 def live_sources():
     """List every configured source with running status + counters.
 
@@ -131,7 +140,7 @@ def _unique_slot_id(seed: str) -> str:
 
 
 @router.post("/api/live/sources")
-async def live_source_add(request: Request):
+async def live_source_add(request: Request, body: AddSourceBody):
     """Register a new perception source from a URL the operator pastes.
 
     HTTP: POST /api/live/sources
@@ -140,11 +149,7 @@ async def live_source_add(request: Request):
     AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12); SSRF-guarded.
     """
     require_admin_if_flagged(request, realm="source add")
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "expected JSON body")
-    url = (body.get("url") or "").strip()
+    url = body.url.strip()
     if not url:
         raise HTTPException(400, "missing 'url'")
     if not (url.startswith("http://") or url.startswith("https://")):
@@ -154,7 +159,7 @@ async def live_source_add(request: Request):
     # metadata addresses.
     validate_public_url(url)
 
-    requested_id = (body.get("id") or "").strip()
+    requested_id = (body.id or "").strip()
     if requested_id:
         if requested_id in state.slots:
             raise HTTPException(409, f"id already in use: {requested_id}")
@@ -162,8 +167,8 @@ async def live_source_add(request: Request):
     else:
         sid = _unique_slot_id(url)
 
-    name = (body.get("name") or "").strip() or f"Custom ({sid})"
-    autostart = bool(body.get("autostart", True))
+    name = (body.name or "").strip() or f"Custom ({sid})"
+    autostart = bool(body.autostart)
 
     slot = StreamSlot(sid, name, url)
     state.slots[sid] = slot

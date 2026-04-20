@@ -31,7 +31,7 @@ flowchart TB
 ## 2. How Python runs the server
 
 1. **Uvicorn** is an ASGI server: it runs the FastAPI `app` object and handles HTTP/WebSockets/SSE.
-2. **`lifespan`** (in `backend/server.py`) runs **once at startup** and **once at shutdown**:
+2. **`lifespan`** (in `backend/startup.py`, wired by `backend/server.py`) runs **once at startup** and **once at shutdown**:
    - Loads the YOLO model.
    - Resolves the video source (HLS, file, webcam, YouTube via `yt-dlp`).
    - Starts `StreamReader` with a callback for each frame.
@@ -73,7 +73,7 @@ sequenceDiagram
 
 | Area | Responsibility |
 |------|----------------|
-| **`server.py`** | FastAPI app, global `state`, routes, lifespan, perception loop glue, SSE broadcast. |
+| **`server.py`** | App composition root: logging, `create_app()`, router/static mounts, feedback/settings wiring. |
 | **`config.py`** | Paths and environment variables. |
 | **`logging.py`** | Logging setup. |
 | **`security.py`** | Shared `require_bearer_token` for admin/cloud read endpoints. |
@@ -104,9 +104,10 @@ flowchart TB
     edge[edge_publisher.py]
     slack[slack.py]
   end
-  server[server.py] --> core
-  server --> services
-  server --> integ
+  server[server.py create_app] --> api
+  startup[startup.py lifespan] --> core
+  startup --> services
+  startup --> integ
 ```
 
 ---
@@ -126,7 +127,7 @@ Each frame goes through **stacked gates** (see `CLAUDE.md` for the full ordered 
 
 ---
 
-## 6. Global `state` (in `server.py`)
+## 6. Global `state` (in `backend/state.py`)
 
 The app keeps a **mutable state object** (not shown in full here) holding things like:
 
@@ -142,7 +143,8 @@ HTTP handlers read this state; the frame loop updates it.
 
 ## 7. HTTP API surface (grouped)
 
-Routes are registered on the single FastAPI app in `server.py` (plus `mount_feedback_routes`).
+Routes are registered from `backend/server.py` by including feature routers in
+`backend/api/routers/` and mounting the feedback/settings modules.
 
 ### Static and shell
 

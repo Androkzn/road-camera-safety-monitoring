@@ -1,6 +1,7 @@
 """Watchdog + shadow-validator control routes."""
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from backend.config import ADMIN_TOKEN
 from backend.logging import get_logger
@@ -16,6 +17,14 @@ from backend.state import state
 log = get_logger(__name__)
 
 router = APIRouter()
+
+
+class ValidatorToggleBody(BaseModel):
+    enabled: bool = True
+
+
+class DeleteFindingsBody(BaseModel):
+    keys: list[str] = Field(default_factory=list)
 
 
 @router.get("/api/watchdog")
@@ -43,7 +52,7 @@ def validator_status():
 
 
 @router.post("/api/validator/toggle")
-async def validator_toggle(request: Request):
+async def validator_toggle(request: Request, body: ValidatorToggleBody):
     """Enable or disable the shadow validator at runtime.
 
     HTTP: POST /api/validator/toggle
@@ -58,8 +67,7 @@ async def validator_toggle(request: Request):
                 "and restart to enable runtime toggling"
             ),
         )
-    body = await request.json()
-    enabled = bool(body.get("enabled", True))
+    enabled = bool(body.enabled)
     state.validator.set_paused(not enabled)
     log.info("validator %s by operator", "resumed" if enabled else "paused")
     return {"enabled": True, **state.validator.status()}
@@ -90,15 +98,14 @@ def watchdog_delete_findings(request: Request, clear_all: bool = False):
 
 
 @router.post("/api/watchdog/findings/delete")
-async def watchdog_delete_selected(request: Request):
+async def watchdog_delete_selected(request: Request, body: DeleteFindingsBody):
     """Delete selected findings by snapshot_id + ts composite keys.
 
     HTTP: POST /api/watchdog/findings/delete
     AUTH: admin Bearer (Settings Console S0 prereq hardening)
     """
     require_bearer_token(request, ADMIN_TOKEN, realm="watchdog", env_var="ROAD_ADMIN_TOKEN")
-    body = await request.json()
-    keys: list[str] = body.get("keys", [])
+    keys = list(body.keys)
     if not keys:
         return {"deleted": 0}
     removed = watchdog_delete_by_id(keys)

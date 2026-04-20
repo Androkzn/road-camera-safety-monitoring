@@ -1,8 +1,8 @@
 /**
  * Shared TypeScript types — cross-feature backend contracts.
  *
- * Mirrors JSON shapes produced by FastAPI handlers in the `road_safety`
- * Python package. Pure types, no runtime code (TS erases them at build).
+ * Mirrors JSON shapes produced by the `backend` FastAPI app.
+ * Pure types, no runtime code (TS erases them at build).
  *
  * Feature-specific types (e.g. settings) live in their own feature folder
  * (`features/settings/types.ts`).

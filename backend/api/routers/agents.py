@@ -6,6 +6,7 @@ that cap without a specific reason.
 """
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from backend.compliance import audit
 from backend.security.auth import require_admin
@@ -19,8 +20,12 @@ from backend.state import state
 router = APIRouter()
 
 
+class EventIdBody(BaseModel):
+    event_id: str = Field(..., min_length=1, max_length=200)
+
+
 @router.post("/api/agents/coaching")
-async def api_agent_coaching(request: Request, body: dict):
+async def api_agent_coaching(request: Request, body: EventIdBody):
     """Generate an AI coaching note for a specific event.
 
     HTTP: POST /api/agents/coaching
@@ -29,7 +34,7 @@ async def api_agent_coaching(request: Request, body: dict):
     Returns: agent result dict (narrative + metadata).
     """
     require_admin(request, "agent coaching")
-    event_id = (body.get("event_id") or "").strip()
+    event_id = body.event_id.strip()
     if not event_id:
         raise HTTPException(400, "missing 'event_id'")
     if state.agent_executor is None:
@@ -40,7 +45,7 @@ async def api_agent_coaching(request: Request, body: dict):
 
 
 @router.post("/api/agents/investigation")
-async def api_agent_investigation(request: Request, body: dict):
+async def api_agent_investigation(request: Request, body: EventIdBody):
     """Run an AI investigation on a specific event.
 
     HTTP: POST /api/agents/investigation
@@ -48,7 +53,7 @@ async def api_agent_investigation(request: Request, body: dict):
     Request body: ``{"event_id": "<id>"}``
     """
     require_admin(request, "agent investigation")
-    event_id = (body.get("event_id") or "").strip()
+    event_id = body.event_id.strip()
     if not event_id:
         raise HTTPException(400, "missing 'event_id'")
     if state.agent_executor is None:

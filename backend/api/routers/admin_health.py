@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
+from backend.api.models import AdminHealthResponse
 from backend.config import (
     ALPR_MODE,
     DSAR_TOKEN,
@@ -19,7 +20,7 @@ from backend.state import state
 router = APIRouter()
 
 
-@router.get("/api/admin/health")
+@router.get("/api/admin/health", response_model=AdminHealthResponse)
 def admin_health():
     """Comprehensive health snapshot for the admin dashboard.
 

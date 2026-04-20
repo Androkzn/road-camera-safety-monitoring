@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from backend.api.models import EventModel, LiveStatusResponse
 from backend.compliance import audit
 from backend.config import (
     ALPR_MODE,
@@ -32,7 +33,7 @@ log = get_logger(__name__)
 router = APIRouter()
 
 
-@router.get("/api/live/status")
+@router.get("/api/live/status", response_model=LiveStatusResponse)
 def live_status():
     """Public health + configuration snapshot for the operator UI.
 
@@ -159,14 +160,14 @@ def api_drift():
     return state.drift.compute().as_dict()
 
 
-@router.get("/api/live/events")
+@router.get("/api/live/events", response_model=list[EventModel])
 def live_events(risk_level: str | None = None, event_type: str | None = None, limit: int = 100):
     """Paginated read of live events with optional filters.
 
     HTTP: GET /api/live/events
     AUTH: public
     """
-    items = list(state.recent_events)
+    items = state.recent_events_snapshot()
     if risk_level:
         items = [e for e in items if e["risk_level"] == risk_level]
     if event_type:
@@ -174,7 +175,7 @@ def live_events(risk_level: str | None = None, event_type: str | None = None, li
     return items[-limit:]
 
 
-@router.get("/api/events")
+@router.get("/api/events", response_model=list[EventModel])
 def events(
     risk_level: str | None = None,
     event_type: str | None = None,
@@ -197,7 +198,7 @@ def events(
     return items[-limit:]
 
 
-@router.get("/api/events/{event_id}")
+@router.get("/api/events/{event_id}", response_model=EventModel)
 def event(event_id: str):
     """Look up a single event by id.
 
@@ -205,9 +206,9 @@ def event(event_id: str):
     AUTH: public
     Raises: 404 if no matching event is in the current buffer.
     """
-    for ev in state.recent_events:
-        if ev.get("event_id") == event_id:
-            return ev
+    ev = state.find_recent_event(event_id)
+    if ev is not None:
+        return ev
     raise HTTPException(404, "event not found")
 
 
@@ -242,11 +243,7 @@ def event_clip(
     before = before_val
     after = after_val
 
-    event_obj = None
-    for ev in state.recent_events:
-        if ev.get("event_id") == event_id:
-            event_obj = ev
-            break
+    event_obj = state.find_recent_event(event_id)
     if event_obj is None:
         raise HTTPException(404, "event not found")
 
@@ -324,7 +321,6 @@ def clear_events(request: Request):
     Returns: ``{"cleared": <n>}`` — count of events removed.
     """
     require_admin(request, "clear events")
-    cleared = len(state.recent_events)
-    state.recent_events.clear()
+    cleared = state.clear_recent_events()
     audit.log("clear_events", "recent_events", outcome="success")
     return {"cleared": cleared}

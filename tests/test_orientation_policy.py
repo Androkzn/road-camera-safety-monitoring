@@ -246,7 +246,7 @@ def test_rear_suppresses_when_not_reversing():
     )
     assert decision.emit is False
     assert decision.taxonomy == "NONE"
-    assert "reversing" in decision.reason
+    assert "reverse" in decision.reason
 
 
 def test_rear_emits_rcw_when_reversing_longitudinal():
@@ -324,7 +324,7 @@ def test_side_suppresses_out_of_blind_zone():
     )
     assert decision.emit is False
     assert decision.taxonomy == "NONE"
-    assert "blind zone" in decision.reason
+    assert "cross-road ROI" in decision.reason
 
 
 def test_side_suppresses_short_dwell():
@@ -421,7 +421,7 @@ def test_side_suppresses_when_ego_reversing():
     )
     assert decision.emit is False
     assert decision.taxonomy == "NONE"
-    assert "reversing" in decision.reason
+    assert "reverse-flow" in decision.reason
 
 
 def test_unknown_orientation_suppresses():

@@ -1,4 +1,4 @@
-"""Tests for request guards and public-thumbnail signed URLs."""
+"""Tests for security helpers and security-adjacent request hooks."""
 
 from __future__ import annotations
 
@@ -49,7 +49,6 @@ def _make_request(path: str, query: str = "", headers: dict[str, str] | None = N
     }
     return Request(scope)
 
-
 class TestBearerGuard:
     def test_guard_disabled_without_token(self):
         client = TestClient(_guard_app(None))
@@ -76,22 +75,22 @@ class TestBearerGuard:
 class TestSensitiveFeedback:
     @pytest.mark.asyncio
     async def test_feedback_uses_matched_vehicle_id(self, monkeypatch):
-        import backend.server as server
+        from backend.perception import emit as emit_module
 
-        monkeypatch.setattr(server.audit, "log", MagicMock())
-        monkeypatch.setattr(server.road_registry, "record_feedback", MagicMock())
+        monkeypatch.setattr(emit_module.audit, "log", MagicMock())
+        monkeypatch.setattr(emit_module.road_registry, "record_feedback", MagicMock())
         monkeypatch.setattr(
-            server.state.drift,
+            emit_module.state.drift,
             "compute",
             MagicMock(return_value=SimpleNamespace(alert_triggered=False)),
         )
 
-        await server._on_feedback(
+        await emit_module.on_feedback(
             {"event_id": "evt_1", "verdict": "tp", "note": None},
             {"event_id": "evt_1", "vehicle_id": "vehicle_02"},
         )
 
-        server.road_registry.record_feedback.assert_called_once_with(
+        emit_module.road_registry.record_feedback.assert_called_once_with(
             "evt_1",
             "tp",
             "vehicle_02",
@@ -100,24 +99,21 @@ class TestSensitiveFeedback:
 
 class TestPublicThumbnailSigning:
     def test_valid_thumb_request_accepts_when_guard_disabled(self, monkeypatch):
-        import backend.server as server
         from backend.security import signing
 
         monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", False)
         req = _make_request("/thumbnails/e_public.jpg")
-        assert server._valid_thumb_request("e_public.jpg", req) is True
+        assert signing.valid_thumb_request("e_public.jpg", req) is True
 
     def test_valid_thumb_request_rejects_missing_query_when_enabled(self, monkeypatch):
-        import backend.server as server
         from backend.security import signing
 
         monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
         monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
         req = _make_request("/thumbnails/e_public.jpg")
-        assert server._valid_thumb_request("e_public.jpg", req) is False
+        assert signing.valid_thumb_request("e_public.jpg", req) is False
 
     def test_valid_thumb_request_accepts_valid_signature(self, monkeypatch):
-        import backend.server as server
         from backend.security import signing
 
         now = 1_700_000_000
@@ -125,15 +121,14 @@ class TestPublicThumbnailSigning:
         monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
         monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
         monkeypatch.setattr(signing.time, "time", lambda: now)
-        token = server._thumb_token("e_public.jpg", exp)
+        token = signing.thumb_token("e_public.jpg", exp)
         req = _make_request(
             "/thumbnails/e_public.jpg",
             query=f"exp={exp}&token={token}",
         )
-        assert server._valid_thumb_request("e_public.jpg", req) is True
+        assert signing.valid_thumb_request("e_public.jpg", req) is True
 
     def test_thumbnail_public_denies_invalid_token(self, monkeypatch, _isolate_data_dir):
-        import backend.server as server  # noqa: F401 — ensure app is wired
         from backend.api.routers import thumbnails as thumbnails_router
         from backend.security import signing
 
@@ -154,7 +149,6 @@ class TestPublicThumbnailSigning:
         thumbnails_router.audit.log.assert_called_once()
 
     def test_thumbnail_public_allows_valid_token(self, monkeypatch, _isolate_data_dir):
-        import backend.server as server  # noqa: F401
         from backend.api.routers import thumbnails as thumbnails_router
         from backend.security import signing
 
@@ -168,7 +162,7 @@ class TestPublicThumbnailSigning:
         monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
         monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
         monkeypatch.setattr(signing.time, "time", lambda: now)
-        token = server._thumb_token(name, exp)
+        token = signing.thumb_token(name, exp)
 
         req = _make_request(
             f"/thumbnails/{name}",

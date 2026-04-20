@@ -44,7 +44,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
   // Friendly copy for per-event skip reasons. The backend only stamps
   // per-event reasons here (policy-level skipping is a deployment
-  // property, not an event signal — see _emit_event in server.py). The
+  // property, not an event signal — see backend/perception/emit.py). The
   // legacy ``alpr_policy_disabled`` value is mapped to undefined so old
   // events in the rolling buffer don't surface a noisy banner.
   const skipLabel: Record<string, string> = {

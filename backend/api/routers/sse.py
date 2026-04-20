@@ -12,7 +12,9 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
+from backend.api.models import ChatResponse
 from backend.compliance import audit
 from backend.config import SSE_REPLAY_COUNT
 from backend.security.signing import require_media_auth
@@ -20,6 +22,10 @@ from backend.services.llm import chat as llm_chat
 from backend.state import state
 
 router = APIRouter()
+
+
+class ChatBody(BaseModel):
+    query: str = Field(..., min_length=1, max_length=4000)
 
 
 @router.get("/stream/events")
@@ -52,7 +58,7 @@ async def stream_events(request: Request):
         try:
             # Replay recent buffer so a fresh client sees context, not
             # just the next new event.
-            for ev in state.recent_events[-SSE_REPLAY_COUNT:]:
+            for ev in state.recent_events_snapshot(limit=SSE_REPLAY_COUNT):
                 yield f"data: {json.dumps(ev)}\n\n"
             while True:
                 if await request.is_disconnected():
@@ -72,8 +78,8 @@ async def stream_events(request: Request):
     )
 
 
-@router.post("/chat")
-async def chat(body: dict):
+@router.post("/chat", response_model=ChatResponse)
+async def chat(body: ChatBody):
     """Copilot endpoint — RAG-style Q&A over recent events + statute corpus.
 
     HTTP: POST /chat
@@ -82,13 +88,13 @@ async def chat(body: dict):
     Response: ``{"answer": "<LLM-generated answer>"}``
     Side effects: audit-logs the first 200 chars of the query.
     """
-    query = (body.get("query") or "").strip()
+    query = body.query.strip()
     if not query:
         raise HTTPException(400, "missing 'query'")
     # Truncate to 200 chars in the audit log — long queries may contain
     # PII from the user; we only need enough to identify the pattern.
     audit.log("chat_query", query[:200])
-    answer = await llm_chat(query, state.recent_events)
+    answer = await llm_chat(query, state.recent_events_snapshot())
     return {"answer": answer}
 
 
