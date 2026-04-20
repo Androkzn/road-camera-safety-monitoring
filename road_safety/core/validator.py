@@ -674,7 +674,12 @@ class ValidatorWorker:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("validator job failed (%s): %s", job.kind, exc)
+                    log.warning(
+                        "validator job failed (%s): %r",
+                        job.kind,
+                        exc,
+                        exc_info=True,
+                    )
                 finally:
                     self.jobs_processed += 1
         except asyncio.CancelledError:

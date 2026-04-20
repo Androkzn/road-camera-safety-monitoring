@@ -37,7 +37,11 @@
       "Bash(git -C /Users/andreitekhtelev/Desktop/fleet-safety-demo mv frontend/src/features/monitoring/components/EventsPanel.tsx frontend/src/features/validation/components/EventsPanel.tsx)",
       "Bash(git -C /Users/andreitekhtelev/Desktop/fleet-safety-demo mv frontend/src/features/monitoring/components/EventsPanel.module.css frontend/src/features/validation/components/EventsPanel.module.css)",
       "Bash(git -C /Users/andreitekhtelev/Desktop/fleet-safety-demo mv frontend/src/features/monitoring/hooks/useValidator.ts frontend/src/features/validation/hooks/useValidator.ts)",
-      "Bash(/Users/andreitekhtelev/Desktop/fleet-safety-demo/.venv/bin/python -m py_compile /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/egomotion.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/orientation_policy.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/llm.py)"
+      "Bash(/Users/andreitekhtelev/Desktop/fleet-safety-demo/.venv/bin/python -m py_compile /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/egomotion.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/orientation_policy.py /Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/llm.py)",
+      "Bash(kill 28475 28476 28614)",
+      "Bash(curl -s -o /dev/null -w \"health=%{http_code}\\\\n\" http://localhost:8000/api/live/status)",
+      "Bash(kill 39166 39167 39340)",
+      "Bash(curl -s -H \"Authorization: Bearer demo-admin-token\" http://localhost:8000/api/llm/stats)"
     ],
     "deny": [
       "Bash(rm -rf /*)",

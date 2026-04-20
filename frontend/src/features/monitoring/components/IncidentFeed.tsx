@@ -15,7 +15,6 @@ interface IncidentFeedProps {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onDelete: (rawKeys: string[]) => void;
-  onOpenEvent?: (primaryEventId: string, incident: WatchdogIncident) => void;
 }
 
 export function IncidentFeed({
@@ -26,7 +25,6 @@ export function IncidentFeed({
   selected,
   onToggleSelect,
   onDelete,
-  onOpenEvent,
 }: IncidentFeedProps) {
   return (
     <section className={styles.feedSection}>
@@ -55,7 +53,6 @@ export function IncidentFeed({
             isSelected={selected.has(incident.id)}
             onToggleSelect={onToggleSelect}
             onDelete={onDelete}
-            onOpenEvent={onOpenEvent}
           />
         ))}
       </div>
