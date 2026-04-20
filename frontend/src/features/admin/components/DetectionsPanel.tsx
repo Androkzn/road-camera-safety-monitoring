@@ -144,7 +144,22 @@ export function DetectionsPanel({ frames }: DetectionsPanelProps) {
                     <span className={styles.detTrack}>#{o.track_id}</span>
                   )}
                   {o.distance_m != null && (
-                    <span className={styles.detDist}>{o.distance_m.toFixed(1)} m</span>
+                    <span
+                      className={styles.detDist}
+                      // Side-window cams report a sideways gap, not a forward
+                      // range — make the semantic explicit so operators don't
+                      // read a "3.0 m" left-cam reading as "3 m ahead". The
+                      // chip text adds " lat" suffix; the tooltip spells it
+                      // out for the unfamiliar.
+                      title={
+                        o.distance_axis === "lateral"
+                          ? "Lateral proximity — distance to the side, not ahead"
+                          : "Longitudinal range — distance from the host vehicle's nearest body edge"
+                      }
+                    >
+                      {o.distance_m.toFixed(1)} m
+                      {o.distance_axis === "lateral" ? " lat" : ""}
+                    </span>
                   )}
                   <span className={styles.detBbox}>
                     {w}×{h}

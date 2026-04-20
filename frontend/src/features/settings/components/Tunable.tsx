@@ -311,17 +311,8 @@ function Meta() {
       >
         Reset to {String(spec.default)}
       </button>
-      {spec.mutability === "warm_reload" && (
-        <span className={`${styles.badge} ${styles.badgeWarm}`}>warm</span>
-      )}
-      {spec.mutability === "restart_required" && (
-        <span className={`${styles.badge} ${styles.badgeRestart}`}>restart</span>
-      )}
       {spec.mutability === "read_only" && (
         <span className={`${styles.badge} ${styles.badgeReadonly}`}>read-only</span>
-      )}
-      {spec.requires_privacy_confirm && (
-        <span className={`${styles.badge} ${styles.badgePrivacy}`}>privacy</span>
       )}
     </div>
   );

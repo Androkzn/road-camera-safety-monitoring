@@ -159,6 +159,73 @@ def test_window_rejects_non_positive_duration(tmp_path: Path, monkeypatch):
     assert payload["ok"] is False
 
 
+def test_window_emits_speed_mps_with_noise_clamp(tmp_path: Path, monkeypatch):
+    """Each emitted point carries a smoothed speed_mps; stationary jitter
+    is clamped to 0 and a real motion edge surfaces the expected speed."""
+    track_file = tmp_path / "track.gpx"
+    _write_gpx(
+        track_file,
+        [
+            [
+                # 30 s of "stationary" with sub-metre jitter — should clamp to 0.
+                (49.0000000, -122.0, "2026-04-19T22:00:00.000Z"),
+                (49.0000020, -122.0, "2026-04-19T22:00:10.000Z"),
+                (49.0000010, -122.0, "2026-04-19T22:00:20.000Z"),
+                # Then a real ~111 m hop in 10 s ≈ 11.1 m/s.
+                (49.0010000, -122.0, "2026-04-19T22:00:30.000Z"),
+            ],
+        ],
+    )
+    monkeypatch.setattr(demo_track, "_TRACK_FILE", track_file)
+
+    payload = demo_track.load_track_for_window(
+        start_iso_utc="2026-04-19T22:00:00Z", duration_sec=60,
+    )
+
+    assert payload["ok"] is True
+    speeds = [p["speed_mps"] for p in payload["points"]]
+    assert len(speeds) == 4
+    # First three are stationary jitter — clamped to 0 by the noise floor.
+    assert speeds[0] == 0.0
+    assert speeds[1] == 0.0
+    assert speeds[2] == 0.0
+    # Final point: ~11.1 m/s, allow generous tolerance for haversine.
+    assert 9.0 < speeds[3] < 13.0
+
+
+def test_nearest_segment_speed_uses_real_timestamps(tmp_path: Path, monkeypatch):
+    """When the fallback re-times points across the video duration, speed
+    must still reflect the *real* GPS deltas — otherwise stretching a
+    short slice across a long video would underreport speed."""
+    track_file = tmp_path / "track.gpx"
+    _write_gpx(
+        track_file,
+        [
+            # 30 s of real driving (~111 m hops at 1 hop / 10 s ≈ 11 m/s),
+            # ending an hour before the video so the fallback path fires.
+            [
+                (49.000, -122.0, "2026-04-19T21:00:00.000Z"),
+                (49.001, -122.0, "2026-04-19T21:00:10.000Z"),
+                (49.002, -122.0, "2026-04-19T21:00:20.000Z"),
+                (49.003, -122.0, "2026-04-19T21:00:30.000Z"),
+            ],
+        ],
+    )
+    monkeypatch.setattr(demo_track, "_TRACK_FILE", track_file)
+
+    # Stretch the 30 s segment across a 600 s video.
+    payload = demo_track.load_track_for_window(
+        start_iso_utc="2026-04-19T22:00:00Z", duration_sec=600,
+    )
+
+    assert payload["ok"] is True
+    assert payload["sync_mode"] == "nearest"
+    # If speed had been derived from the stretched t_sec, it would be 20×
+    # smaller — well under 1 m/s. We expect ~11 m/s from the real deltas.
+    moving = [p["speed_mps"] for p in payload["points"][1:]]
+    assert all(s > 5.0 for s in moving), moving
+
+
 def test_window_skips_segments_outside_fast_path(tmp_path: Path, monkeypatch):
     """Segments whose entire span sits outside the window shouldn't leak points."""
     track_file = tmp_path / "track.gpx"

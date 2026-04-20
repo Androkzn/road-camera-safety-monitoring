@@ -347,6 +347,25 @@
   text-align: center;
 }
 
+/* Centered "Paused" overlay shown on top of the frozen last frame while
+ * the stream is paused. Translucent backdrop keeps the video visible
+ * underneath so the operator sees *what* was paused, not a blank tile. */
+.pausedBadge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 6px 14px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 .statusDot {
   position: absolute;
   top: 8px;

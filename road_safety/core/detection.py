@@ -83,6 +83,8 @@ from dataclasses import dataclass, field  # decorator for "struct-like" classes
                                           # __eq__ based on class annotations).
 from pathlib import Path                # stdlib: object-oriented filesystem paths
 
+from typing import Any                  # generic placeholder for ndarray-typed args
+
 import cv2                              # OpenCV: drawing + image I/O
 from ultralytics import YOLO            # YOLOv8 model wrapper (third-party)
 
@@ -135,6 +137,8 @@ from road_safety.config import (  # noqa: E402
     CAMERA_FOCAL_PX,
     CAMERA_HEIGHT_M as _CFG_CAMERA_HEIGHT_M,
     CAMERA_HORIZON_FRAC,
+    DEFAULT_CAMERA_CALIBRATION,
+    CameraCalibration,
     MODEL_PATH,
 )
 # Settings Console: hot-path snapshot reads. The store seeds itself from the
@@ -521,12 +525,25 @@ def bbox_edge_distance(a: Detection, b: Detection) -> float:
     return (dx * dx + dy * dy) ** 0.5
 
 
-def estimate_distance_m(det: Detection, frame_h: int) -> float | None:
+def estimate_distance_m(
+    det: Detection,
+    frame_h: int,
+    *,
+    focal_px: float | None = None,
+    height_m: float | None = None,
+    horizon_frac: float | None = None,
+    offset_m: float = 0.0,
+    skip_ground_plane: bool = False,
+) -> float | None:
     """Monocular distance estimate for a single detection (depth from camera).
 
     Strategy — take the more reliable of two priors:
       (a) Ground plane: if the bbox bottom is below the horizon (assumed
           mid-frame), distance = f * H_camera / (y_bottom - y_horizon).
+          Skipped when ``skip_ground_plane=True``: side-window cameras do
+          not look down the road plane, and feeding the formula a bbox
+          below an arbitrary horizon line returns garbage. Side cams
+          rely on the known-height prior alone.
       (b) Known-height prior: distance = f * H_real / bbox_height_px.
 
     We return the larger (more conservative) of the two — preferring to
@@ -535,6 +552,22 @@ def estimate_distance_m(det: Detection, frame_h: int) -> float | None:
     Args:
         det: The detection whose distance to estimate.
         frame_h: Height of the full image in pixels (used to locate the horizon).
+        focal_px: Per-call override for the camera's focal length in pixels.
+            Falls back to the global ``FOCAL_PX`` when ``None``. Pass the
+            slot's calibration here to get accurate numbers on a multi-
+            camera install (iPhone 0.5× ultra-wide ≈ 260 px, 1× ≈ 600 px).
+        height_m: Per-call override for camera mount height in metres.
+        horizon_frac: Per-call override for horizon row as fraction of frame
+            height (0 = top, 1 = bottom, 0.5 = centre).
+        offset_m: Distance in metres from the camera along its optical axis
+            to the nearest edge of the ego car. Subtracted from the raw
+            pinhole range so the returned number is "gap to my bumper" on
+            a front cam. Clamped at 0. (TTC is invariant under this
+            constant shift — it's the derivative of distance, not the
+            distance itself — so this only affects the absolute reading.)
+        skip_ground_plane: When ``True``, suppress the ground-plane prior
+            and rely on known-height alone. Set this for any camera whose
+            optical axis does NOT run along the road (side-window cams).
 
     Returns:
         Estimated distance in metres, rounded to 2 decimals. ``None`` when
@@ -543,43 +576,55 @@ def estimate_distance_m(det: Detection, frame_h: int) -> float | None:
         downstream math.
 
     Intuition: each prior has a different failure mode. Ground plane breaks
-    when feet are occluded (elevated camera + foreground clutter). Known
-    height breaks for objects at an unusual pose (e.g. a person lying down).
-    Taking the max under-reports risk when the priors disagree — the safer
-    choice for a system that alerts humans.
+    when feet are occluded (elevated camera + foreground clutter) or when
+    the camera looks across traffic (side cams). Known height breaks for
+    objects at an unusual pose (e.g. a person lying down). Taking the max
+    under-reports risk when the priors disagree — the safer choice for a
+    system that alerts humans.
     """
-    known_h = TYPICAL_HEIGHT_M.get(det.cls)
-    # Horizon row in pixels. ``CAMERA_HORIZON_FRAC`` is a fraction of frame
-    # height (e.g. 0.5 = horizon at mid-frame). Depends on camera mount angle.
-    horizon_y = frame_h * CAMERA_HORIZON_FRAC
+    # Resolve per-call overrides with safe fallbacks. Positional ``or`` falls
+    # through on ``None`` here (we don't pass 0.0 as a valid focal length).
+    f_px = FOCAL_PX if focal_px is None else focal_px
+    h_m = CAMERA_HEIGHT_M if height_m is None else height_m
+    h_frac = CAMERA_HORIZON_FRAC if horizon_frac is None else horizon_frac
 
-    # Type hint ``float | None`` = "either a float or the None sentinel".
-    # Mirrors the "value or no-value" pattern without needing exceptions.
+    known_h = TYPICAL_HEIGHT_M.get(det.cls)
+    horizon_y = frame_h * h_frac
+
     dist_height: float | None = None
     # Guard ``det.height > 4``: bbox heights below a few pixels produce
     # absurd distances (division by near-zero pixel count).
     if known_h is not None and det.height > 4:
-        dist_height = FOCAL_PX * known_h / det.height
+        dist_height = f_px * known_h / det.height
 
     dist_ground: float | None = None
-    dy = det.bottom - horizon_y
-    # Ground prior only applies below the horizon (object's feet below it).
-    # A negative or tiny dy means the object straddles/is above the horizon.
-    if dy > 4:
-        dist_ground = FOCAL_PX * CAMERA_HEIGHT_M / dy
+    if not skip_ground_plane:
+        dy = det.bottom - horizon_y
+        # Ground prior only applies below the horizon (object's feet below
+        # it). A negative or tiny dy means the object straddles / sits above
+        # the horizon.
+        if dy > 4:
+            dist_ground = f_px * h_m / dy
 
     # List comprehension with a filter: keep only plausible (0.5 < d < 200 m)
     # values. A tuple ``(x, y)`` is iterated the same way as a list.
     candidates = [d for d in (dist_height, dist_ground) if d is not None and 0.5 < d < 200]
     if not candidates:
         return None
-    return round(max(candidates), 2)
+    raw = max(candidates)
+    # Apply the camera→car-edge offset so operators read "metres between my
+    # bumper and that obstacle", not "metres to the camera glass". Clamp at
+    # zero so a close-in object doesn't report a negative distance.
+    adjusted = raw - offset_m
+    return round(max(0.0, adjusted), 2)
 
 
 def estimate_distances_batch(
     detections: list[Detection],
     frame_h: int,
     frame: Any | None = None,
+    *,
+    calibration: CameraCalibration | None = None,
 ) -> list[float | None]:
     """Compute ego → object distance for every detection in a frame.
 
@@ -593,6 +638,18 @@ def estimate_distances_batch(
                       pinhole when the neural model can't load.
     * ``fused``    — run both and keep the larger (more conservative) value.
 
+    Args:
+        detections: YOLO detections for this frame.
+        frame_h: Frame height in pixels.
+        frame: Raw BGR frame; needed only for the ``neural`` / ``fused``
+            paths. ``None`` skips the neural branch entirely.
+        calibration: Optional per-slot camera intrinsics from
+            ``config.camera_calibration_for()``. When supplied, overrides
+            the global ``FOCAL_PX`` / ``CAMERA_HEIGHT_M`` /
+            ``CAMERA_HORIZON_FRAC`` and subtracts ``bumper_offset_m`` from
+            the output so the returned distances are "gap to my car's
+            nearest edge" instead of "gap to the camera glass".
+
     Batching matters because the neural model runs once per FRAME, not
     once per detection — a 16-detection frame pays one inference, not 16.
     """
@@ -600,7 +657,37 @@ def estimate_distances_batch(
     if DEPTH_MODEL == "off":
         return [None] * len(detections)
 
-    pinhole = [estimate_distance_m(d, frame_h) for d in detections]
+    # Pull per-slot intrinsics off the frozen dataclass. When no calibration
+    # is threaded through (legacy callers, batch tools) we pass ``None`` to
+    # every override and ``estimate_distance_m`` falls back to the globals.
+    if calibration is None:
+        focal_px = None
+        height_m = None
+        horizon_frac = None
+        offset_m = 0.0
+        skip_ground = False
+    else:
+        focal_px = calibration.focal_px
+        height_m = calibration.height_m
+        horizon_frac = calibration.horizon_frac
+        offset_m = calibration.bumper_offset_m
+        # Side-window cams: the ground-plane prior is invalid (the road
+        # is not below the optical axis), so we suppress it entirely.
+        # Forward / rear cams keep both priors and pick the conservative
+        # max as before.
+        skip_ground = calibration.orientation == "side"
+
+    pinhole = [
+        estimate_distance_m(
+            d, frame_h,
+            focal_px=focal_px,
+            height_m=height_m,
+            horizon_frac=horizon_frac,
+            offset_m=offset_m,
+            skip_ground_plane=skip_ground,
+        )
+        for d in detections
+    ]
     if DEPTH_MODEL == "pinhole" or frame is None:
         return pinhole
 
@@ -642,7 +729,13 @@ def estimate_distances_batch(
     return out
 
 
-def estimate_inter_distance_m(a: Detection, b: Detection, frame_h: int) -> float | None:
+def estimate_inter_distance_m(
+    a: Detection,
+    b: Detection,
+    frame_h: int,
+    *,
+    calibration: CameraCalibration | None = None,
+) -> float | None:
     """Rough inter-object distance from monocular depth difference + lateral offset.
 
     More meaningful than single-object depth for conflict assessment: two cars
@@ -651,6 +744,11 @@ def estimate_inter_distance_m(a: Detection, b: Detection, frame_h: int) -> float
     Args:
         a, b: Two detections to measure between.
         frame_h: Image height in pixels.
+        calibration: Per-slot camera intrinsics. When supplied the per-
+            object depth estimates use the slot's focal/height/horizon and
+            apply the slot's bumper offset; lateral pixel→metre conversion
+            uses the slot's focal length too. Defaults to the global
+            calibration so legacy callers keep working.
 
     Returns:
         Approximate 3D distance in metres, or ``None`` when either per-object
@@ -662,8 +760,31 @@ def estimate_inter_distance_m(a: Detection, b: Detection, frame_h: int) -> float
     Combining them with Pythagoras gives the straight-line distance between
     them on that overhead map.
     """
-    da = estimate_distance_m(a, frame_h)
-    db = estimate_distance_m(b, frame_h)
+    if calibration is None:
+        focal_px = None
+        height_m = None
+        horizon_frac = None
+        offset_m = 0.0
+        skip_ground = False
+        focal_for_lateral = FOCAL_PX
+    else:
+        focal_px = calibration.focal_px
+        height_m = calibration.height_m
+        horizon_frac = calibration.horizon_frac
+        offset_m = calibration.bumper_offset_m
+        skip_ground = calibration.orientation == "side"
+        focal_for_lateral = calibration.focal_px
+
+    da = estimate_distance_m(
+        a, frame_h,
+        focal_px=focal_px, height_m=height_m, horizon_frac=horizon_frac,
+        offset_m=offset_m, skip_ground_plane=skip_ground,
+    )
+    db = estimate_distance_m(
+        b, frame_h,
+        focal_px=focal_px, height_m=height_m, horizon_frac=horizon_frac,
+        offset_m=offset_m, skip_ground_plane=skip_ground,
+    )
     if da is None or db is None:
         return None
     depth_diff = abs(da - db)
@@ -676,7 +797,7 @@ def estimate_inter_distance_m(a: Detection, b: Detection, frame_h: int) -> float
     acx, acy = a.center
     bcx, bcy = b.center
     lateral_px = abs(acx - bcx)
-    lateral_m = lateral_px * avg_depth / FOCAL_PX if avg_depth > 0 else 0
+    lateral_m = lateral_px * avg_depth / focal_for_lateral if avg_depth > 0 else 0
 
     # Pythagoras in 2D (overhead map): total = sqrt(depth^2 + lateral^2).
     inter = math.sqrt(depth_diff ** 2 + lateral_m ** 2)

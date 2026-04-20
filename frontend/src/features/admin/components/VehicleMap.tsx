@@ -32,10 +32,9 @@ const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 const LOOP_SEC = 60;
 const FOLLOW_THROTTLE_MS = 500;
-// Closer zoom — we follow the vehicle anyway, so a wide bounds-fit view
-// just blurs out the actual driving context. ~17 keeps street names
-// legible while still showing a couple of blocks of context.
-const INITIAL_ZOOM = 17;
+// Max zoom the OSM tile service serves natively.
+const MAX_ZOOM = 19;
+const INITIAL_ZOOM = MAX_ZOOM;
 
 function buildArrowIcon(headingDeg: number): L.DivIcon {
   // Inline SVG keeps us free of extra assets; the outer transform rotates
@@ -85,7 +84,6 @@ export interface VehicleMapProps {
 export function VehicleMap({ clock, videoKey }: VehicleMapProps) {
   const { data, isLoading, isError } = useDemoTrack(videoKey ?? null);
   const position = useVehiclePosition(LOOP_SEC, clock, videoKey ?? null);
-  const syncMode = data?.sync_mode;
 
   // Trailing polyline: only the route the vehicle has already passed in
   // the current loop. We slice the full track at the marker's current
@@ -148,23 +146,20 @@ export function VehicleMap({ clock, videoKey }: VehicleMapProps) {
             </span>
             <span className={styles.speedUnit}>km/h</span>
           </div>
-          {syncMode === "nearest" && (
-            <div
-              className={styles.syncHint}
-              title="No GPS samples cover this video's window — showing nearest recorded segment, re-timed to fit."
-            >
-              GPS ~ approx
-            </div>
-          )}
         </div>
       )}
       <MapContainer
         className={styles.map}
         center={center}
         zoom={INITIAL_ZOOM}
+        maxZoom={MAX_ZOOM}
         scrollWheelZoom
       >
-        <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
+        <TileLayer
+          url={TILE_URL}
+          attribution={TILE_ATTRIBUTION}
+          maxZoom={MAX_ZOOM}
+        />
         <Polyline
           positions={polyline}
           pathOptions={{ color: "#38bdf8", weight: 3, opacity: 0.75 }}

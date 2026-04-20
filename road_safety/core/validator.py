@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from road_safety.config import (
+    CameraCalibration,
     VALIDATOR_BACKEND,
     VALIDATOR_DEVICE,
     VALIDATOR_IOU_THRESHOLD,
@@ -92,6 +93,12 @@ class ValidatorJob:
     frame: Any  # np.ndarray BGR; not typed precisely to avoid a hard numpy runtime dep on import
     primary_detections: list[Detection] = field(default_factory=list)
     primary_event: Optional[dict] = None
+    # Per-slot camera calibration carried into the worker so the secondary
+    # depth math sees the same focal/height/horizon/offset the primary did.
+    # Without it, validator distance estimates use the global default and
+    # disagreements fire purely from a calibration mismatch instead of a
+    # real model disagreement.
+    calibration: Optional[CameraCalibration] = None
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +308,8 @@ class DiscrepancyComparator:
         primary_detections: list[Detection],
         secondary_detections: list[Detection],
         primary_emitted_recently: bool,
+        *,
+        calibration: Optional[CameraCalibration] = None,
     ) -> Optional[Discrepancy]:
         """On a sampled frame, did the secondary find a risky pair the primary missed?
 
@@ -316,7 +325,7 @@ class DiscrepancyComparator:
             return None
 
         for event_type, a, b, distance_px in interactions:
-            dist_m = estimate_inter_distance_m(a, b, frame_height)
+            dist_m = estimate_inter_distance_m(a, b, frame_height, calibration=calibration)
             if (
                 event_type == "vehicle_close_interaction"
                 and dist_m is not None
@@ -367,6 +376,8 @@ class DiscrepancyComparator:
         primary_detections: list[Detection],
         secondary_detections: list[Detection],
         frame_height: int,
+        *,
+        calibration: Optional[CameraCalibration] = None,
     ) -> Optional[Discrepancy]:
         """Primary + secondary both see the pair, but classify it differently.
 
@@ -394,7 +405,9 @@ class DiscrepancyComparator:
 
         class_mismatch = (match_a.cls != a.cls) or (match_b.cls != b.cls)
 
-        dist_m = estimate_inter_distance_m(match_a, match_b, frame_height)
+        dist_m = estimate_inter_distance_m(
+            match_a, match_b, frame_height, calibration=calibration,
+        )
         distance_px = bbox_edge_distance(match_a, match_b)
         secondary_risk = classify_risk(
             ttc_sec=None,
@@ -630,7 +643,8 @@ class ValidatorWorker:
             # already fire — the two are mutually exclusive by construction.
             if fp is None:
                 cm = self.comparator.check_classification_mismatch(
-                    job.primary_event, job.primary_detections, secondary, frame_h
+                    job.primary_event, job.primary_detections, secondary,
+                    frame_h, calibration=job.calibration,
                 )
                 if cm is not None:
                     findings.append(cm)
@@ -639,7 +653,8 @@ class ValidatorWorker:
                 job.wall_ts - self._last_primary_event_ts.get(job.slot_id, 0.0) < 2.0
             )
             fn = self.comparator.check_false_negative(
-                frame_h, job.primary_detections, secondary, primary_recently
+                frame_h, job.primary_detections, secondary, primary_recently,
+                calibration=job.calibration,
             )
             if fn is not None:
                 findings.append(fn)

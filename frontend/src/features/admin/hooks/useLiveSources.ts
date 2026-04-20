@@ -33,6 +33,13 @@ export interface UseLiveSourcesResult {
     name?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string) => Promise<void>;
+  restartAll: () => Promise<void>;
+  /** Monotonically-increasing counter bumped every time restartAll() is
+   *  invoked. The map hook watches this to reset its local playhead back
+   *  to the start of the GPS track (since the server's uptime reset alone
+   *  is intentionally ignored by the map — see useDemoTrack). */
+  restartAllToken: number;
+  restartingAll: boolean;
   busyById: Record<string, BusyAction | null>;
 }
 
@@ -190,6 +197,40 @@ export function useLiveSources(refetchIntervalMs = 5000): UseLiveSourcesResult {
     [qc, mark, refresh],
   );
 
+  const [restartingAll, setRestartingAll] = useState(false);
+  const [restartAllToken, setRestartAllToken] = useState(0);
+
+  const restartAll = useCallback(async () => {
+    setRestartingAll(true);
+    try {
+      const res = await adminApi.restartAllLiveSources();
+      // Bump the token only on success so the map doesn't snap back on a
+      // failed restart (the backend left the slots as they were).
+      if (res.ok) {
+        setRestartAllToken((n) => n + 1);
+      }
+      const failed = (res.results ?? []).filter((r) => !r.ok);
+      if (failed.length) {
+        void dialog.alert({
+          title: "Some streams failed to restart",
+          message: failed
+            .map((f) => `${f.name || f.id}: ${f.error ?? "unknown error"}`)
+            .join("\n"),
+          variant: "danger",
+        });
+      }
+    } catch (exc) {
+      void dialog.alert({
+        title: "Restart all failed",
+        message: (exc as Error)?.message ?? "unknown error",
+        variant: "danger",
+      });
+    } finally {
+      setRestartingAll(false);
+      await refresh();
+    }
+  }, [refresh]);
+
   return {
     sources: data?.sources ?? [],
     primaryId: data?.primary_id ?? null,
@@ -201,6 +242,9 @@ export function useLiveSources(refetchIntervalMs = 5000): UseLiveSourcesResult {
     setDetection,
     add,
     remove,
+    restartAll,
+    restartAllToken,
+    restartingAll,
     busyById,
   };
 }

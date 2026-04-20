@@ -162,17 +162,40 @@ export interface DetectionObject {
   track_id?: number | null;
   bbox: [number, number, number, number];
   /** Ego→object distance in metres from the monocular depth estimator.
-   *  Null when estimation is disabled or the object is above the horizon. */
+   *  Already offset by the camera→bumper distance so the number is the
+   *  gap to the ego car's nearest edge, not the camera glass. Null when
+   *  estimation is disabled or the object is above the horizon. */
   distance_m?: number | null;
+  /** Semantic axis of ``distance_m``.
+   *  - ``"range"``:   forward / rear cams — longitudinal distance down
+   *    the direction of travel; TTC is meaningful.
+   *  - ``"lateral"``: side-window cams — sideways distance to adjacent-
+   *    lane traffic; TTC is largely meaningless for this axis.
+   *  Optional for backwards compat with snapshots from older edge nodes
+   *  that didn't tag the axis (treat undefined as ``"range"``). */
+  distance_axis?: "range" | "lateral";
 }
 
 export interface DetectionSnapshot {
   ts: number;
+  /** Source id this snapshot came from. Optional for backwards compat
+   *  with single-source servers. */
+  source_id?: string;
+  source_name?: string;
   detections: number;
   persons: number;
   vehicles: number;
   interactions: number;
   objects: DetectionObject[];
+  /** Authoritative MP4 playhead in seconds, sourced from
+   *  ``cv2.CAP_PROP_POS_MSEC`` per frame. ``0`` for live feeds; for
+   *  looped local files this advances while the video plays, freezes on
+   *  pause, and wraps back to ``0`` when the MP4 loops. The map overlay
+   *  uses this as the authoritative clock so the marker stays locked to
+   *  what the camera is actually showing. */
+  playback_pos_sec?: number;
+  /** Total MP4 duration in seconds (``0`` for live feeds). */
+  playback_duration_sec?: number;
 }
 
 // =============================================================================

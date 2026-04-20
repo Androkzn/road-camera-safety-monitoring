@@ -25,6 +25,7 @@ syntax at runtime (module is imported once at server boot).
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,6 +58,10 @@ class TrackPoint:
     # Seconds since the start of the (concatenated) loop. Monotonically
     # non-decreasing within a cached track.
     t_sec: float
+    # Trailing-window-smoothed ground speed in m/s, derived from haversine
+    # over the *real* GPS timestamps (not the re-based ``t_sec``). 0.0 for
+    # the first point of any segment and for sub-noise-floor jitter.
+    speed_mps: float = 0.0
 
 
 # Module-level cache. Populated by ``load_track()`` on first call; later
@@ -64,6 +69,81 @@ class TrackPoint:
 # doesn't change at runtime and a ~200 KB XML re-parse on every
 # request is wasteful when the map polls every second or two.
 _CACHE: dict[str, Any] | None = None
+
+
+_EARTH_RADIUS_M = 6_371_000.0
+# Trailing-window length for speed smoothing. The GPX is logged at ~1 Hz and
+# stationary GPS jitter shows up as 0.1–0.5 m/s of phantom motion; a 5 s
+# average + sub-floor clamp removes both without lagging genuine
+# accelerations meaningfully.
+_SPEED_WINDOW_SEC = 5.0
+_SPEED_NOISE_FLOOR_MPS = 0.5
+
+
+def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance in metres between two WGS-84 coordinates."""
+    rlat1 = math.radians(lat1)
+    rlat2 = math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlng / 2.0) ** 2
+    )
+    return 2.0 * _EARTH_RADIUS_M * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _compute_speeds(
+    seg: list[tuple[float, float, datetime]],
+    window_sec: float = _SPEED_WINDOW_SEC,
+    noise_floor_mps: float = _SPEED_NOISE_FLOOR_MPS,
+) -> list[float]:
+    """Per-point speed in m/s for one segment.
+
+    Uses a *trailing* window: speed at index ``i`` is total distance
+    travelled in the last ``window_sec`` divided by elapsed time. Trailing
+    (not centred) so the value at point ``i`` only depends on past data —
+    matches how a vehicle speedometer behaves and avoids leaking future
+    waypoints into the current sample.
+
+    First point of a segment has no prior data and is always 0. When the
+    window contains only the current point (sparse data, gaps > window),
+    the helper falls back to the immediately previous point so we never
+    silently emit 0 m/s on a real motion edge.
+
+    Speeds below ``noise_floor_mps`` are clamped to 0 — stationary GPS
+    drift would otherwise produce a perpetual ~0.3 m/s "creep".
+    """
+    n = len(seg)
+    if n <= 1:
+        return [0.0] * n
+
+    cum_dist = [0.0] * n
+    cum_t = [0.0] * n
+    t0 = seg[0][2].timestamp()
+    for i in range(1, n):
+        cum_dist[i] = cum_dist[i - 1] + _haversine_m(
+            seg[i - 1][0], seg[i - 1][1], seg[i][0], seg[i][1],
+        )
+        cum_t[i] = seg[i][2].timestamp() - t0
+
+    speeds = [0.0] * n
+    j = 0  # left edge of the trailing window — slides forward monotonically.
+    for i in range(n):
+        target_lo = cum_t[i] - window_sec
+        while j < i and cum_t[j] < target_lo:
+            j += 1
+        # If the window collapsed to just point i (gap > window_sec), back
+        # up one point so we still get a meaningful speed estimate.
+        lo = j if j < i else max(0, i - 1)
+        dt = cum_t[i] - cum_t[lo]
+        if dt <= 0:
+            continue
+        s = (cum_dist[i] - cum_dist[lo]) / dt
+        if s < noise_floor_mps:
+            s = 0.0
+        speeds[i] = s
+    return speeds
 
 
 def _parse_iso_utc(value: str) -> datetime | None:
@@ -151,10 +231,11 @@ def _flatten_loop(segments: list[list[tuple[float, float, datetime]]]) -> list[T
         if not seg:
             continue
         seg_start_ts = seg[0][2].timestamp()
+        speeds = _compute_speeds(seg)
         seg_max = 0.0
-        for lat, lng, t in seg:
+        for (lat, lng, t), spd in zip(seg, speeds):
             t_sec = segment_base_sec + (t.timestamp() - seg_start_ts)
-            pts.append(TrackPoint(lat=lat, lng=lng, t_sec=t_sec))
+            pts.append(TrackPoint(lat=lat, lng=lng, t_sec=t_sec, speed_mps=spd))
             if t_sec > seg_max:
                 seg_max = t_sec
         segment_base_sec = seg_max + 1.0
@@ -217,7 +298,13 @@ def _build_cache() -> dict[str, Any]:
     return {
         "ok": True,
         "points": [
-            {"lat": p.lat, "lng": p.lng, "t_sec": p.t_sec} for p in points
+            {
+                "lat": p.lat,
+                "lng": p.lng,
+                "t_sec": p.t_sec,
+                "speed_mps": p.speed_mps,
+            }
+            for p in points
         ],
         "total_duration_sec": total,
         "bounds": bounds,
@@ -274,11 +361,15 @@ def _points_in_window(
         # Fast reject: segment entirely outside the window.
         if seg_end < window_start or seg_start > window_end:
             continue
-        for lat, lng, t in seg:
+        # Speeds are computed across the *entire* segment so the trailing
+        # window can see prior context even when the early points fall
+        # outside the requested window.
+        speeds = _compute_speeds(seg)
+        for (lat, lng, t), spd in zip(seg, speeds):
             ts = t.timestamp()
             if ts < ws or ts > we:
                 continue
-            pts.append(TrackPoint(lat=lat, lng=lng, t_sec=ts - ws))
+            pts.append(TrackPoint(lat=lat, lng=lng, t_sec=ts - ws, speed_mps=spd))
     pts.sort(key=lambda p: p.t_sec)
     return pts
 
@@ -337,17 +428,23 @@ def _nearest_segment_points(
     lo = min(offsets)
     hi = max(offsets)
     span = hi - lo
+    # Speeds are derived from the *real* GPS timestamps. We deliberately do
+    # not recompute them off the stretched ``t_sec`` values — a 30 s slice
+    # stretched to 600 s of video would otherwise underreport speed 20×.
+    speeds = _compute_speeds(seg)
     out: list[TrackPoint] = []
     if span <= 0:
         # Single-waypoint segment: drop a stationary point at t=0 and t=duration
         # so the interpolator still has two points to work with.
         lat, lng, _ = seg[0]
-        out.append(TrackPoint(lat=lat, lng=lng, t_sec=0.0))
-        out.append(TrackPoint(lat=lat, lng=lng, t_sec=duration_sec))
+        out.append(TrackPoint(lat=lat, lng=lng, t_sec=0.0, speed_mps=0.0))
+        out.append(TrackPoint(lat=lat, lng=lng, t_sec=duration_sec, speed_mps=0.0))
     else:
-        for off, (lat, lng, _) in zip(offsets, seg):
+        for off, (lat, lng, _), spd in zip(offsets, seg, speeds):
             frac = (off - lo) / span
-            out.append(TrackPoint(lat=lat, lng=lng, t_sec=frac * duration_sec))
+            out.append(
+                TrackPoint(lat=lat, lng=lng, t_sec=frac * duration_sec, speed_mps=spd),
+            )
         out.sort(key=lambda p: p.t_sec)
 
     meta = {
@@ -449,7 +546,13 @@ def load_track_for_window(
     response: dict[str, Any] = {
         "ok": True,
         "points": [
-            {"lat": p.lat, "lng": p.lng, "t_sec": p.t_sec} for p in points
+            {
+                "lat": p.lat,
+                "lng": p.lng,
+                "t_sec": p.t_sec,
+                "speed_mps": p.speed_mps,
+            }
+            for p in points
         ],
         "total_duration_sec": duration_sec,
         "bounds": {

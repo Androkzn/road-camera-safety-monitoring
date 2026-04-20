@@ -74,7 +74,7 @@ export interface DemoTrackResponse {
 
 /** Known video keys understood by ``/api/demo/video-track``. Keep in sync
  *  with ``_DEMO_VIDEO_SOURCES`` in ``road_safety/server.py``. */
-export type DemoVideoKey = "front" | "rear";
+export type DemoVideoKey = "front" | "rear" | "left";
 
 export interface VehiclePosition {
   lat: number;
@@ -152,10 +152,9 @@ export function useDemoTrack(videoKey?: DemoVideoKey | null) {
 }
 
 export interface PlaybackClock {
-  /** Server-reported playback head (seconds). This is the MP4's
-   *  ``CAP_PROP_POS_MSEC`` when available, else stream uptime. Advances
-   *  only while the reader thread is running — pauses propagate. Wraps
-   *  naturally when the MP4 loops. */
+  /** Wallclock seconds since stream start — fallback only. Use
+   *  ``videoPosSec`` when available; this exists for back-compat with
+   *  callers that don't yet wire the per-frame SSE playhead through. */
   uptimeSec: number;
   /** Whether the backing stream is currently running. */
   running: boolean;
@@ -163,6 +162,21 @@ export interface PlaybackClock {
    *  aligned to the video loop (GPS marker resets when the video resets).
    *  When null, falls back to a fixed ``loopSec`` wallclock compression. */
   videoDurationSec?: number | null;
+  /** Monotonic counter bumped by an explicit operator "Restart all" —
+   *  distinct from a pause/restart cycle (which we deliberately ignore so
+   *  the marker doesn't snap to zero on every pause). When this changes,
+   *  the hook rewinds its local playhead to 0. */
+  resetToken?: number;
+  /** Authoritative MP4 playhead in seconds, sourced from
+   *  ``cv2.CAP_PROP_POS_MSEC`` and pushed via per-frame SSE. When set,
+   *  the map marker snaps to this exactly — pause/resume/loop-wrap of
+   *  the video is mirrored 1:1 by the marker with no local clock drift.
+   *  Between SSE updates (~500 ms at TARGET_FPS=2) the hook predicts
+   *  forward locally to keep motion smooth. */
+  videoPosSec?: number | null;
+  /** ``performance.now()`` instant when ``videoPosSec`` was received.
+   *  Used to predict forward between SSE updates. */
+  videoPosReceivedAtMs?: number | null;
 }
 
 /**
@@ -204,6 +218,19 @@ export function useVehiclePosition(
   // without the effect remounting on every parent render.
   const clockRef = useRef<PlaybackClock | null | undefined>(clock);
   clockRef.current = clock;
+
+  // Explicit "Restart all" — rewind the local playhead so the map marker
+  // jumps back to the start of the GPS track. Watching ``resetToken`` (not
+  // ``running``) is deliberate: a pause/resume cycle bumps ``running`` but
+  // must NOT reset the marker, only an operator-driven restart does.
+  const lastResetTokenRef = useRef<number | undefined>(clock?.resetToken);
+  useEffect(() => {
+    if (clock?.resetToken === undefined) return;
+    if (clock.resetToken !== lastResetTokenRef.current) {
+      lastResetTokenRef.current = clock.resetToken;
+      playheadRef.current = 0;
+    }
+  }, [clock?.resetToken]);
 
   useEffect(() => {
     if (!data?.ok || !data.points || data.points.length < 2) {
@@ -254,15 +281,49 @@ export function useVehiclePosition(
         const dtSec = (now - lastTickMs) / 1000;
         lastTickMs = now;
 
-        // Advance only when the stream is running (or when there is no
-        // clock at all — pages without a stream still get a moving demo
-        // marker). Pause behavior is just "skip the advance".
-        if (!c || c.running) {
+        // Three playhead modes, in priority order:
+        //
+        //  1. Authoritative server clock (``c.videoPosSec``):
+        //     The backend pushes the actual MP4 playhead on every SSE
+        //     detection frame. We snap to it directly and predict
+        //     forward by ``(now - videoPosReceivedAtMs)`` while running
+        //     so motion between SSE updates stays smooth (~500 ms gap
+        //     at TARGET_FPS=2). When the operator pauses, the server
+        //     stops emitting *and* the value stops changing → the
+        //     ``running`` gate below freezes prediction → the marker
+        //     freezes. When the MP4 loops, ``videoPosSec`` jumps back
+        //     to ~0 and the marker snaps to the start of the GPS
+        //     track. No drift, no polling lag.
+        //
+        //  2. Local rAF loop (``running`` gate):
+        //     Used until the first SSE frame arrives, or when the
+        //     server hasn't been wired to publish ``videoPosSec`` yet.
+        //
+        //  3. Demo loop (no clock at all):
+        //     Pages without a stream still get a moving demo marker.
+        if (videoSynced && c?.videoPosSec != null) {
+          const baseSec = c.videoPosSec;
+          const sinceServerMs =
+            c.videoPosReceivedAtMs != null
+              ? Math.max(0, now - c.videoPosReceivedAtMs)
+              : 0;
+          // Cap forward prediction at 1 s. At TARGET_FPS=2 the server
+          // pushes a fresh playhead every ~500 ms; a gap longer than
+          // that means either the stream went silent (paused / network
+          // glitch) or we just resumed after a long pause. In either
+          // case predicting further would skip the marker forward,
+          // then snap it back when the next SSE arrives — visible
+          // jitter. Freezing at the last known pos and waiting for the
+          // next snap is the right behavior.
+          const PREDICT_CAP_MS = 1000;
+          const predictMs = c.running ? Math.min(sinceServerMs, PREDICT_CAP_MS) : 0;
+          playheadRef.current = baseSec + predictMs / 1000;
+        } else if (!c || c.running) {
           playheadRef.current += dtSec;
         }
 
         const playheadSec = Math.max(0, playheadRef.current);
-        // Two modes:
+        // Two track-mapping modes:
         //  - video-synced (t_sec already == video time): playhead maps
         //    directly onto track time, no compression. One real second
         //    of playhead == one second of GPS.
@@ -278,6 +339,7 @@ export function useVehiclePosition(
           lastDebugMs = now;
           console.debug("[map-sync] tick", {
             clockRunning: c?.running,
+            videoPosSec: c?.videoPosSec?.toFixed(2),
             playhead: playheadSec.toFixed(2),
             trackTime: trackTime.toFixed(1),
             lat: next?.lat.toFixed(5),

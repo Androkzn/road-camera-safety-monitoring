@@ -136,6 +136,7 @@ from road_safety.config import (
     VALIDATOR_IOU_THRESHOLD,
     VALIDATOR_QUEUE_MAX,
     VALIDATOR_SAMPLE_SEC,
+    camera_calibration_for,
     WATCHDOG_ENABLED,
     WATCHDOG_INTERVAL_SEC,
     STATIC_DIR,
@@ -162,7 +163,12 @@ from road_safety.core.detection import (
     load_model,
     tracks_converging,
 )
-from road_safety.core.stream import StreamReader, classify_source, resolve_hls
+from road_safety.core.stream import (
+    StreamReader,
+    classify_source,
+    display_video_id,
+    resolve_hls,
+)
 from road_safety.core.validator import (
     DiscrepancyComparator,
     SecondaryDetector,
@@ -452,6 +458,18 @@ class StreamSlot:
     def __init__(self, source_id: str, name: str, original_source: str):
         self.source_id = source_id
         self.name = name
+        # Per-camera calibration: focal length (px), mount height (m),
+        # horizon fraction, orientation (forward/rear/side), and the
+        # camera-to-body-edge offset along the optical axis. Resolved once
+        # at slot construction from per-slot defaults + per-slot env
+        # overrides (``ROAD_CAMERA_<FIELD>__<SLOT_ID>``). Frozen for the
+        # lifetime of the slot so threads can read it without locks.
+        # Threading the same calibration through every distance/TTC call
+        # in this slot's perception loop is what makes a multi-camera
+        # install (front 1× + rear 0.5× + left 0.5×) report accurate
+        # distances per camera instead of pretending all three share the
+        # front cam's intrinsics.
+        self.calibration = camera_calibration_for(source_id)
         # Pre-resolution operator-supplied URL. The resolved URL (post
         # yt-dlp) is stashed on ``reader.source_url`` once started.
         self.original_source = original_source
@@ -538,10 +556,15 @@ class StreamSlot:
             #      placeholder JPEG. The next encode overwrites it anyway.
 
     def is_running(self) -> bool:
+        # A paused reader is still "alive" (its capture thread is looping on
+        # the pause gate) but from the UI's perspective it is not running —
+        # frames are frozen, detection is off. Returning False while paused
+        # keeps the Start/Pause toggle in sync with what the operator sees.
         return (
             self.reader is not None
             and self.reader._thread is not None
             and self.reader._thread.is_alive()
+            and not self.reader.is_paused()
         )
 
     def status_dict(self) -> dict:
@@ -1079,6 +1102,33 @@ def _stop_slot(slot: StreamSlot) -> None:
     slot.reader = None
 
 
+def _pause_slot(slot: StreamSlot) -> bool:
+    """Freeze the slot's capture loop without tearing down the reader.
+
+    Unlike :func:`_stop_slot` this keeps ``slot.reader`` attached and its
+    capture thread alive — for a dashcam MP4 that means playback position
+    survives across a Pause → Start cycle so the operator resumes exactly
+    where they paused instead of replaying from frame 0.
+
+    Returns True when a reader was actually paused, False if the slot had
+    nothing alive to pause (caller can treat that as a no-op).
+    """
+    r = slot.reader
+    if r is None or r._thread is None or not r._thread.is_alive():
+        return False
+    r.pause()
+    return True
+
+
+def _resume_slot(slot: StreamSlot) -> bool:
+    """Reverse :func:`_pause_slot`. Returns True when a paused reader was resumed."""
+    r = slot.reader
+    if r is None or not r.is_paused():
+        return False
+    r.resume()
+    return True
+
+
 def _make_on_frame(slot: StreamSlot):
     """Return a thread-safe ``on_frame(wall_ts, frame)`` closure for ``slot``.
 
@@ -1197,6 +1247,7 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
                     wall_ts=wall_ts,
                     frame=frame.copy(),
                     primary_detections=list(detections),
+                    calibration=slot.calibration,
                 ),
             )
 
@@ -1272,11 +1323,23 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
 
         # Inter-object distance (depth difference + lateral offset), not
         # single-object range-to-camera. Fall back to per-object range if
-        # the pair-wise estimator can't produce a value.
-        dist_m = estimate_inter_distance_m(a, b, frame_h)
+        # the pair-wise estimator can't produce a value. Both calls thread
+        # ``slot.calibration`` so multi-camera installs use the right
+        # focal/height/horizon/offset per camera (front 1× vs rear/side
+        # 0.5× ultra-wide etc.).
+        dist_m = estimate_inter_distance_m(a, b, frame_h, calibration=slot.calibration)
         if dist_m is None:
+            cal = slot.calibration
+            skip_ground = cal.orientation == "side"
             for sub in (a, b):
-                cand = estimate_distance_m(sub, frame_h)
+                cand = estimate_distance_m(
+                    sub, frame_h,
+                    focal_px=cal.focal_px,
+                    height_m=cal.height_m,
+                    horizon_frac=cal.horizon_frac,
+                    offset_m=cal.bumper_offset_m,
+                    skip_ground_plane=skip_ground,
+                )
                 if cand is not None and (dist_m is None or cand < dist_m):
                     dist_m = cand
 
@@ -1394,12 +1457,26 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # keep updating even with no video viewers.
     try:
         has_viewers = slot.has_viewers()
-        # Ego → object distance per detection (monocular pinhole + ground
-        # plane fused with optional neural depth in ``estimate_distance_m``).
-        # Computed once here and threaded into both the overlay renderer
-        # and the SSE snapshot so UI + render stay consistent.
+        # Per-slot camera calibration (focal, height, horizon, offset_m,
+        # axis). Accurate distance on a multi-camera install needs the
+        # right focal for each lens (iPhone 1× ≈ 600 px, 0.5× ≈ 260 px)
+        # and the right ``offset_m`` so the number we report is "metres
+        # to my bumper", not "metres to the camera glass". ``axis`` is
+        # semantic metadata: forward/rear → TTC is meaningful; lateral
+        # → distance is a sideways proximity reading only.
+        cam_cal = slot.calibration
+        # Wire-format axis label for the SSE detection snapshot:
+        #   - "range":   forward / rear cams — distance is longitudinal
+        #                (down the direction of travel). TTC is meaningful.
+        #   - "lateral": side-window cams — distance is sideways
+        #                (adjacent-lane proximity). TTC is largely
+        #                meaningless because lateral closing rate isn't
+        #                "time to collision" in the dashcam sense.
+        # The frontend uses this tag to label the chip ("range" vs
+        # "lateral") so operators read the right semantic.
+        cam_axis = "lateral" if cam_cal.orientation == "side" else "range"
         per_det_distances: list[float | None] = estimate_distances_batch(
-            detections, frame_h, frame
+            detections, frame_h, frame, calibration=cam_cal,
         )
         jpeg_bytes = (
             _render_annotated_frame(
@@ -1416,6 +1493,7 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
                     round(per_det_distances[i], 1)
                     if per_det_distances[i] is not None else None
                 ),
+                "distance_axis": cam_axis,
             }
             for i, d in enumerate(detections)
         ]
@@ -1426,6 +1504,19 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
             slot._frame_ts = wall_ts
 
         if state.loop is not None:
+            # Per-frame MP4 playhead in seconds. Sourced from
+            # ``cv2.CAP_PROP_POS_MSEC`` for looped local-file sources; 0.0
+            # for live feeds. Threading it through the per-frame SSE
+            # message gives the frontend a tight, authoritative clock to
+            # drive the map marker — when the video pauses, the value
+            # stops advancing → the marker freezes; when the MP4 loops,
+            # the value resets → the marker snaps back to the start of
+            # the GPS track. This is what keeps map and video in lock-step
+            # without a 5 s polling-interval drift.
+            reader = slot.reader
+            playback_pos_sec, playback_duration_sec = (
+                reader.playback_position() if reader is not None else (0.0, 0.0)
+            )
             msg = {
                 "ts": round(wall_ts, 3),
                 "source_id": slot.source_id,
@@ -1435,6 +1526,8 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
                 "vehicles": sum(1 for d in detections if d.cls in VEHICLE_CLASSES),
                 "interactions": len(interactions),
                 "objects": det_snapshot,
+                "playback_pos_sec": round(playback_pos_sec, 3),
+                "playback_duration_sec": round(playback_duration_sec, 3),
             }
             asyncio.run_coroutine_threadsafe(
                 _broadcast_admin_detections(msg), state.loop
@@ -1521,7 +1614,10 @@ def _flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
         "vehicle_id": RESOLVED_VEHICLE_ID,
         "road_id": RESOLVED_ROAD_ID,
         "driver_id": RESOLVED_DRIVER_ID,
-        "video_id": slot.original_source or DEFAULT_SOURCE or "stream",
+        # Egress-safe identifier: raw source is often an absolute file path
+        # (``/Users/alice/…/Left Cam.mp4``) which would leak the operator's
+        # home directory into the UI, cloud receiver, Slack, and audit logs.
+        "video_id": display_video_id(slot.original_source or DEFAULT_SOURCE),
         "timestamp_sec": round(stream_t, 2),
         "wall_time": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "event_type": ep.event_type,
@@ -1591,6 +1687,7 @@ def _flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
                 frame=ep.peak_frame,
                 primary_detections=list(ep.peak_detections),
                 primary_event=event,
+                calibration=slot.calibration,
             ),
         )
 
@@ -2453,12 +2550,24 @@ def demo_track():
 
 # Videos that this endpoint knows how to probe + sync. Keyed on the short
 # ``?video=`` parameter so the frontend doesn't need to know absolute paths.
-from road_safety.config import _DEMO_FRONT_CAM_FILE, _DEMO_REAR_CAM_FILE  # noqa: E402
+from road_safety.config import (  # noqa: E402
+    _DEMO_FRONT_CAM_FILE,
+    _DEMO_LEFT_CAM_FILE,
+    _DEMO_REAR_CAM_FILE,
+)
 
 _DEMO_VIDEO_SOURCES: dict[str, Path] = {
     "front": _DEMO_FRONT_CAM_FILE,
     "rear": _DEMO_REAR_CAM_FILE,
+    "left": _DEMO_LEFT_CAM_FILE,
 }
+
+# The bundled dashcam MP4s carry ``creation_time`` from the original recording
+# session, which falls outside the bundled GPX window (01:26:42Z–01:51:15Z).
+# Override to the GPX waypoint where the vehicle starts moving after the idle
+# stretch — 18:28:25 Vancouver — so the map marker departs in lockstep with
+# the video's first frame instead of falling back to the ``nearest`` segment.
+_DEMO_VIDEO_START_ISO_UTC = "2026-04-20T01:28:25.002Z"
 
 
 @app.get("/api/demo/video-track")
@@ -2523,12 +2632,16 @@ def demo_video_track(video: str = "front"):
         }
 
     track = demo_track_service.load_track_for_window(
-        start_iso_utc=meta.creation_time,
+        start_iso_utc=_DEMO_VIDEO_START_ISO_UTC,
         duration_sec=meta.duration_sec,
     )
     return {
         **track,
-        "video": {"key": video, **meta.to_dict()},
+        "video": {
+            "key": video,
+            **meta.to_dict(),
+            "creation_time": _DEMO_VIDEO_START_ISO_UTC,
+        },
         "vehicle": {
             "plate": "XX 001 X",
             "model": "Nissan Rogue",
@@ -3278,12 +3391,23 @@ def live_source_start(source_id: str):
     AUTH: public (operator network)
     Returns: the slot's status dict, with ``running=true`` on success
         or ``last_error`` populated on failure.
+
+    Semantics:
+        - If the slot's reader is alive but paused → flip the pause gate
+          off and continue from the preserved playback position.
+        - Otherwise (never started, or fully stopped) → spawn a fresh
+          reader from frame 0.
     """
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
     if slot.is_running():
         return {"ok": True, "already_running": True, **slot.status_dict()}
+    # Prefer resume-in-place over a fresh reader so the MP4 picks up where
+    # it was paused instead of rewinding to frame 0.
+    if _resume_slot(slot):
+        audit.log("stream_resume", source_id)
+        return {"ok": True, "resumed": True, **slot.status_dict()}
     try:
         _start_slot(slot)
     except Exception as exc:
@@ -3302,13 +3426,56 @@ def live_source_pause(source_id: str):
 
     HTTP: POST /api/live/sources/{source_id}/pause
     AUTH: public (operator network)
+
+    Unlike the prior implementation this does NOT tear down the reader —
+    it just flips the pause gate so the capture thread sits idle without
+    releasing the VideoCapture handle. That preserves MP4 playback
+    position so the next Start resumes in place.
     """
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
-    _stop_slot(slot)
+    if not _pause_slot(slot):
+        # Reader wasn't alive to begin with — nothing to pause. Treat as
+        # idempotent: the UI's optimistic "paused" state is already correct.
+        pass
     audit.log("stream_pause", source_id)
     return {"ok": True, **slot.status_dict()}
+
+
+@app.post("/api/live/sources/restart_all")
+def live_source_restart_all():
+    """Restart every slot from the beginning (demo reset).
+
+    HTTP: POST /api/live/sources/restart_all
+    AUTH: public (operator network)
+
+    For each slot: stop the running reader (if any) and start a fresh one.
+    For MP4 demo sources this rewinds capture to frame 0; for live feeds
+    it reconnects. ``slot.started_at`` is replaced so ``uptime_sec``
+    re-zeroes, which the frontend uses as the map-playhead reset signal.
+    Per-source perception state is intentionally preserved — the scene
+    classifier and quality monitor don't need to re-learn an unchanged
+    camera.
+    """
+    results: list[dict] = []
+    for sid, slot in list(state.slots.items()):
+        if not slot.original_source:
+            # Skip placeholder / empty slots — nothing to restart.
+            continue
+        if slot.is_running():
+            _stop_slot(slot)
+        try:
+            _start_slot(slot)
+            results.append({"id": sid, "ok": True, **slot.status_dict()})
+        except Exception as exc:
+            slot.last_error = str(exc)
+            log.warning("restart_all: slot %s failed: %s", sid, exc)
+            results.append({
+                "id": sid, "ok": False, "error": str(exc), **slot.status_dict(),
+            })
+    audit.log("stream_restart_all", "all", detail={"count": len(results)})
+    return {"ok": True, "results": results}
 
 
 def _slugify_id(seed: str) -> str:

@@ -37,7 +37,7 @@ import styles from "./AdminPage.module.css";
 
 export function AdminPage() {
   const { data: health } = useAdminHealth();
-  const { frames } = useDetections();
+  const { frames, playheads } = useDetections();
   const { events: liveEvents, connected } = useEventStream();
   const liveSources = useLiveSources(5000);
   const { status: wdStatus } = useWatchdogCtx();
@@ -158,13 +158,22 @@ export function AdminPage() {
               <VehicleMap
                 videoKey="front"
                 clock={{
-                  // Wallclock since stream start — works for any transport
-                  // (MJPEG, polled JPEGs, file-loop). With ``videoKey`` set
-                  // the track is already in video time, so the marker is
-                  // driven directly by the playhead (no loop compression).
+                  // ``uptimeSec`` is the wallclock-since-start fallback;
+                  // useful only when the per-frame SSE playhead hasn't
+                  // arrived yet (first ~500 ms after a stream starts).
                   uptimeSec: mapClockSource.uptime_sec,
                   running: mapClockSource.running,
                   videoDurationSec: null,
+                  resetToken: liveSources.restartAllToken,
+                  // Authoritative playhead pushed every frame over SSE.
+                  // When the operator pauses the stream the value stops
+                  // advancing → the marker freezes; when the MP4 loops,
+                  // the value resets → the marker snaps back to the
+                  // start of the GPS track. Tight, no 5 s polling drift.
+                  videoPosSec:
+                    playheads[mapClockSource.id]?.posSec ?? null,
+                  videoPosReceivedAtMs:
+                    playheads[mapClockSource.id]?.receivedAtMs ?? null,
                 }}
               />
             </div>

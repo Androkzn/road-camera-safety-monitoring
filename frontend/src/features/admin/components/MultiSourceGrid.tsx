@@ -103,12 +103,21 @@ function StreamTile({
           }
         }}
       >
-        {running && !imgError ? (
-          <StreamImage
-            source={source}
-            className={styles.video}
-            onError={() => setImgError(true)}
-          />
+        {source.started_at && !imgError ? (
+          // Keep the <StreamImage> mounted across pause/resume so the
+          // last-delivered frame stays on screen (frozen) instead of
+          // snapping to a placeholder. The server keeps the reader alive
+          // while paused, so the MJPEG buffer still holds the last frame.
+          <>
+            <StreamImage
+              source={source}
+              className={styles.video}
+              onError={() => setImgError(true)}
+            />
+            {!running && !source.last_error && (
+              <span className={styles.pausedBadge}>Paused</span>
+            )}
+          </>
         ) : (
           <div className={styles.placeholder}>
             {source.last_error
@@ -193,101 +202,6 @@ function StreamTile({
   );
 }
 
-function AddStreamForm({
-  onAdd,
-}: {
-  onAdd: (input: { url: string; name?: string }) => Promise<{ ok: boolean; error?: string }>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [url, setUrl] = useState("");
-  const [name, setName] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const reset = () => {
-    setUrl("");
-    setName("");
-    setError(null);
-  };
-
-  const submit = async () => {
-    if (!url.trim()) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await onAdd({ url: url.trim(), name: name.trim() || undefined });
-      if (!res.ok) {
-        // Backend created the slot but autostart failed — keep the form
-        // open so the operator can correct the URL or just close.
-        setError(res.error || "Failed to start stream");
-      } else {
-        reset();
-        setOpen(false);
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className={styles.addToggle}
-        onClick={() => setOpen(true)}
-      >
-        + Add stream
-      </button>
-    );
-  }
-
-  return (
-    <form
-      className={styles.addForm}
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-    >
-      <input
-        type="url"
-        className={styles.addInput}
-        placeholder="Paste a YouTube live URL or HLS .m3u8…"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        autoFocus
-        required
-      />
-      <input
-        type="text"
-        className={`${styles.addInput} ${styles.addInputName}`}
-        placeholder="Name (optional)"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <button
-        type="submit"
-        className={`${styles.toolbarBtn} ${styles.addSubmit}`}
-        disabled={!url.trim() || submitting}
-      >
-        {submitting ? "Adding…" : "Add"}
-      </button>
-      <button
-        type="button"
-        className={styles.toolbarBtn}
-        onClick={() => {
-          reset();
-          setOpen(false);
-        }}
-        disabled={submitting}
-      >
-        Cancel
-      </button>
-      {error && <span className={styles.addError}>{error}</span>}
-    </form>
-  );
-}
-
 interface MultiSourceGridProps {
   // Controlled state lives in AdminPage so the page header can also read
   // the focused source. Pass the full hook result here and the grid
@@ -297,9 +211,23 @@ interface MultiSourceGridProps {
   onFocusChange: (id: string | null) => void;
 }
 
-export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: MultiSourceGridProps) {
-  const { sources, loading, error, start, pause, setDetection, add, remove, busyById } =
-    liveSources;
+export function MultiSourceGrid({
+  liveSources,
+  focusedId,
+  onFocusChange,
+}: MultiSourceGridProps) {
+  const {
+    sources,
+    loading,
+    error,
+    start,
+    pause,
+    setDetection,
+    remove,
+    busyById,
+    restartAll,
+    restartingAll,
+  } = liveSources;
 
   // Esc exits focus mode — common expectation for "maximized" UI.
   useEffect(() => {
@@ -318,17 +246,10 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
     return <div className={styles.empty}>Failed to load sources: {error}</div>;
   }
 
-  // Bulk-select counters work even when the list is empty (rendered below
-  // the toolbar) — but the "Add stream" affordance must always be shown
-  // so an operator who removed every tile can still recover.
+  // Per-tile detection toggles live on each StreamTile; bulk select/clear
+  // controls were removed from the toolbar. We still surface the live
+  // enabled-count in the toolbar label for at-a-glance visibility.
   const enabledCount = sources.filter((s) => s.detection_enabled).length;
-  const allEnabled = sources.length > 0 && enabledCount === sources.length;
-  const noneEnabled = enabledCount === 0;
-  const setAll = (enabled: boolean) => {
-    sources.forEach((s) => {
-      if (s.detection_enabled !== enabled) setDetection(s.id, enabled);
-    });
-  };
 
   // Shared "Start all" / "Pause all" controls. The per-tile start/pause
   // buttons still work for targeted control; these toolbar actions iterate
@@ -380,7 +301,6 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
           )}
         </span>
         <div className={styles.toolbarActions}>
-          <AddStreamForm onAdd={add} />
           <button
             type="button"
             className={`${styles.toolbarBtn} ${styles.toolbarBtnStart}`}
@@ -388,7 +308,7 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
             disabled={allRunning || sources.length === 0 || anyBusy}
             title="Start every paused stream"
           >
-            Start all
+            Start
           </button>
           <button
             type="button"
@@ -397,30 +317,23 @@ export function MultiSourceGrid({ liveSources, focusedId, onFocusChange }: Multi
             disabled={noneRunning || anyBusy}
             title="Pause every running stream"
           >
-            Pause all
+            Pause
           </button>
           <button
             type="button"
             className={styles.toolbarBtn}
-            onClick={() => setAll(true)}
-            disabled={allEnabled || sources.length === 0}
+            onClick={restartAll}
+            disabled={sources.length === 0 || restartingAll}
+            title="Restart every stream from the beginning and reset the map marker"
           >
-            Select all
-          </button>
-          <button
-            type="button"
-            className={styles.toolbarBtn}
-            onClick={() => setAll(false)}
-            disabled={noneEnabled}
-          >
-            Clear all
+            {restartingAll ? "Restarting…" : "Restart"}
           </button>
         </div>
       </div>
       {sources.length === 0 ? (
         <div className={styles.empty}>
-          No streams yet. Click <strong>+ Add stream</strong> above to paste a URL,
-          or set <code>ROAD_STREAM_SOURCES</code> in <code>.env</code> for permanent ones.
+          No streams yet. Set <code>ROAD_STREAM_SOURCES</code> in <code>.env</code>
+          {" "}and restart the server.
         </div>
       ) : focusedSource ? (
         <div className={styles.focusedLayout}>

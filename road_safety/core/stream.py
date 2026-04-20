@@ -49,6 +49,7 @@ import shutil       # stdlib: ``shutil.which`` = cross-platform ``which``/``wher
 import subprocess   # stdlib: spawn + control external processes (yt-dlp, ffmpeg)
 import threading    # stdlib: real OS threads + sync primitives (Event, Lock)
 import time         # stdlib: wall-clock timestamps for frame tagging
+from pathlib import Path
 from typing import Callable  # type hint for "any callable taking these args"
 
 import cv2          # OpenCV: VideoCapture, frame decoding. Frames are numpy
@@ -116,6 +117,32 @@ def classify_source(source: str) -> str:
     # (classifier must be cheap + pure) — the reader itself will surface
     # "failed to open" if the path is wrong.
     return "dashcam_file"
+
+
+def display_video_id(source: str) -> str:
+    """Derive an egress-safe, human-readable identifier from a source string.
+
+    Used as the ``video_id`` field on emitted events. Raw sources are not safe
+    to emit: a local file path contains the operator's home directory (e.g.
+    ``/Users/alice/...``) and leaks into the cloud receiver, Slack, and the
+    admin UI. Basename is stable, readable, and non-identifying.
+
+    Mapping:
+        - empty               → ``"stream"``
+        - webcam index        → ``"webcam:N"``
+        - http/https/rtsp/... → URL as-is (already public)
+        - YouTube URL         → URL as-is
+        - local file path     → basename only (``"Left Cam.mp4"``)
+    """
+    s = (source or "").strip()
+    if not s:
+        return "stream"
+    if s.isdigit() and len(s) <= 2:
+        return f"webcam:{s}"
+    lowered = s.lower()
+    if lowered.startswith(("http://", "https://", "rtsp://", "rtmp://")):
+        return s
+    return Path(s).name or s
 
 
 def resolve_hls(source: str) -> str:
@@ -250,6 +277,12 @@ class StreamReader:
         # true; ``is_set()`` reads it; ``wait()`` blocks until set. We use it
         # as a "please stop" signal from the main thread to the capture loop.
         self._stop = threading.Event()
+        # Pause flag — set by ``pause()``, cleared by ``resume()``. When set,
+        # the capture loop sleeps between iterations without releasing the
+        # VideoCapture handle so the MP4 playback position is preserved and
+        # ``resume()`` continues exactly where we paused. For live feeds the
+        # network connection stays open but ``on_frame`` is skipped.
+        self._paused = threading.Event()
         self._procs: list[subprocess.Popen] = []
         self.started_at: float | None = None
         self.frames_read = 0
@@ -291,6 +324,9 @@ class StreamReader:
         how long we hang.
         """
         self._stop.set()
+        # Unblock anything waiting on the pause gate so the loop sees the
+        # stop flag promptly instead of sleeping out its pause interval.
+        self._paused.clear()
         for p in self._procs:
             try:
                 p.kill()
@@ -300,6 +336,24 @@ class StreamReader:
                 pass
         if self._thread:
             self._thread.join(timeout=5)
+
+    def pause(self) -> None:
+        """Suspend frame emission without releasing the capture handle.
+
+        For finite local files this keeps ``cv2.VideoCapture`` at its current
+        frame, so ``resume()`` continues playback exactly where we paused —
+        which is what the operator expects from a Start-after-Pause. For live
+        feeds the network read keeps running (we can't rewind HLS) but
+        ``on_frame`` is skipped while paused, so no new detections fire.
+        """
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Undo :meth:`pause` and let the capture loop emit frames again."""
+        self._paused.clear()
+
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
 
     def uptime_sec(self) -> float:
         """Seconds since ``start()`` was called; ``0.0`` if never started.
@@ -394,6 +448,14 @@ class StreamReader:
         # ahead we sleep, if we're behind we fire immediately and catch up.
         next_deadline = time.time() if self.loop else 0.0
         while not self._stop.is_set():
+            # Pause gate: if the operator paused the stream, sit on the stop
+            # event so we wake promptly on either resume or shutdown. Resetting
+            # ``next_deadline`` on wake prevents a burst of catch-up frames
+            # when the pause duration exceeded the target frame interval.
+            if self._paused.is_set():
+                self._stop.wait(timeout=0.2)
+                next_deadline = time.time()
+                continue
             ok, frame = cap.read()
             if not ok:
                 # Looping replay for finite local files (demo dashcam mode).
@@ -569,6 +631,10 @@ class StreamReader:
             # axis 0 = row (y), axis 1 = col (x), axis 2 = BGR channel.
             frame = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 3))
             self.frames_read += 1
+            # While paused, keep draining the pipe (so ffmpeg doesn't block)
+            # but skip the callback so no new detections / UI frames fire.
+            if self._paused.is_set():
+                continue
             try:
                 on_frame(time.time(), frame)
                 self.frames_processed += 1

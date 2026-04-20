@@ -45,6 +45,7 @@ from __future__ import annotations
 # project imports — this module sits at the bottom of the dependency graph.
 import os
 import secrets
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -107,9 +108,11 @@ YT_DLP_PATH = str(_VENV_YT_DLP) if _VENV_YT_DLP.exists() else "yt-dlp"
 # real deployment.
 _DEMO_FRONT_CAM_FILE = PROJECT_ROOT / "resourses" / "Front Cam.mp4"
 _DEMO_REAR_CAM_FILE = PROJECT_ROOT / "resourses" / "Rear Cam.mp4"
+_DEMO_LEFT_CAM_FILE = PROJECT_ROOT / "resourses" / "Left Cam.mp4"
 _DEMO_DASHCAM_FILE = _DEMO_FRONT_CAM_FILE  # back-compat alias for legacy imports
 _DEMO_DASHCAM_SOURCE = str(_DEMO_DASHCAM_FILE) if _DEMO_DASHCAM_FILE.exists() else ""
 _DEMO_REAR_CAM_SOURCE = str(_DEMO_REAR_CAM_FILE) if _DEMO_REAR_CAM_FILE.exists() else ""
+_DEMO_LEFT_CAM_SOURCE = str(_DEMO_LEFT_CAM_FILE) if _DEMO_LEFT_CAM_FILE.exists() else ""
 
 # ``ROAD_STREAM_SOURCE`` — what the edge node captures from. Empty string
 # falls back to the demo dashcam loop above. Accepted forms: HLS URL,
@@ -151,6 +154,12 @@ def _parse_stream_sources() -> list[dict[str, str]]:
                         "id": "rear",
                         "name": "Fox Factory — Nissan Rogue XX 001 X — Rear Cam",
                         "url": _DEMO_REAR_CAM_SOURCE,
+                    })
+                if _DEMO_LEFT_CAM_SOURCE:
+                    sources.append({
+                        "id": "left",
+                        "name": "Fox Factory — Nissan Rogue XX 001 X — Left Cam",
+                        "url": _DEMO_LEFT_CAM_SOURCE,
                     })
                 return sources
             return [{"id": "primary", "name": "Primary", "url": DEFAULT_STREAM_SOURCE}]
@@ -297,6 +306,205 @@ LOCATION = os.getenv("ROAD_LOCATION", "")
 CAMERA_FOCAL_PX = float(os.getenv("ROAD_CAMERA_FOCAL_PX", "600.0"))
 CAMERA_HEIGHT_M = float(os.getenv("ROAD_CAMERA_HEIGHT_M", "1.25"))
 CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.45"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Section: PER-CAMERA CALIBRATION (multi-slot demo + production fleets)
+# ─────────────────────────────────────────────────────────────────────────────
+# A single fleet vehicle commonly carries multiple cameras (front dashcam,
+# rear-window cam, side-window cam). Each has its own focal length, mount
+# height, tilt (horizon fraction), orientation relative to travel, and
+# offset from the camera to the nearest car body edge along its optical
+# axis. Reusing one global ``CAMERA_*`` constant for all of them biases
+# every distance and TTC reading downstream by 20–50 % (focal mismatch
+# alone) plus an additive bumper offset on top.
+#
+# This block defines:
+#   * ``CameraCalibration`` — frozen dataclass bundling the five intrinsics.
+#   * Hard-coded per-slot defaults that match the bundled Nissan Rogue demo
+#     vehicle (front dashcam = iPhone wide / 1×; rear + left cams =
+#     iPhone ultra-wide / 0.5×).
+#   * ``camera_calibration_for(slot_id)`` — looks up the slot default and
+#     applies any ``ROAD_CAMERA_<FIELD>__<SLOT>`` env overrides on top.
+#
+# Per-slot env override grammar (all optional, slot id upper-cased):
+#   ROAD_CAMERA_FOCAL_PX__<SLOT>        → focal length in pixels at the
+#                                          decoded frame width
+#   ROAD_CAMERA_HEIGHT_M__<SLOT>        → camera mount height (m above ground)
+#   ROAD_CAMERA_HORIZON_FRAC__<SLOT>    → vertical fraction of frame where
+#                                          the horizon sits (0 = top, 1 = bot)
+#   ROAD_CAMERA_ORIENTATION__<SLOT>     → "forward" | "rear" | "side"
+#                                          - forward / rear = pinhole +
+#                                            ground-plane prior both apply
+#                                          - side = ground-plane prior is
+#                                            invalid (no road below the
+#                                            optical axis); known-height
+#                                            prior only. Distance reading
+#                                            represents *lateral* range.
+#   ROAD_CAMERA_BUMPER_OFFSET_M__<SLOT> → metres from the camera mount point
+#                                          to the nearest body edge along
+#                                          its optical axis. Subtracted from
+#                                          every distance reading so the
+#                                          number reported is the gap to the
+#                                          car, not to the camera itself.
+#
+# Why a frozen dataclass: calibration is immutable for the lifetime of a
+# slot. Freezing it makes accidental mutation impossible and lets the
+# value safely live on multiple threads (perception worker + validator).
+
+
+@dataclass(frozen=True)
+class CameraCalibration:
+    """Per-camera intrinsics + mount geometry + body offset.
+
+    Attributes:
+        focal_px: Focal length of the lens expressed in pixels at the
+            *decoded* frame width the perception loop actually sees.
+            Wider lenses (iPhone 0.5× ultra-wide) produce smaller numbers
+            for the same sensor — a 1× wide ≈ 600 px at 640-wide decode,
+            a 0.5× ultra-wide ≈ 260 px at the same decode.
+        height_m: Mount height above the road in metres. Drives the
+            ground-plane distance prior and ego-speed math.
+        horizon_frac: Vertical fraction of the image where the horizon
+            sits (0 top, 1 bottom). 0.45 for a slightly down-tilted
+            front dashcam; 0.5 for a level side-window cam.
+        orientation: ``"forward"``, ``"rear"``, or ``"side"``.
+            - ``forward`` / ``rear``: standard pinhole + ground-plane.
+              Reported distance is the longitudinal range to the camera
+              (and after bumper offset, to the nearest body edge).
+            - ``side``: ground-plane prior is invalid (the road is not
+              below the optical axis for a perpendicular-mounted cam);
+              only the known-height prior is used. The reported distance
+              is *lateral* — adjacent-lane range, not forward range.
+        bumper_offset_m: Distance from the camera mount point to the
+            nearest body edge along the camera's optical axis, in metres.
+            Subtracted from every estimate so the published value is the
+            gap to the car, not the gap to the camera.
+    """
+
+    focal_px: float
+    height_m: float
+    horizon_frac: float
+    orientation: str = "forward"
+    bumper_offset_m: float = 0.0
+
+
+# Default calibration — matches the legacy global ``CAMERA_*`` constants so
+# any code path that does not yet thread a per-slot calibration through
+# preserves its old behaviour to the byte.
+DEFAULT_CAMERA_CALIBRATION = CameraCalibration(
+    focal_px=CAMERA_FOCAL_PX,
+    height_m=CAMERA_HEIGHT_M,
+    horizon_frac=CAMERA_HORIZON_FRAC,
+    orientation="forward",
+    bumper_offset_m=0.0,
+)
+
+
+# Per-slot defaults for the bundled Nissan Rogue demo vehicle. Real fleets
+# override these per camera via the ``ROAD_CAMERA_*__<SLOT>`` env vars.
+#
+# Nissan Rogue cabin geometry (2021–2024 US trim, used here as the
+# reference vehicle for the bundled demo MP4s):
+#   * rearview-mirror dashcam → ground:        1.25 m
+#   * rearview-mirror dashcam → front bumper:  1.7  m
+#   * rear window cam        → ground:         1.10 m
+#   * rear window cam        → rear bumper:    0.30 m
+#   * left window cam        → ground:         1.00 m
+#   * left window cam        → left flank:     0.10 m
+#
+# iPhone lens focal length at the perception loop's 640-wide decode:
+#   * 1× wide          → ≈ 600 px (front dashcam)
+#   * 0.5× ultra-wide  → ≈ 260 px (rear + left window cams)
+_PER_SLOT_CAMERA_DEFAULTS: dict[str, CameraCalibration] = {
+    # Front dashcam: standard iPhone wide on the rearview mirror.
+    "primary": CameraCalibration(
+        focal_px=600.0, height_m=1.25, horizon_frac=0.45,
+        orientation="forward", bumper_offset_m=1.7,
+    ),
+    "front": CameraCalibration(
+        focal_px=600.0, height_m=1.25, horizon_frac=0.45,
+        orientation="forward", bumper_offset_m=1.7,
+    ),
+    # Rear-window cam: iPhone 0.5× ultra-wide. Same pinhole + ground-plane
+    # math as the front, just smaller focal + lower mount + smaller offset.
+    "rear": CameraCalibration(
+        focal_px=260.0, height_m=1.10, horizon_frac=0.45,
+        orientation="rear", bumper_offset_m=0.3,
+    ),
+    # Left side-window cam: iPhone 0.5× ultra-wide perpendicular to travel.
+    # Horizon sits at image-center because the camera is level. Distance
+    # reading is lateral, not forward — see ``CameraCalibration.orientation``.
+    "left": CameraCalibration(
+        focal_px=260.0, height_m=1.00, horizon_frac=0.50,
+        orientation="side", bumper_offset_m=0.1,
+    ),
+    "left_side": CameraCalibration(
+        focal_px=260.0, height_m=1.00, horizon_frac=0.50,
+        orientation="side", bumper_offset_m=0.1,
+    ),
+    # Right side-window cam: mirror of the left side. Provided for
+    # symmetric multi-camera fleet installs even though the bundled demo
+    # MP4s do not include one.
+    "right": CameraCalibration(
+        focal_px=260.0, height_m=1.00, horizon_frac=0.50,
+        orientation="side", bumper_offset_m=0.1,
+    ),
+    "right_side": CameraCalibration(
+        focal_px=260.0, height_m=1.00, horizon_frac=0.50,
+        orientation="side", bumper_offset_m=0.1,
+    ),
+}
+
+
+def _camera_env_float(slot_id: str, field_suffix: str, fallback: float) -> float:
+    """Read ``ROAD_CAMERA_<FIELD>__<SLOT>`` as a float, with a fallback.
+
+    Empty / missing / unparseable values silently fall back so a typo in
+    one knob never crashes the perception loop.
+    """
+    raw = os.getenv(f"ROAD_CAMERA_{field_suffix}__{slot_id.upper()}", "").strip()
+    if not raw:
+        return fallback
+    try:
+        return float(raw)
+    except ValueError:
+        return fallback
+
+
+def _camera_env_str(slot_id: str, field_suffix: str, fallback: str) -> str:
+    raw = os.getenv(f"ROAD_CAMERA_{field_suffix}__{slot_id.upper()}", "").strip().lower()
+    if raw not in {"forward", "rear", "side"}:
+        return fallback
+    return raw
+
+
+def camera_calibration_for(slot_id: str) -> CameraCalibration:
+    """Resolve the effective per-camera calibration for a stream slot.
+
+    Lookup order (later wins):
+      1. ``DEFAULT_CAMERA_CALIBRATION`` (legacy single-camera defaults).
+      2. ``_PER_SLOT_CAMERA_DEFAULTS[slot_id]`` if a slot-specific entry
+         exists (covers the bundled Nissan Rogue demo cameras).
+      3. ``ROAD_CAMERA_<FIELD>__<SLOT>`` env overrides per field.
+
+    Args:
+        slot_id: The stream slot identifier (e.g. ``"primary"``,
+            ``"rear"``, ``"left"``, or any operator-defined id).
+
+    Returns:
+        A frozen ``CameraCalibration`` ready to thread through the
+        distance / TTC pipeline.
+    """
+    base = _PER_SLOT_CAMERA_DEFAULTS.get(slot_id, DEFAULT_CAMERA_CALIBRATION)
+    return replace(
+        base,
+        focal_px=_camera_env_float(slot_id, "FOCAL_PX", base.focal_px),
+        height_m=_camera_env_float(slot_id, "HEIGHT_M", base.height_m),
+        horizon_frac=_camera_env_float(slot_id, "HORIZON_FRAC", base.horizon_frac),
+        orientation=_camera_env_str(slot_id, "ORIENTATION", base.orientation),
+        bumper_offset_m=_camera_env_float(slot_id, "BUMPER_OFFSET_M", base.bumper_offset_m),
+    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: DISTANCE / DEPTH ESTIMATION
