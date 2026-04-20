@@ -100,8 +100,11 @@ export interface LiveStatus {
 
 /**
  * Transport / origin of a perception source, used to pick a UI badge.
- *  - `dashcam_file` — local MP4 replayed on a loop (the demo dashcam).
- *  - `live_yt`      — YouTube live URL (resolved via yt-dlp).
+ *  - `dashcam_file` — local MP4 file (e.g. a looping test fixture); the
+ *                    tag name is historical and kept for wire-format
+ *                    compatibility with the backend.
+ *  - `live_yt`      — YouTube live URL (resolved via yt-dlp); the common
+ *                    case for fixed road/intersection cameras.
  *  - `live_hls`     — HLS / RTSP / RTMP network URL.
  *  - `webcam`       — OS webcam device (`cv2.VideoCapture("0")`).
  *  - `unknown`      — empty / unrecognised (no badge).
@@ -125,9 +128,9 @@ export interface LiveSourceStatus {
   frames_read: number;
   frames_processed: number;
   uptime_sec: number;
-  /** Current MP4 playback head in seconds (dashcam_file only; 0 for live). */
+  /** Current MP4 playback head in seconds (local-file sources only; 0 for live streams). */
   playback_pos_sec: number;
-  /** Duration of the backing MP4 in seconds (dashcam_file only; 0 for live). */
+  /** Duration of the backing MP4 in seconds (local-file sources only; 0 for live streams). */
   playback_duration_sec: number;
   started_at: number | null;
   active_episodes: number;

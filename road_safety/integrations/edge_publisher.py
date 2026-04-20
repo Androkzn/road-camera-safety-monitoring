@@ -88,6 +88,7 @@ import hmac         # keyed-MAC primitive used for batch + URL signing
 import json         # serialize events to/from JSON lines
 import logging      # structured logger (prefer this over print)
 import os           # read environment variables via os.getenv
+import random       # jitter for backoff to de-synchronize fleet retries
 import secrets      # cryptographically-secure random (used for nonce)
 import time         # unix timestamps for expiry + signing
 from dataclasses import dataclass  # tiny POD class for backoff state
@@ -95,13 +96,53 @@ from pathlib import Path           # OO filesystem paths — no string-joining
 from typing import Any             # ``Any`` = "escape hatch" static type
 
 # Third-party. ``httpx`` is an async-capable HTTP client (think requests,
-# but awaitable). We use its ``AsyncClient`` context manager so connections
-# are pooled and cleanly closed.
+# but awaitable). We use a module-level singleton ``AsyncClient`` (lazily
+# constructed and reused) so the TCP + TLS handshake is paid ONCE per
+# process rather than per-flush. During an outage-recovery burst the
+# per-request handshake cost would otherwise stack with the backlog.
 import httpx
 
 # One named logger per module. Callers configure handlers centrally; we
 # never ``print`` from production code paths.
 logger = logging.getLogger("edge_publisher")
+
+# ---------------------------------------------------------------------------
+# Shared httpx.AsyncClient singleton.
+# ``timeout=15.0`` is preserved from the previous per-call constructor (the
+# connect + read + write wall-clock budget for a single cloud POST). We
+# lazy-construct on first flush so simply importing this module never opens
+# a socket. ``_client_lock`` serializes the check-lock-check so two
+# concurrent first-flushers can't race and create duplicate clients.
+# ---------------------------------------------------------------------------
+_client: httpx.AsyncClient | None = None
+_client_lock = asyncio.Lock()
+
+
+async def _get_client() -> httpx.AsyncClient:
+    """Return the module-level ``httpx.AsyncClient``, constructing it once.
+
+    Double-checked locking: fast-path racy ``is None`` peek, and the lock is
+    only grabbed on a miss. The client reference never un-sets itself during
+    normal operation (only ``aclose`` nils it on shutdown).
+    """
+    global _client
+    if _client is not None:
+        return _client
+    async with _client_lock:
+        if _client is None:
+            _client = httpx.AsyncClient(timeout=15.0)
+        return _client
+
+
+async def aclose() -> None:
+    """Close the shared client on shutdown. Exposed for lifespan wiring."""
+    global _client
+    if _client is not None:
+        try:
+            await _client.aclose()
+        except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
+            logger.warning("edge_publisher client aclose failed: %s", exc)
+        _client = None
 
 # ============================================================================
 # Section: presigned thumbnail URLs
@@ -233,16 +274,26 @@ class _BackoffState:
     max_delay: float = 60.0
 
     def next(self) -> float:
-        """Return the CURRENT delay and double it for next time (capped).
+        """Return the CURRENT delay (with ±10% jitter) and double it next time.
 
         Why return the current value before doubling? So the first call
-        yields 1s (a short, forgiving first retry), the second 2s, then
-        4s, 8s, 16s, 32s, 60s, 60s … Classic capped exponential backoff.
+        yields ~1s (a short, forgiving first retry), the second ~2s, then
+        ~4s, 8s, 16s, 32s, 60s, 60s … Classic capped exponential backoff.
+
+        Why jitter? Every edge node in a fleet sees the same upstream
+        outage at roughly the same wall-clock time; without jitter their
+        retries re-synchronize on each doubling and stampede the receiver
+        just as it recovers. A small uniform ±10% jitter is the cheapest,
+        most well-known fix ("full jitter" is also fine but overkill for
+        a fleet of this size).
         """
         d = self.delay
         # ``min(a, b)`` prevents the delay from growing past ``max_delay``.
         self.delay = min(self.delay * 2.0, self.max_delay)
-        return d
+        # ±10% jitter around the nominal delay. Clamp to 0 so we never
+        # return a negative sleep even if the RNG somehow hits the floor.
+        jitter = random.uniform(-d * 0.1, d * 0.1)
+        return max(0.0, d + jitter)
 
     def reset(self) -> None:
         """Call after a successful flush so the next failure starts fresh."""
@@ -609,15 +660,16 @@ class EdgePublisher:
         }
 
         try:
-            # ``async with httpx.AsyncClient(...)`` creates a pooled HTTP
-            # client and guarantees its connections are closed on exit.
-            # ``timeout=15.0`` covers connect + read + write (wall-clock).
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                # ``await`` suspends this coroutine until the POST returns.
-                # We pass ``content=body`` (raw bytes) because we've already
-                # built the exact bytes we signed — using ``json=`` here
-                # would re-serialize and change the signature.
-                resp = await client.post(self.endpoint_url, content=body, headers=headers)
+            # Reuse the module-level pooled client — no per-call TCP/TLS
+            # handshake. ``timeout=15.0`` lives on the singleton (same
+            # budget as the previous per-call constructor: connect + read
+            # + write wall-clock).
+            client = await _get_client()
+            # ``await`` suspends this coroutine until the POST returns.
+            # We pass ``content=body`` (raw bytes) because we've already
+            # built the exact bytes we signed — using ``json=`` here
+            # would re-serialize and change the signature.
+            resp = await client.post(self.endpoint_url, content=body, headers=headers)
             # Retryable failures — server-side hiccups, overload, or an
             # explicit "slow down" signal. Keep the batch queued.
             #   408 = Request Timeout, 429 = Too Many Requests (rate limit),

@@ -89,14 +89,20 @@ def _is_youtube(source: str) -> bool:
 def classify_source(source: str) -> str:
     """Tag a source string with a UI-visible transport mode.
 
-    Used to distinguish the demo "fake dashcam" MP4 loop from real live feeds
-    in the admin grid and status API. The returned value is a stable short
-    string suitable for a CSS class / badge label.
+    Used to distinguish a looping local-file demo source from real live
+    road-camera feeds in the admin grid and status API. The returned
+    value is a stable short string suitable for a CSS class / badge
+    label.
 
     Returns:
-        ``"live_yt"``       — YouTube live URL.
+        ``"live_yt"``       — YouTube live URL (typical for fixed road /
+                               intersection cameras).
         ``"dashcam_file"``  — local video file (path points at an existing
-                               file on disk; webcam indices use ``"webcam"``).
+                               file on disk; webcam indices use
+                               ``"webcam"``). The tag name is retained
+                               for API stability — it now just means
+                               "local file source" regardless of what
+                               that file contains.
         ``"webcam"``        — ``"0"`` / ``"1"`` / etc. (webcam device index).
         ``"live_hls"``      — HTTP(S) URL that isn't YouTube (HLS/RTSP/etc.).
         ``"unknown"``       — empty / unrecognised.
@@ -172,7 +178,7 @@ def resolve_hls(source: str) -> str:
 
     # Format selector mini-DSL used by yt-dlp. We prefer ≤720p because the
     # perception stack scales frames to 640x360 anyway — downloading 1080p
-    # would just waste bandwidth on an edge device.
+    # would just waste bandwidth on the edge node watching the feed.
     fmt_selectors = [
         "bv[height<=720]",       # video-only ≤720p (preferred)
         "b[height<=720]",        # combined ≤720p
@@ -264,9 +270,10 @@ class StreamReader:
                 the yt-dlp pipe re-runs yt-dlp with the original URL (the
                 resolved URL is already single-use / signature-expired).
             loop: When True and the source is a finite local file, rewind and
-                keep reading once EOF is reached instead of exiting. Used by
-                the demo "fake dashcam" mode to keep the MP4 replaying forever.
-                No effect on live network sources (you cannot rewind HLS).
+                keep reading once EOF is reached instead of exiting. Used
+                by the local-file source looping demo to keep the MP4
+                replaying forever. No effect on live network sources
+                (you cannot rewind HLS).
         """
         self.source_url = source_url
         self.original_source = original_source or source_url
@@ -287,12 +294,12 @@ class StreamReader:
         self.started_at: float | None = None
         self.frames_read = 0
         self.frames_processed = 0
-        # Demo-mode: current playback position inside the MP4 (seconds) and
-        # the MP4's total duration (seconds). Populated by ``_loop_opencv``
-        # only when ``self.loop`` is True — live feeds don't have a finite
-        # duration. Readers expose these through ``playback_position()`` so
-        # the frontend map overlay can sync its GPS marker to the actual
-        # video loop instead of wallclock.
+        # Local-file loop mode: current playback position inside the MP4
+        # (seconds) and the MP4's total duration (seconds). Populated by
+        # ``_loop_opencv`` only when ``self.loop`` is True — live feeds
+        # don't have a finite duration. Readers expose these through
+        # ``playback_position()`` so the frontend map overlay can sync
+        # its marker to the actual video loop instead of wallclock.
         self._video_pos_sec: float = 0.0
         self._video_duration_sec: float = 0.0
 
@@ -440,12 +447,13 @@ class StreamReader:
 
         i = 0
         consecutive_fail = 0
-        # Realtime pacing for the demo dashcam loop. Local files decode as
-        # fast as the CPU allows — without throttling, a 30s MP4 would play
-        # through in a fraction of a second and the perception pipeline's
-        # TTC math (which assumes wall-clock timestamps) would be meaningless.
-        # Deadline-based: next callback fires at ``next_deadline``; if we're
-        # ahead we sleep, if we're behind we fire immediately and catch up.
+        # Realtime pacing for the local-file looping demo. Local files
+        # decode as fast as the CPU allows — without throttling, a 30s
+        # MP4 would play through in a fraction of a second and the
+        # perception pipeline's TTC math (which assumes wall-clock
+        # timestamps) would be meaningless. Deadline-based: next callback
+        # fires at ``next_deadline``; if we're ahead we sleep, if we're
+        # behind we fire immediately and catch up.
         next_deadline = time.time() if self.loop else 0.0
         while not self._stop.is_set():
             # Pause gate: if the operator paused the stream, sit on the stop
@@ -458,9 +466,10 @@ class StreamReader:
                 continue
             ok, frame = cap.read()
             if not ok:
-                # Looping replay for finite local files (demo dashcam mode).
-                # ``CAP_PROP_POS_FRAMES`` = 0 rewinds to the start; guarded by
-                # ``self.loop`` so live network sources still bail on EOF.
+                # Looping replay for finite local files (local-file source
+                # looping demo). ``CAP_PROP_POS_FRAMES`` = 0 rewinds to the
+                # start; guarded by ``self.loop`` so live network sources
+                # still bail on EOF.
                 if self.loop:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ok, frame = cap.read()
@@ -505,10 +514,11 @@ class StreamReader:
                     self.frames_processed += 1
                 except Exception as exc:
                     print(f"[stream] on_frame error: {exc}")
-                # Pace the looped dashcam replay in wall-clock so TTC / ego-
-                # speed estimates reflect real seconds of motion, not CPU
-                # decode speed. Live network sources self-throttle via their
-                # own network pacing — no sleep needed.
+                # Pace the looped local-file replay in wall-clock so TTC /
+                # apparent-motion estimates reflect real seconds of scene
+                # motion, not CPU decode speed. Live network sources
+                # self-throttle via their own network pacing — no sleep
+                # needed.
                 if self.loop and self.target_fps > 0:
                     next_deadline += 1.0 / self.target_fps
                     delay = next_deadline - time.time()
@@ -548,8 +558,9 @@ class StreamReader:
         with no framing protocol needed.
         """
         # Fixed output geometry. 640x360 is a good match for YOLOv8n
-        # inference — large enough to detect distant pedestrians, small
-        # enough to stay at >2 fps on CPU-only edge hardware.
+        # inference — large enough to detect distant pedestrians at
+        # intersection scale, small enough to stay at >2 fps on CPU-only
+        # edge hardware.
         width, height = 640, 360
         fps = max(int(self.target_fps), 1)
 

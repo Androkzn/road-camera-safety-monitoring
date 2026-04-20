@@ -1,8 +1,9 @@
-"""Drift monitor + active-learning sampler for the road safety dashcam pipeline.
+"""Drift monitor + active-learning sampler for the road-safety pipeline.
 
 ROLE IN THE SYSTEM
 ------------------
-The hot path emits events. Operators review events and mark them tp (true
+The hot path emits events from the fixed road-camera feed (YouTube live
+streams of intersections). Operators review events and mark them tp (true
 positive) or fp (false positive) in the admin UI, which appends JSONL lines
 to ``data/feedback.jsonl``. This module sits above that signal and turns it
 into two products:
@@ -21,7 +22,7 @@ Two responsibilities, intentionally colocated because they share the same
      rolling-window precision. It also slices by ``risk_level`` and
      ``event_type`` so an operator can tell whether degradation is global or
      localized (e.g. one event_type is suddenly noisy because a new camera
-     angle landed on the system).
+     site or changed camera angle landed on the system).
 
   2. ``ActiveLearningSampler`` — pulls the *ambiguous* and *disputed* events
      off the wire and packages them for re-labeling in Label Studio / CVAT.

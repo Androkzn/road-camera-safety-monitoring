@@ -19,7 +19,7 @@ that the hot-path in ``road_safety/server.py::_run_loop`` reads to:
 
 **Design note**: "degraded => suppress events" is an **intentional** choice,
 not a bug. We would rather miss a marginal detection in a dirty-lens frame
-than publish a false alert that erodes driver trust. The Monitoring page
+than publish a false alert that erodes operator trust. The Monitoring page
 surfaces the state so operators can see *why* the system went quiet.
 
 Consumers
@@ -184,7 +184,7 @@ class QualityMonitor:
     """
 
     def __init__(self, window_sec: float = 300.0, log: bool = True):
-        """Perception-quality monitor for a live YOLO dashcam pipeline.
+        """Perception-quality monitor for a live road-camera YOLO pipeline.
 
         Computes cheap per-frame features (luminance, sharpness, saturated-pixel
         fraction) plus a slow EWMA of detection confidence, classifies the

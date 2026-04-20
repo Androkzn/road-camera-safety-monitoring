@@ -90,6 +90,34 @@ CORPUS_DIR = DATA_DIR / "corpus"
 # ``yolov8n.pt`` is the nano model, tuned for edge CPU/GPU performance.
 MODEL_PATH = os.getenv("ROAD_MODEL_PATH", str(PROJECT_ROOT / "yolov8n.pt"))
 
+# ── YOLO inference knobs ──────────────────────────────────────────────────────
+# Explicit per-call knobs threaded into ``model.track(...)`` / ``model(...)``
+# in ``core/detection.py``. Previously the code relied on ultralytics' implicit
+# defaults, which meant full-precision weights even on CUDA hardware that
+# could run FP16 for free, and a hard-coded 640 px letterbox regardless of the
+# deployed frame size. These knobs make both explicit.
+#
+# ``ROAD_YOLO_IMGSZ`` — square inference size in pixels. Ultralytics resizes
+# the input frame to this on each call; 640 is its own default and a good
+# general-purpose baseline. Lower to 512/448 on small edge boxes to trade a
+# bit of recall for latency; raise to 960 on GPU when you need distant-object
+# recall.
+YOLO_IMGSZ = int(os.getenv("ROAD_YOLO_IMGSZ", "640"))
+
+# ``ROAD_YOLO_HALF`` — FP16 inference toggle. Default is ``False`` because
+# FP16 is only safe on CUDA (CPU + Apple MPS either ignore it or misbehave).
+# We cannot auto-upgrade to ``True`` here because ``config.py`` must not
+# import ``torch`` (it sits at the bottom of the dependency graph and runs
+# at ``from road_safety.config import *`` time, before torch is guaranteed
+# importable). ``core/detection.py`` owns the actual device detection and
+# logs a hint when the selected device is CUDA but this flag is off.
+YOLO_HALF = os.getenv("ROAD_YOLO_HALF", "0").lower() not in ("0", "false", "no", "")
+
+# ``ROAD_YOLO_WARMUP`` — run a single synthetic inference at server start so
+# the first real frame doesn't pay the JIT / MPS compile cost. Default on;
+# set to 0/false/no in tests or when cold-start latency is irrelevant.
+YOLO_WARMUP = os.getenv("ROAD_YOLO_WARMUP", "1").lower() not in ("0", "false", "no", "")
+
 # ``yt-dlp`` is used by ``core/stream.py`` to resolve YouTube / HLS URLs. We
 # prefer the binary bundled in the project's virtualenv (``.venv/bin/``) so a
 # ``pip install`` pins the version; fall back to the system ``yt-dlp`` on
@@ -100,23 +128,25 @@ YT_DLP_PATH = str(_VENV_YT_DLP) if _VENV_YT_DLP.exists() else "yt-dlp"
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: STREAM SETTINGS
 # ─────────────────────────────────────────────────────────────────────────────
-# Demo "fake dashcam" fallback: when no operator has configured streams via
+# Local-file fallback: when no operator has configured streams via
 # ``ROAD_STREAM_SOURCE`` or ``ROAD_STREAM_SOURCES``, we default to the
-# bundled front+rear-cam MP4s so the admin UI has something to show out of
-# the box. The ``StreamReader`` loops local files, so the demo replays
-# end-to-end without operator action. Set either env var to override for a
-# real deployment.
+# bundled MP4 clips so the admin UI has something to show out of the box.
+# The ``StreamReader`` loops local files, so the demo replays end-to-end
+# without operator action. Set either env var to point at real fixed
+# road-camera live streams (YouTube intersection cams, HLS URLs) for a
+# production deployment.
 _DEMO_FRONT_CAM_FILE = PROJECT_ROOT / "resourses" / "Front Cam.mp4"
 _DEMO_REAR_CAM_FILE = PROJECT_ROOT / "resourses" / "Rear Cam.mp4"
 _DEMO_LEFT_CAM_FILE = PROJECT_ROOT / "resourses" / "Left Cam.mp4"
-_DEMO_DASHCAM_FILE = _DEMO_FRONT_CAM_FILE  # back-compat alias for legacy imports
+_DEMO_DASHCAM_FILE = _DEMO_FRONT_CAM_FILE  # back-compat alias for legacy imports (name kept for API stability)
 _DEMO_DASHCAM_SOURCE = str(_DEMO_DASHCAM_FILE) if _DEMO_DASHCAM_FILE.exists() else ""
 _DEMO_REAR_CAM_SOURCE = str(_DEMO_REAR_CAM_FILE) if _DEMO_REAR_CAM_FILE.exists() else ""
 _DEMO_LEFT_CAM_SOURCE = str(_DEMO_LEFT_CAM_FILE) if _DEMO_LEFT_CAM_FILE.exists() else ""
 
 # ``ROAD_STREAM_SOURCE`` — what the edge node captures from. Empty string
-# falls back to the demo dashcam loop above. Accepted forms: HLS URL,
-# local file path, webcam index (e.g. ``0``), YouTube URL.
+# falls back to the local-file loop above. Accepted forms: HLS URL,
+# local file path, webcam index (e.g. ``0``), YouTube URL (live traffic
+# / intersection cams are the primary target).
 DEFAULT_STREAM_SOURCE = os.getenv("ROAD_STREAM_SOURCE", _DEMO_DASHCAM_SOURCE)
 
 
@@ -137,12 +167,12 @@ def _parse_stream_sources() -> list[dict[str, str]]:
     raw = os.getenv("ROAD_STREAM_SOURCES", "").strip()
     if not raw:
         if DEFAULT_STREAM_SOURCE:
-            # Demo naming: when the fallback is the bundled front-cam MP4,
-            # label it with the demo vehicle identity so the admin UI shows
-            # "Fox Factory — Nissan Rogue XX 001 X — Front Cam" instead of
-            # "Primary". When the rear-cam MP4 is also present, add it as a
-            # second source so both angles of the demo vehicle are monitored
-            # in parallel.
+            # Demo naming: when the fallback is the bundled MP4 loop, label
+            # each source with the camera-site identity used by the demo so
+            # the admin UI shows something more informative than "Primary".
+            # When additional site-angle MP4s are present, add them as
+            # extra sources so multiple camera angles at the same road /
+            # intersection site are monitored in parallel.
             if DEFAULT_STREAM_SOURCE == _DEMO_DASHCAM_SOURCE:
                 sources = [{
                     "id": "primary",
@@ -188,14 +218,16 @@ def _parse_stream_sources() -> list[dict[str, str]]:
 
 
 # List of ``{id, name, url}`` dicts the edge node will monitor in parallel.
-# Each gets its own perception slot (reader + quality/scene/episodes) and
-# emits events tagged with ``source_id``. See ``server.py::StreamSlot``.
+# Each source is a distinct road / intersection camera feed; every one
+# gets its own perception slot (reader + quality/scene/episodes) and emits
+# events tagged with ``source_id``. See ``server.py::StreamSlot``.
 STREAM_SOURCES = _parse_stream_sources()
 
 # ``ROAD_TARGET_FPS`` — processing rate of the perception loop. The default
 # of 2 fps is the tested sweet spot: fast enough to catch TTC windows
-# (time-to-collision) in city driving, slow enough to keep the CPU cool and
-# leave headroom for LLM enrichment. Increasing this blindly burns budget.
+# (time-to-collision) for vehicles / pedestrians moving through an
+# intersection, slow enough to keep the CPU cool and leave headroom for
+# LLM enrichment. Increasing this blindly burns budget.
 TARGET_FPS = float(os.getenv("ROAD_TARGET_FPS", "2.0"))
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -214,8 +246,9 @@ SSE_REPLAY_COUNT = 20
 # Section: EPISODE / DEDUP MODEL
 # ─────────────────────────────────────────────────────────────────────────────
 # ``ROAD_PAIR_COOLDOWN_SEC`` — after emitting an event for a tracked
-# (ego, other) pair, suppress repeat events from the same pair for this
-# many seconds. Prevents one sustained near-miss from spamming 20 events.
+# pair of objects in the scene, suppress repeat events from the same pair
+# for this many seconds. Prevents one sustained near-miss from spamming
+# 20 events.
 PAIR_COOLDOWN_SEC = float(os.getenv("ROAD_PAIR_COOLDOWN_SEC", "8.0"))
 # If an episode has no new risk frames for this long, flush it. Hard-coded
 # because it's tied to ``TARGET_FPS`` and the gate timings in ``core/``.
@@ -231,6 +264,20 @@ DSAR_TOKEN = os.getenv("ROAD_DSAR_TOKEN")
 # ``/api/llm/*``, ``/api/retention/*``, ...). Unset → those routes 503.
 # See ``road_safety/security.py`` for the enforcement helper.
 ADMIN_TOKEN = os.getenv("ROAD_ADMIN_TOKEN")
+# ``ROAD_REQUIRE_AUTH`` — hard-cutover flag for the Sprint 0 auth-boundary
+# hardening (BE-D12..D15 in the 2026-04-20 backend audit).
+#
+# When ``False`` (default, release N): previously-public mutating /
+# media endpoints remain reachable without a bearer token, **but**
+# ``server.py`` logs a rate-limited WARN each time a route would have
+# been denied. This gives ops one release window to stamp a token into
+# every deployment.
+#
+# When ``True`` (release N+1): ``_require_admin`` is enforced on the
+# gated handlers; unauthenticated callers get 401. This is the hard
+# cutover - flipping the flag is the release signal, not a per-route
+# config knob. See audit §BE-D12 rollout notes.
+REQUIRE_AUTH = os.getenv("ROAD_REQUIRE_AUTH", "0").lower() not in ("0", "false", "no", "")
 # Salt for hashing ALPR plate text before it enters any buffer. Generated
 # per-process via ``secrets.token_hex(16)`` if not set — fine for
 # single-host dev, **must be set explicitly in production** so hashes stay
@@ -256,16 +303,19 @@ THUMB_SIGNING_SECRET = os.getenv(
 ALPR_MODE = os.getenv("ROAD_ALPR_MODE", "off").strip().lower()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Section: FLEET / VEHICLE IDENTITY
+# Section: CAMERA-SITE IDENTITY
 # ─────────────────────────────────────────────────────────────────────────────
 # These three are conceptually **required** in production. The server boots
 # anyway if they're missing (so dev on a laptop still works) but it logs a
 # warning and tags events with ``unidentified_*_<hostname>`` — such events
-# will never attribute to a real fleet entity.
-# Demo defaults match the bundled dashcam MP4 vehicle identity (Nissan
-# Rogue, plate XX 001 X, Fox Factory fleet). Override via env vars for
-# real deployments; the server also logs a warning when these remain at
-# their hostname-derived fallback (see ``_MISSING_IDENTITY`` in server.py).
+# will never attribute to a real road / camera-site entity.
+# Demo defaults match the identity baked into the bundled MP4 clips. The
+# variable names ``VEHICLE_ID`` / ``ROAD_ID`` / ``DRIVER_ID`` are kept for
+# API stability; conceptually they identify the camera install (the
+# physical unit), the road / intersection it watches, and the operator
+# responsible for it. Override via env vars for real deployments; the
+# server also logs a warning when these remain at their hostname-derived
+# fallback (see ``_MISSING_IDENTITY`` in server.py).
 VEHICLE_ID = os.getenv("ROAD_VEHICLE_ID", "fox_factory_rogue_xx001x")
 ROAD_ID = os.getenv("ROAD_ID", "fox_factory_demo_route")
 DRIVER_ID = os.getenv("ROAD_DRIVER_ID", "fox_factory_driver_01")
@@ -278,52 +328,52 @@ DRIVER_ID = os.getenv("ROAD_DRIVER_ID", "fox_factory_driver_01")
 LOCATION = os.getenv("ROAD_LOCATION", "")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Section: CAMERA CALIBRATION (per-vehicle, per-install)
+# Section: CAMERA CALIBRATION (per-install / per-site)
 # ─────────────────────────────────────────────────────────────────────────────
-# Monocular depth and ego-speed math depend on these. Defaults are for a
-# coarse observation camera; production deployments calibrate per-camera.
-# Override via env to match each camera's focal length (px) and mounting
-# height (m). Getting these wrong biases every distance and speed signal
-# downstream — treat them as deployment config, not constants.
+# Monocular depth and apparent-motion math depend on these. Defaults are
+# for a coarse observation camera; production deployments calibrate per
+# camera site. Override via env to match each camera's focal length (px)
+# and mounting height (m) above the road. Getting these wrong biases
+# every distance and speed signal downstream — treat them as deployment
+# config, not constants.
 #
 # ``ROAD_CAMERA_FOCAL_PX``       — focal length in pixels. Used by the
 #                                  pinhole model to convert bbox heights
 #                                  into metres of depth.
 # ``ROAD_CAMERA_HEIGHT_M``       — mounting height above ground in metres.
 #                                  Sets the baseline for ground-plane
-#                                  homography used by ego-speed estimates.
+#                                  homography used by apparent-motion
+#                                  estimates.
 # ``ROAD_CAMERA_HORIZON_FRAC``   — vertical fraction of the frame where the
 #                                  horizon sits (0 = top, 1 = bottom).
 #                                  0.5 is the geometric centre; tilt the
 #                                  camera down and you want a higher value.
-# Defaults tuned for an iPhone rear-wide camera (≈26 mm equiv, f/1.6) mounted
-# on a windshield. At 1920×1080 recording, focal length in pixels ≈ 1400; at
-# 640-wide decoded (the perception default) the pinhole projection preserves
-# ratio → ~600 px. Mount height ≈ 1.25 m off the ground, horizon roughly
-# 45 % of frame height (iPhone held slightly below level). Operators with a
-# different camera / mount should override these via env — see the
-# calibration procedure in ``docs/``.
+# Defaults tuned for a coarse pole-mounted observation camera framing an
+# intersection. The focal length and horizon defaults are rough — anyone
+# deploying against a real fixed road camera should override them via env
+# once the per-site calibration procedure in ``docs/`` has been run.
 CAMERA_FOCAL_PX = float(os.getenv("ROAD_CAMERA_FOCAL_PX", "600.0"))
 CAMERA_HEIGHT_M = float(os.getenv("ROAD_CAMERA_HEIGHT_M", "1.25"))
 CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.45"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Section: PER-CAMERA CALIBRATION (multi-slot demo + production fleets)
+# Section: PER-CAMERA CALIBRATION (multi-slot demo + multi-site deployments)
 # ─────────────────────────────────────────────────────────────────────────────
-# A single fleet vehicle commonly carries multiple cameras (front dashcam,
-# rear-window cam, side-window cam). Each has its own focal length, mount
-# height, tilt (horizon fraction), orientation relative to travel, and
-# offset from the camera to the nearest car body edge along its optical
-# axis. Reusing one global ``CAMERA_*`` constant for all of them biases
+# A single deployment commonly monitors multiple road cameras at once —
+# different intersections, or multiple angles at one site. Each has its
+# own focal length, mount height, tilt (horizon fraction), orientation
+# relative to the road it watches, and an optional offset from the
+# camera's optical centre to the edge of the scene it actually cares
+# about. Reusing one global ``CAMERA_*`` constant for all of them biases
 # every distance and TTC reading downstream by 20–50 % (focal mismatch
-# alone) plus an additive bumper offset on top.
+# alone) plus any additive geometry offset on top.
 #
 # This block defines:
 #   * ``CameraCalibration`` — frozen dataclass bundling the five intrinsics.
-#   * Hard-coded per-slot defaults that match the bundled Nissan Rogue demo
-#     vehicle (front dashcam = iPhone wide / 1×; rear + left cams =
-#     iPhone ultra-wide / 0.5×).
+#   * Hard-coded per-slot defaults that match the bundled demo loop.
+#     Variable names refer to "front / rear / left / right" sibling angles
+#     within a single camera-site install.
 #   * ``camera_calibration_for(slot_id)`` — looks up the slot default and
 #     applies any ``ROAD_CAMERA_<FIELD>__<SLOT>`` env overrides on top.
 #
@@ -336,17 +386,22 @@ CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.45"))
 #   ROAD_CAMERA_ORIENTATION__<SLOT>     → "forward" | "rear" | "side"
 #                                          - forward / rear = pinhole +
 #                                            ground-plane prior both apply
+#                                            (camera looks along the road).
 #                                          - side = ground-plane prior is
 #                                            invalid (no road below the
 #                                            optical axis); known-height
 #                                            prior only. Distance reading
-#                                            represents *lateral* range.
+#                                            represents *lateral* range
+#                                            across the scene.
 #   ROAD_CAMERA_BUMPER_OFFSET_M__<SLOT> → metres from the camera mount point
-#                                          to the nearest body edge along
-#                                          its optical axis. Subtracted from
-#                                          every distance reading so the
-#                                          number reported is the gap to the
-#                                          car, not to the camera itself.
+#                                          to the edge of the scene-of-
+#                                          interest along its optical axis.
+#                                          Subtracted from every distance
+#                                          reading so the number reported
+#                                          is the gap at the reference
+#                                          plane, not to the camera glass.
+#                                          (Name "bumper_offset" kept for
+#                                          API stability with legacy code.)
 #
 # Why a frozen dataclass: calibration is immutable for the lifetime of a
 # slot. Freezing it makes accidental mutation impossible and lets the
@@ -355,31 +410,35 @@ CAMERA_HORIZON_FRAC = float(os.getenv("ROAD_CAMERA_HORIZON_FRAC", "0.45"))
 
 @dataclass(frozen=True)
 class CameraCalibration:
-    """Per-camera intrinsics + mount geometry + body offset.
+    """Per-camera intrinsics + mount geometry + scene-edge offset.
 
     Attributes:
         focal_px: Focal length of the lens expressed in pixels at the
             *decoded* frame width the perception loop actually sees.
-            Wider lenses (iPhone 0.5× ultra-wide) produce smaller numbers
-            for the same sensor — a 1× wide ≈ 600 px at 640-wide decode,
-            a 0.5× ultra-wide ≈ 260 px at the same decode.
+            Wider lenses produce smaller numbers for the same sensor —
+            a narrow road-cam lens at 640-wide decode sits near 600 px,
+            an ultra-wide at the same decode sits near 260 px.
         height_m: Mount height above the road in metres. Drives the
-            ground-plane distance prior and ego-speed math.
+            ground-plane distance prior and the apparent-motion math.
         horizon_frac: Vertical fraction of the image where the horizon
             sits (0 top, 1 bottom). 0.45 for a slightly down-tilted
-            front dashcam; 0.5 for a level side-window cam.
+            pole / mast camera looking along the road; 0.5 for a level
+            side-mounted camera that frames traffic perpendicular to
+            its optical axis.
         orientation: ``"forward"``, ``"rear"``, or ``"side"``.
             - ``forward`` / ``rear``: standard pinhole + ground-plane.
               Reported distance is the longitudinal range to the camera
-              (and after bumper offset, to the nearest body edge).
+              (and after offset, to the edge of the scene-of-interest).
             - ``side``: ground-plane prior is invalid (the road is not
               below the optical axis for a perpendicular-mounted cam);
               only the known-height prior is used. The reported distance
-              is *lateral* — adjacent-lane range, not forward range.
+              is *lateral* — cross-scene range, not along-road range.
         bumper_offset_m: Distance from the camera mount point to the
-            nearest body edge along the camera's optical axis, in metres.
-            Subtracted from every estimate so the published value is the
-            gap to the car, not the gap to the camera.
+            edge of the scene-of-interest along the optical axis, in
+            metres. Subtracted from every estimate so the published
+            value is the gap at the reference plane rather than the gap
+            to the camera itself. (Field name kept as ``bumper_offset_m``
+            for API / import stability.)
     """
 
     focal_px: float
@@ -401,23 +460,23 @@ DEFAULT_CAMERA_CALIBRATION = CameraCalibration(
 )
 
 
-# Per-slot defaults for the bundled Nissan Rogue demo vehicle. Real fleets
+# Per-slot defaults for the bundled demo camera site. Real deployments
 # override these per camera via the ``ROAD_CAMERA_*__<SLOT>`` env vars.
 #
-# Nissan Rogue cabin geometry (2021–2024 US trim, used here as the
-# reference vehicle for the bundled demo MP4s):
-#   * rearview-mirror dashcam → ground:        1.25 m
-#   * rearview-mirror dashcam → front bumper:  1.7  m
-#   * rear window cam        → ground:         1.10 m
-#   * rear window cam        → rear bumper:    0.30 m
-#   * left window cam        → ground:         1.00 m
-#   * left window cam        → left flank:     0.10 m
+# Reference mount geometry baked into the bundled MP4 clips — a single
+# road / intersection site with up to four camera angles. Numbers are a
+# best-guess for a generic pole-mounted install and are documented here
+# so the slot defaults below make sense at a glance:
+#   * primary / forward-along-road angle → ground: 1.25 m, edge: 1.7 m
+#   * rear / opposite-along-road angle   → ground: 1.10 m, edge: 0.3 m
+#   * left lateral angle                 → ground: 1.00 m, edge: 0.1 m
 #
-# iPhone lens focal length at the perception loop's 640-wide decode:
-#   * 1× wide          → ≈ 600 px (front dashcam)
-#   * 0.5× ultra-wide  → ≈ 260 px (rear + left window cams)
+# Lens focal length at the perception loop's 640-wide decode:
+#   * narrow / standard lens    → ≈ 600 px (along-road angles)
+#   * ultra-wide lens           → ≈ 260 px (lateral / cross-road angles)
 _PER_SLOT_CAMERA_DEFAULTS: dict[str, CameraCalibration] = {
-    # Front dashcam: standard iPhone wide on the rearview mirror.
+    # Primary along-road angle: standard / narrow lens looking down the
+    # road the camera is installed on.
     "primary": CameraCalibration(
         focal_px=600.0, height_m=1.25, horizon_frac=0.45,
         orientation="forward", bumper_offset_m=1.7,
@@ -426,15 +485,17 @@ _PER_SLOT_CAMERA_DEFAULTS: dict[str, CameraCalibration] = {
         focal_px=600.0, height_m=1.25, horizon_frac=0.45,
         orientation="forward", bumper_offset_m=1.7,
     ),
-    # Rear-window cam: iPhone 0.5× ultra-wide. Same pinhole + ground-plane
-    # math as the front, just smaller focal + lower mount + smaller offset.
+    # Opposite along-road angle (ultra-wide). Same pinhole + ground-plane
+    # math as the forward angle, just smaller focal + lower mount + a
+    # smaller scene-edge offset.
     "rear": CameraCalibration(
         focal_px=260.0, height_m=1.10, horizon_frac=0.45,
         orientation="rear", bumper_offset_m=0.3,
     ),
-    # Left side-window cam: iPhone 0.5× ultra-wide perpendicular to travel.
+    # Left cross-road angle: ultra-wide lens perpendicular to the road.
     # Horizon sits at image-center because the camera is level. Distance
-    # reading is lateral, not forward — see ``CameraCalibration.orientation``.
+    # reading is lateral across the scene, not along the road — see
+    # ``CameraCalibration.orientation``.
     "left": CameraCalibration(
         focal_px=260.0, height_m=1.00, horizon_frac=0.50,
         orientation="side", bumper_offset_m=0.1,
@@ -443,8 +504,8 @@ _PER_SLOT_CAMERA_DEFAULTS: dict[str, CameraCalibration] = {
         focal_px=260.0, height_m=1.00, horizon_frac=0.50,
         orientation="side", bumper_offset_m=0.1,
     ),
-    # Right side-window cam: mirror of the left side. Provided for
-    # symmetric multi-camera fleet installs even though the bundled demo
+    # Right cross-road angle: mirror of the left side. Provided for
+    # symmetric multi-camera site installs even though the bundled demo
     # MP4s do not include one.
     "right": CameraCalibration(
         focal_px=260.0, height_m=1.00, horizon_frac=0.50,
@@ -485,7 +546,7 @@ def camera_calibration_for(slot_id: str) -> CameraCalibration:
     Lookup order (later wins):
       1. ``DEFAULT_CAMERA_CALIBRATION`` (legacy single-camera defaults).
       2. ``_PER_SLOT_CAMERA_DEFAULTS[slot_id]`` if a slot-specific entry
-         exists (covers the bundled Nissan Rogue demo cameras).
+         exists (covers the bundled demo site's camera angles).
       3. ``ROAD_CAMERA_<FIELD>__<SLOT>`` env overrides per field.
 
     Args:
@@ -528,8 +589,9 @@ SERVER_HOST = os.getenv("ROAD_HOST", "0.0.0.0")
 # ``ROAD_PORT`` — HTTP port for the edge server. 8000 keeps the cloud
 # receiver (8001) free on the same host for dev.
 SERVER_PORT = int(os.getenv("ROAD_PORT", "8000"))
-# How often the driver-safety-score decay job runs, in seconds. Hourly
-# (3600) by default. Set to 0 to disable decay entirely (scores persist).
+# How often the per-road / operator safety-score decay job runs, in
+# seconds. Hourly (3600) by default. Set to 0 to disable decay entirely
+# (scores persist).
 SCORE_DECAY_INTERVAL_SEC = int(os.getenv("ROAD_SCORE_DECAY_INTERVAL_SEC", "3600"))
 
 # ─────────────────────────────────────────────────────────────────────────────

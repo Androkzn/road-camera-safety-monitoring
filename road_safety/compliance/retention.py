@@ -1,9 +1,11 @@
 """Data retention policy — automatic expiry of old events, thumbnails, and feedback.
 
 GDPR Art. 5(1)(e) requires that personal data be kept only as long as
-necessary. Dashcam video thumbnails contain faces and plates (even redacted
-copies carry metadata risk). This module enforces configurable retention
-windows and runs as a periodic background task.
+necessary. Fixed road-camera thumbnails (captured from YouTube live
+intersection streams) show faces and plates of pedestrians and drivers
+passing through the monitored scene; even redacted copies carry metadata
+risk. This module enforces configurable retention windows and runs as a
+periodic background task.
 
 Retention windows (env-configurable):
   ROAD_RETENTION_THUMBNAILS_DAYS  — delete thumbnails older than N days (default 30)
@@ -83,10 +85,11 @@ logger = logging.getLogger("retention")
 #   * storage cost / privacy risk (smaller = safer)
 #   * investigation utility (larger = more context for late-arriving claims)
 #
-# The default thumbnail window (30d) matches typical fleet incident
-# retention SLAs: most claims surface within a month.  Feedback needs
-# longer (90d) because model-quality analysis is quarterly.  Outbound
-# queue is short (7d) because it is purely operational delivery data.
+# The default thumbnail window (30d) matches typical traffic-incident
+# retention SLAs at camera-site level: most claims surface within a
+# month.  Feedback needs longer (90d) because model-quality analysis is
+# quarterly.  Outbound queue is short (7d) because it is purely
+# operational delivery data.
 THUMBNAILS_DAYS = int(os.getenv("ROAD_RETENTION_THUMBNAILS_DAYS", "30"))
 FEEDBACK_DAYS = int(os.getenv("ROAD_RETENTION_FEEDBACK_DAYS", "90"))
 AL_PENDING_DAYS = int(os.getenv("ROAD_RETENTION_AL_PENDING_DAYS", "60"))
@@ -96,8 +99,8 @@ OUTBOUND_DAYS = int(os.getenv("ROAD_RETENTION_OUTBOUND_DAYS", "7"))
 # stats per hour).
 INTERVAL_SEC = int(os.getenv("ROAD_RETENTION_INTERVAL_SEC", "3600"))
 
-# DATA_DIR is the single source of truth for where fleet data lives.  Never
-# compute ``Path(__file__).parent`` here — project-wide rule.
+# DATA_DIR is the single source of truth for where camera-site data lives.
+# Never compute ``Path(__file__).parent`` here — project-wide rule.
 from road_safety.config import DATA_DIR
 
 

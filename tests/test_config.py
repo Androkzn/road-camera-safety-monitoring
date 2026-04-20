@@ -123,7 +123,8 @@ class TestCameraCalibration:
     def test_primary_slot_uses_front_dashcam_defaults(self):
         from road_safety.config import camera_calibration_for
         cal = camera_calibration_for("primary")
-        # Front dashcam (iPhone 1× wide) on a Nissan Rogue rearview mirror.
+        # Primary intersection camera pointing down the main approach:
+        # forward-facing view with a narrow-ish focal length.
         assert cal.focal_px == 600.0
         assert cal.height_m == 1.25
         assert cal.orientation == "forward"
@@ -132,7 +133,7 @@ class TestCameraCalibration:
     def test_rear_slot_uses_ultrawide_defaults(self):
         from road_safety.config import camera_calibration_for
         cal = camera_calibration_for("rear")
-        # iPhone 0.5× ultra-wide on the rear window.
+        # Wide-angle camera covering the far side of the intersection.
         assert cal.focal_px == 260.0
         assert cal.height_m == 1.10
         assert cal.orientation == "rear"
@@ -141,7 +142,8 @@ class TestCameraCalibration:
     def test_left_slot_marked_side_orientation(self):
         from road_safety.config import camera_calibration_for
         cal = camera_calibration_for("left")
-        # Side cam: ground-plane prior is invalid; downstream code skips it.
+        # Side-view camera at the intersection: ground-plane prior is
+        # invalid for this orientation; downstream code skips it.
         assert cal.focal_px == 260.0
         assert cal.orientation == "side"
         assert cal.horizon_frac == 0.50  # level mount → horizon at image center
@@ -173,7 +175,7 @@ class TestCameraCalibration:
         assert cal.orientation == "side"
 
     def test_unparseable_env_falls_back(self, monkeypatch):
-        """Bad numeric override doesn't crash the slot — it logs and uses default."""
+        """Bad numeric override doesn't crash the camera slot — it logs and uses default."""
         from road_safety.config import camera_calibration_for
         monkeypatch.setenv("ROAD_CAMERA_FOCAL_PX__PRIMARY", "not_a_number")
         cal = camera_calibration_for("primary")

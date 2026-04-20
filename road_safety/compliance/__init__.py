@@ -20,6 +20,10 @@ What lives here
                      samples per the ``ROAD_RETENTION_*_DAYS`` env vars.
                      Every deletion is written to the audit log so sweeps
                      leave an evidentiary trail.
+* ``privacy.py``   — ingest-time PII scrub primitives. ``hash_and_strip_plate``
+                     is the single most important privacy invariant in the
+                     system: it hashes + removes raw plate text/state before
+                     the enrichment dict ever reaches an in-memory buffer.
 
 Why a separate package
 ----------------------

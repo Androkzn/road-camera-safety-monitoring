@@ -113,9 +113,10 @@ VEHICLE_PAIR_CONF_FLOOR = 0.60
 MIN_BBOX_AREA = 1200          # default (vehicles) — a small distant car is ~40×40
 
 # Class-specific detection floors. Pedestrians are inherently smaller on-screen
-# (distant / elevated / dashcam views through foreground traffic — YOLOv8n
-# on a Times Square feed returns persons at 0.17-0.35 confidence and
-# 800-1500 px² bboxes). Applying vehicle-tuned thresholds wipes them out.
+# (distant / elevated pole-mounted road-camera views through foreground
+# traffic — YOLOv8n on a Times Square feed returns persons at 0.17-0.35
+# confidence and 800-1500 px² bboxes). Applying vehicle-tuned thresholds
+# wipes them out.
 # Persons have their own downstream sanity checks (aspect ratio guard, episode
 # sustained-risk model, pair-TTC gates) so a permissive detection floor does
 # not translate to a permissive alert floor.
@@ -140,6 +141,8 @@ from road_safety.config import (  # noqa: E402
     DEFAULT_CAMERA_CALIBRATION,
     CameraCalibration,
     MODEL_PATH,
+    YOLO_HALF,
+    YOLO_IMGSZ,
 )
 # Settings Console: hot-path snapshot reads. The store seeds itself from the
 # same constants we define above, so a fresh boot is a no-op until the
@@ -157,8 +160,8 @@ TRACKER_CFG = "bytetrack.yaml"
 #
 # Intuition: FOCAL_PX is the camera's "magnification" in pixels — a longer
 # lens yields more pixels per metre of real object. CAMERA_HEIGHT_M is how
-# high the dashcam is mounted off the ground. See module docstring for the
-# pinhole formula.
+# high the road camera is mounted above the road surface. See module
+# docstring for the pinhole formula.
 CAMERA_HEIGHT_M = _CFG_CAMERA_HEIGHT_M
 FOCAL_PX = CAMERA_FOCAL_PX
 
@@ -177,9 +180,11 @@ TYPICAL_HEIGHT_M = {
 
 # ----- RISK THRESHOLDS (physical units) -----
 
-# Risk thresholds in *physical* units.  Calibrated for *observation/analytics*
-# cameras (SSAM / SAFE-UP / PET research), NOT in-vehicle FCW. Tightened to
-# reduce false positives: only genuinely imminent collisions trigger high.
+# Risk thresholds in *physical* units. Calibrated for *observation /
+# analytics* cameras (SSAM / SAFE-UP / PET research) — i.e. fixed road /
+# intersection cameras observing an external scene, not in-vehicle FCW.
+# Tightened to reduce false positives: only genuinely imminent collisions
+# trigger high.
 #
 # 0.5 s is essentially "already colliding" — at highway speeds that's a
 # single car length. 1.0 s is the SSAM "serious conflict" threshold. These
@@ -231,10 +236,11 @@ MIN_CLOSING_RATE_PX = 4.0
 # lanes/depths that happen to overlap in the 2D image".
 VEHICLE_INTER_DISTANCE_GATE_M = 8.0
 
-# Speed-aware risk floor. When ego vehicle is essentially stationary
-# (red light, parking, traffic jam) and no track is actively approaching,
-# we cap risk at 'medium' regardless of TTC — close-quarters-low-speed is
-# normal, not a conflict. Gate exists to kill the false-positive class of
+# Speed-aware risk floor. When the scene in view is essentially static
+# (red light, stopped queue, traffic jam) and no track is actively
+# approaching, we cap risk at 'medium' regardless of TTC —
+# close-quarters-low-speed is normal at an intersection stopline, not a
+# conflict. Gate exists to kill the false-positive class of
 # "traffic-jam proximity" alerts.
 LOW_SPEED_FLOOR_MPS = 2.0
 
@@ -451,6 +457,56 @@ class TrackHistory:
 
 # ----- MODEL LOADING + DISTANCE/GEOMETRY HELPERS -----
 
+
+def _resolve_yolo_device() -> str | None:
+    """Resolve the effective YOLO device once, with a torch-optional fallback.
+
+    Mirrors the selection logic in :func:`load_model` but is safe to call
+    from anywhere (including before any model has been loaded) because it
+    never raises — unavailable ``torch`` or an accelerator failure both
+    resolve to ``None`` meaning "let ultralytics decide".
+
+    Returns:
+        One of ``"cpu"``, ``"mps"``, ``"cuda"``, an explicit
+        ``ROAD_YOLO_DEVICE`` string (e.g. ``"cuda:0"``), or ``None`` when
+        torch can't tell us anything useful.
+    """
+    import os
+
+    requested = (os.environ.get("ROAD_YOLO_DEVICE") or "").strip().lower()
+    if requested:
+        return requested
+    try:
+        import torch  # type: ignore
+
+        if torch.cuda.is_available():
+            return "cuda"
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+    except Exception:
+        return None
+
+
+# Resolve once at import time. Used as the default ``device=`` for every
+# ``model.track()`` / ``model()`` call in this module and logged by
+# ``warmup_model``. Never fails — worst case this is ``None`` and ultralytics
+# picks something reasonable per-call.
+YOLO_DEVICE: str | None = _resolve_yolo_device()
+
+# Best-effort hint: if FP16 is available on CUDA but the operator hasn't
+# flipped it on, surface it once at import so the log shows the free-lunch
+# is on the table. Intentionally only a log — auto-flip would silently
+# change numerics across deployments.
+if YOLO_DEVICE and YOLO_DEVICE.startswith("cuda") and not YOLO_HALF:
+    import logging as _logging
+
+    _logging.getLogger(__name__).info(
+        "YOLO running on %s with FP32; set ROAD_YOLO_HALF=1 for ~2x throughput at no accuracy cost",
+        YOLO_DEVICE,
+    )
+
+
 def load_model(path: str = MODEL_PATH) -> YOLO:
     """Load a YOLOv8 model from disk (or downloads from ultralytics on first run).
 
@@ -504,6 +560,78 @@ def load_model(path: str = MODEL_PATH) -> YOLO:
     return model
 
 
+def warmup_model(model: YOLO, imgsz: int | None = None) -> None:
+    """Run a single synthetic inference to pay JIT / compile costs up front.
+
+    Ultralytics' first ``.track()`` and first ``__call__`` each trigger
+    backend-specific lazy compilation: the PyTorch graph JIT, MPS kernel
+    compile on Apple Silicon, CUDA kernel cache warm-up, ByteTrack Kalman
+    filter allocation. Without a warmup, the first *real* frame pays
+    seconds of latency the operator sees as a false "stream stalled".
+
+    Both code paths compile independently, so we run one of each:
+      1. ``model(img, ...)`` — non-persistent inference path used by the
+         on-demand validator and by ``detect_frame(persistent=False)``.
+      2. ``model.track(img, persist=False, tracker=TRACKER_CFG, ...)`` —
+         the hot path from ``server.py::_run_loop``.
+
+    ``persist=False`` on the tracker call is deliberate: we do *not* want
+    the synthetic zero-frame to seed ByteTrack's Kalman state for the
+    first real frame.
+
+    Any failure is swallowed as a warning — warmup is purely a latency
+    optimisation, never a correctness requirement.
+
+    Args:
+        model: A loaded ``ultralytics.YOLO`` instance.
+        imgsz: Optional override for the synthetic frame size in pixels.
+            Defaults to ``YOLO_IMGSZ`` from config (same value that's
+            passed as ``imgsz=`` to every real inference call).
+    """
+    import logging
+    import time
+
+    import numpy as np
+
+    log = logging.getLogger(__name__)
+    size = int(imgsz if imgsz is not None else YOLO_IMGSZ)
+
+    try:
+        img = np.zeros((size, size, 3), dtype=np.uint8)
+        t0 = time.perf_counter()
+        # Non-persistent detection path (used by validator shadow / analyze.py).
+        model(
+            img,
+            imgsz=size,
+            half=YOLO_HALF,
+            device=YOLO_DEVICE,
+            verbose=False,
+        )
+        # Tracker path (hot path in the live loop).
+        model.track(
+            img,
+            persist=False,
+            tracker=TRACKER_CFG,
+            imgsz=size,
+            half=YOLO_HALF,
+            device=YOLO_DEVICE,
+            verbose=False,
+        )
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        log.info(
+            "YOLO warmup complete in %.1f ms (imgsz=%d half=%s device=%s)",
+            elapsed_ms,
+            size,
+            YOLO_HALF,
+            YOLO_DEVICE,
+        )
+    except Exception as exc:
+        # Warmup is best-effort. A failure here usually means the model
+        # file couldn't load or the device is unavailable — in either case
+        # the first real inference will surface the actual error.
+        log.warning("YOLO warmup skipped: %s", exc)
+
+
 def bbox_edge_distance(a: Detection, b: Detection) -> float:
     """Pixel distance between the *closest edges* of two bboxes (zero if overlapping).
 
@@ -540,10 +668,10 @@ def estimate_distance_m(
     Strategy — take the more reliable of two priors:
       (a) Ground plane: if the bbox bottom is below the horizon (assumed
           mid-frame), distance = f * H_camera / (y_bottom - y_horizon).
-          Skipped when ``skip_ground_plane=True``: side-window cameras do
-          not look down the road plane, and feeding the formula a bbox
-          below an arbitrary horizon line returns garbage. Side cams
-          rely on the known-height prior alone.
+          Skipped when ``skip_ground_plane=True``: cross-road (side)
+          cameras do not look down the road plane, and feeding the
+          formula a bbox below an arbitrary horizon line returns
+          garbage. Cross-road cams rely on the known-height prior alone.
       (b) Known-height prior: distance = f * H_real / bbox_height_px.
 
     We return the larger (more conservative) of the two — preferring to
@@ -555,19 +683,21 @@ def estimate_distance_m(
         focal_px: Per-call override for the camera's focal length in pixels.
             Falls back to the global ``FOCAL_PX`` when ``None``. Pass the
             slot's calibration here to get accurate numbers on a multi-
-            camera install (iPhone 0.5× ultra-wide ≈ 260 px, 1× ≈ 600 px).
+            camera install (ultra-wide ≈ 260 px, standard ≈ 600 px at
+            640-wide decode).
         height_m: Per-call override for camera mount height in metres.
         horizon_frac: Per-call override for horizon row as fraction of frame
             height (0 = top, 1 = bottom, 0.5 = centre).
-        offset_m: Distance in metres from the camera along its optical axis
-            to the nearest edge of the ego car. Subtracted from the raw
-            pinhole range so the returned number is "gap to my bumper" on
-            a front cam. Clamped at 0. (TTC is invariant under this
-            constant shift — it's the derivative of distance, not the
-            distance itself — so this only affects the absolute reading.)
+        offset_m: Distance in metres from the camera along its optical
+            axis to the reference plane used for reporting. Subtracted
+            from the raw pinhole range so the returned number is
+            "gap at the reference plane" rather than "gap to the camera
+            glass". Clamped at 0. (TTC is invariant under this constant
+            shift — it's the derivative of distance, not the distance
+            itself — so this only affects the absolute reading.)
         skip_ground_plane: When ``True``, suppress the ground-plane prior
             and rely on known-height alone. Set this for any camera whose
-            optical axis does NOT run along the road (side-window cams).
+            optical axis does NOT run along the road (cross-road cams).
 
     Returns:
         Estimated distance in metres, rounded to 2 decimals. ``None`` when
@@ -575,12 +705,12 @@ def estimate_distance_m(
         horizon (flying?) or a ridiculous >200 m number that would break
         downstream math.
 
-    Intuition: each prior has a different failure mode. Ground plane breaks
-    when feet are occluded (elevated camera + foreground clutter) or when
-    the camera looks across traffic (side cams). Known height breaks for
-    objects at an unusual pose (e.g. a person lying down). Taking the max
-    under-reports risk when the priors disagree — the safer choice for a
-    system that alerts humans.
+    Intuition: each prior has a different failure mode. Ground plane
+    breaks when feet are occluded (elevated camera + foreground clutter)
+    or when the camera looks across traffic (cross-road cams). Known
+    height breaks for objects at an unusual pose (e.g. a person lying
+    down). Taking the max under-reports risk when the priors disagree —
+    the safer choice for a system that alerts humans.
     """
     # Resolve per-call overrides with safe fallbacks. Positional ``or`` falls
     # through on ``None`` here (we don't pass 0.0 as a valid focal length).
@@ -612,9 +742,10 @@ def estimate_distance_m(
     if not candidates:
         return None
     raw = max(candidates)
-    # Apply the camera→car-edge offset so operators read "metres between my
-    # bumper and that obstacle", not "metres to the camera glass". Clamp at
-    # zero so a close-in object doesn't report a negative distance.
+    # Apply the camera→reference-plane offset so operators read "metres
+    # between the monitored edge and that object", not "metres to the
+    # camera glass". Clamp at zero so a close-in object doesn't report a
+    # negative distance.
     adjusted = raw - offset_m
     return round(max(0.0, adjusted), 2)
 
@@ -646,9 +777,9 @@ def estimate_distances_batch(
         calibration: Optional per-slot camera intrinsics from
             ``config.camera_calibration_for()``. When supplied, overrides
             the global ``FOCAL_PX`` / ``CAMERA_HEIGHT_M`` /
-            ``CAMERA_HORIZON_FRAC`` and subtracts ``bumper_offset_m`` from
-            the output so the returned distances are "gap to my car's
-            nearest edge" instead of "gap to the camera glass".
+            ``CAMERA_HORIZON_FRAC`` and subtracts ``bumper_offset_m``
+            from the output so the returned distances are "gap at the
+            reference plane" instead of "gap to the camera glass".
 
     Batching matters because the neural model runs once per FRAME, not
     once per detection — a 16-detection frame pays one inference, not 16.
@@ -671,10 +802,10 @@ def estimate_distances_batch(
         height_m = calibration.height_m
         horizon_frac = calibration.horizon_frac
         offset_m = calibration.bumper_offset_m
-        # Side-window cams: the ground-plane prior is invalid (the road
-        # is not below the optical axis), so we suppress it entirely.
-        # Forward / rear cams keep both priors and pick the conservative
-        # max as before.
+        # Cross-road (side) cams: the ground-plane prior is invalid
+        # (the road is not below the optical axis), so we suppress it
+        # entirely. Along-road (forward / rear) cams keep both priors
+        # and pick the conservative max as before.
         skip_ground = calibration.orientation == "side"
 
     pinhole = [
@@ -745,10 +876,11 @@ def estimate_inter_distance_m(
         a, b: Two detections to measure between.
         frame_h: Image height in pixels.
         calibration: Per-slot camera intrinsics. When supplied the per-
-            object depth estimates use the slot's focal/height/horizon and
-            apply the slot's bumper offset; lateral pixel→metre conversion
-            uses the slot's focal length too. Defaults to the global
-            calibration so legacy callers keep working.
+            object depth estimates use the slot's focal/height/horizon
+            and apply the slot's reference-plane offset; lateral
+            pixel→metre conversion uses the slot's focal length too.
+            Defaults to the global calibration so legacy callers keep
+            working.
 
     Returns:
         Approximate 3D distance in metres, or ``None`` when either per-object
@@ -1074,7 +1206,8 @@ def classify_risk(ttc_sec: float | None, distance_m: float | None, fallback_px: 
 
     Intuition: we bucket into three tiers because operators cannot act on a
     continuous 0.0-1.0 score in real-time. High → immediate Slack ping.
-    Medium → dashboard highlight. Low → logged but silent.
+    Medium → dashboard highlight for the road / camera-site operator.
+    Low → logged but silent.
     """
     # Accumulate every tier this event qualifies for; then pick the worst.
     # Simpler than nested if/elif chains and handles the "TTC says medium,
@@ -1140,11 +1273,27 @@ def detect_frame(model: YOLO, frame, persistent: bool = True) -> list[Detection]
     if persistent:
         # ``model.track(...)`` keeps per-call state between invocations.
         # ``[0]`` unwraps the batch — we pass one frame, get one result.
+        # ``imgsz`` / ``half`` / ``device`` are threaded through explicitly
+        # so the hot path does not fall through to ultralytics' implicit
+        # defaults (which would silently run FP32 even on CUDA, and
+        # always letterbox to 640 px regardless of ``ROAD_YOLO_IMGSZ``).
         results = model.track(
-            frame, persist=True, tracker=TRACKER_CFG, verbose=False
+            frame,
+            persist=True,
+            tracker=TRACKER_CFG,
+            imgsz=YOLO_IMGSZ,
+            half=YOLO_HALF,
+            device=YOLO_DEVICE,
+            verbose=False,
         )[0]
     else:
-        results = model(frame, verbose=False)[0]
+        results = model(
+            frame,
+            imgsz=YOLO_IMGSZ,
+            half=YOLO_HALF,
+            device=YOLO_DEVICE,
+            verbose=False,
+        )[0]
 
     # ``results.names`` is a dict ``{class_int: class_name}`` from the model.
     names = results.names
@@ -1217,9 +1366,9 @@ def find_interactions(
     generous on purpose: we'd rather evaluate a pair and reject it than
     miss a real conflict.
 
-    Complexity: O(peds × vehicles) + O(vehicles²). At typical dashcam scene
-    scales (<30 objects) this is negligible. Consider spatial hashing if
-    detection counts grow.
+    Complexity: O(peds × vehicles) + O(vehicles²). At typical intersection
+    / road-camera scene scales (<30 objects) this is negligible. Consider
+    spatial hashing if detection counts grow.
     """
     # List comprehensions to split detections by class — cheaper than two
     # passes with append() and more idiomatic.
@@ -1300,13 +1449,14 @@ def draw_thumbnail(frame, primary: Detection, secondary: Detection, path: Path) 
 
 
 _ORIENTATION_LOCATION_PHRASES: dict[str, str] = {
-    # Used as the prefix / location hint in the templated summary. Keeps the
-    # fallback prose honest about WHERE the risk is when the LLM narrator is
-    # disabled. Forward cams stay silent on location — the existing demo
-    # copy ("Car and person ~3.2m apart") already implies "ahead".
+    # Used as the prefix / location hint in the templated summary. Keeps
+    # the fallback prose honest about WHERE in the scene the risk is when
+    # the LLM narrator is disabled. Along-road (forward) cams stay silent
+    # on location — the existing copy ("Car and person ~3.2m apart")
+    # already implies "along the road the camera is watching".
     "forward": "",
-    "rear": "behind (reversing): ",
-    "side": "in blind spot: ",
+    "rear": "behind (reverse-flow): ",
+    "side": "in cross-road ROI: ",
 }
 
 
@@ -1332,10 +1482,10 @@ def build_event_summary(
         ttc_sec: Optional time-to-collision in seconds.
         distance_m: Optional inter-object distance in metres.
         camera_orientation: ``"forward"``/``"rear"``/``"side"``. Prepends a
-            location hint (``"behind (reversing): ..."`` / ``"in blind spot: ..."``)
-            so the templated summary reads correctly on side / rear cams.
+            location hint (``"behind (reverse-flow): ..."`` / ``"in cross-road ROI: ..."``)
+            so the templated summary reads correctly on cross-road / opposite-along-road cams.
             ``None`` (legacy callers) stays silent on location, preserving
-            the original forward-cam phrasing byte-for-byte.
+            the original along-road phrasing byte-for-byte.
         event_taxonomy: Optional SAE J3063 family label (``"FCW"`` / ``"BSW"``
             / ``"RCW"`` / ``"RCTA"``). Reserved for future templating; not
             currently rendered in the string.

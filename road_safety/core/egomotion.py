@@ -1,63 +1,73 @@
-"""Ego-motion compensation for a dashcam safety pipeline.
+"""Apparent-motion ("ego-motion") compensation for a fixed road-camera pipeline.
 
 Role in the pipeline
 --------------------
-Estimates the **vehicle's own motion** each frame via optical flow on the
-static background (anything NOT inside a tracked bbox). That lets the TTC
-math downstream compute *relative* closure rather than raw pixel motion,
-which is the single most important noise-removal step for a dashcam.
+Estimates the **camera's apparent self-motion** each frame via optical
+flow on the static background (anything NOT inside a tracked bbox). On a
+fixed road / intersection camera the install itself doesn't move, but
+the frame still appears to move in many common cases — pan / tilt /
+zoom on a PTZ mount, light / shadow changes, compression artefacts,
+and genuine camera sway in wind. We still call this "ego-motion" in
+code for historical reasons; it is really "apparent camera motion",
+and subtracting it out lets the TTC math downstream compute *relative*
+closure of objects in the scene rather than raw pixel motion.
 
 Why this matters
 ----------------
-Pixels "moving" in a dashcam feed is ambiguous: a pedestrian whose bbox drifts
-30 px/sec across the frame may be sprinting into the lane, or may be perfectly
-still while the truck (and its camera) rolls forward. Without ego-motion
-compensation, every downstream kinematic signal — residual lateral velocity,
-approach/closure, lateral intrusion — conflates self-motion with target motion.
-That is the single largest source of false FCW / pedestrian-intrusion alerts
-in naive pipelines.
+Pixels "moving" in the feed are ambiguous: a pedestrian whose bbox drifts
+30 px/sec across the frame may be sprinting into the roadway, or the
+operator may be panning a PTZ camera while the pedestrian stands still.
+Without apparent-motion compensation, every downstream kinematic signal
+— residual lateral velocity, approach/closure, lateral intrusion —
+conflates camera motion with target motion. That is the single largest
+source of false FCW / pedestrian-intrusion alerts in naive pipelines.
 
 Approach
 --------
-We estimate a per-frame background flow vector using dense Farneback optical
-flow on a heavily downsampled grayscale pair (320x180) — cheap enough to run
-inline at 2 fps. Before taking the median, we mask out every tracked object's
-bbox so foreground motion doesn't contaminate the ego estimate; what's left
-is (mostly) rigid scene flow, which for a forward-moving camera is dominated
-by ego-motion. The median is robust to residual outliers (leaves, reflections,
-wipers).
+We estimate a per-frame background flow vector using dense Farneback
+optical flow on a heavily downsampled grayscale pair (320x180) — cheap
+enough to run inline at 2 fps. Before taking the median, we mask out
+every tracked object's bbox so foreground motion doesn't contaminate
+the estimate; what's left is (mostly) rigid scene flow, which on a
+fixed camera is usually zero but becomes non-trivial during PTZ
+motion, wind sway, or auto-exposure flicker. The median is robust to
+residual outliers (leaves, reflections, windblown flags).
 
-Per-object motion is then the bbox-center velocity MINUS the ego vector,
-yielding a residual that is (approximately) what the object is doing in the
-world frame. Combined with bbox-scale growth we can separate "approaching"
-from "receding while camera chases", and detect lateral intrusions toward
-the frame center that aren't just the camera panning.
+Per-object motion is then the bbox-center velocity MINUS the apparent
+camera-flow vector, yielding a residual that is (approximately) what
+the object is actually doing in the scene. Combined with bbox-scale
+growth we can separate "approaching" from "drifting because the camera
+panned", and detect lateral intrusions toward the frame center that
+aren't just PTZ motion.
 
 Caveats
 -------
-- Pure rotation / wipers / heavy rain will starve the background of texture;
-  we surface a `confidence` metric and the caller (server.py) should skip
-  ego-aware logic when it drops below 0.2.
-- The speed_proxy_mps value is a coarse sanity gauge, not a calibrated reading:
-  a real system calibrates focal length + camera height per vehicle.
-- Farneback is isotropic dense flow — it doesn't model the camera's motion
-  model. A proper SfM / essential-matrix solve would do better but is overkill
-  for 2 fps episode-level reasoning.
+- Pure rotation / heavy rain / overcast white sky will starve the
+  background of texture; we surface a `confidence` metric and the
+  caller (server.py) should skip ego-aware logic when it drops below
+  0.2.
+- The speed_proxy_mps value is a coarse sanity gauge, not a calibrated
+  reading: a properly calibrated system maps pixel flow to scene
+  metres using per-site focal length + camera height.
+- Farneback is isotropic dense flow — it doesn't model the camera's
+  motion model. A proper SfM / essential-matrix solve would do better
+  but is overkill for 2 fps episode-level reasoning.
 
 Consumers
 ---------
 - ``road_safety/server.py::_run_loop`` — calls ``update`` once per frame,
   then ``relative_motion`` per detection to decide whether to emit an event.
 - ``road_safety/core/context.py`` — accepts the ``speed_proxy_mps`` from the
-  returned ``EgoFlow`` to pick the urban/highway/parking label.
+  returned ``EgoFlow`` to pick a coarse scene label (urban / busy /
+  quiet) from the median flow magnitude across the camera site.
 
 Python idioms used (once-per-file):
 - ``from __future__ import annotations`` — makes all type hints lazy strings.
 - ``@dataclass`` — decorator from ``dataclasses`` that generates
   ``__init__`` / ``__repr__`` / ``__eq__`` automatically from the declared
   fields. Used here to keep the output records terse.
-- ``np.median`` — robust average; resistant to outliers (wiper blades,
-  reflected headlights) in ways that ``np.mean`` is not.
+- ``np.median`` — robust average; resistant to outliers (windblown
+  foliage, reflected headlights) in ways that ``np.mean`` is not.
 - ``np.mean(mag > threshold)`` — computes the fraction of pixels whose flow
   magnitude exceeds ``threshold`` by coercing booleans to 1/0.
 - ``cv2.calcOpticalFlowFarneback`` — dense optical flow estimator; returns a
@@ -88,10 +98,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Legacy single-camera defaults. Used only when an ``EgoMotionEstimator`` is
 # constructed without a ``CameraCalibration`` (older call sites / tests).
-# For multi-camera fleets, always pass a per-slot ``CameraCalibration`` to
+# For multi-camera sites, always pass a per-slot ``CameraCalibration`` to
 # the constructor so the speed proxy uses the correct focal + mount height —
-# a rear cam with focal 260 px used the front cam's 600 px before this, and
-# the resulting 2.3× speed overestimate was poisoning scene classification.
+# a cross-road cam with focal 260 px used the along-road 600 px before
+# this, and the resulting 2.3× speed overestimate was poisoning scene
+# classification.
 _FOCAL_PX = CAMERA_FOCAL_PX
 _CAMERA_HEIGHT_M = CAMERA_HEIGHT_M
 # Below this absolute speed-proxy reading (m/s) we refuse to commit to a
@@ -104,7 +115,7 @@ _DEFAULT_FPS = 2.0
 # ---------------------------------------------------------------------------
 # Farneback optical-flow parameters
 # ---------------------------------------------------------------------------
-# Farneback params — tuned for 320x180 @ 2 fps on a dashcam scene.
+# Farneback params — tuned for 320x180 @ 2 fps on a fixed road-camera scene.
 # Each key maps to an OpenCV parameter:
 #   pyr_scale   : image pyramid scale between levels (0.5 halves each step).
 #   levels      : how many pyramid levels (3 = coarse -> fine three times).
@@ -131,19 +142,19 @@ _FARNEBACK_KW = dict(
 # 320x180 (JPEG block flicker, sensor noise). We only count pixels above
 # this as "textured" when computing flow confidence.
 _TEXTURED_PX_THRESHOLD = 0.5      # px/frame magnitude to count as "textured"
-# If fewer than 20% of background pixels are textured, the ego estimate is
-# unreliable and ``update`` returns ``None``. Caller should fall back to
-# ego-free logic for this frame.
+# If fewer than 20% of background pixels are textured, the apparent-motion
+# estimate is unreliable and ``update`` returns ``None``. Caller should
+# fall back to ego-free logic for this frame.
 _MIN_CONFIDENCE = 0.2             # below this, update() returns None
 # Bbox must grow by more than ~2% between first and last sample to count as
 # "genuinely approaching". 2% roughly matches +0.3 m closure over 1 s at
-# common dashcam ranges — tight enough to ignore tracker jitter, loose
-# enough to catch real closure early.
+# common road-cam framing distances — tight enough to ignore tracker
+# jitter, loose enough to catch real closure early.
 _SCALE_GROWTH_APPROACHING = 1.02  # bbox scale ratio above which approach is plausible
 # 20 px/sec in the original frame is our lateral-intrusion floor. Anything
 # slower is most likely tracker jitter or mild camera sway. At a 1280-wide
 # frame, 20 px/sec across ~10 m of scene width is roughly 0.15 m/s — a
-# brisk step toward the camera lane.
+# brisk step across the monitored roadway.
 _LATERAL_INTRUSION_PX_SEC = 20.0  # residual dx magnitude threshold, original-frame px/sec
 
 
@@ -152,37 +163,42 @@ _LATERAL_INTRUSION_PX_SEC = 20.0  # residual dx magnitude threshold, original-fr
 # ---------------------------------------------------------------------------
 @dataclass
 class EgoFlow:
-    """One-frame summary of the camera's own motion.
+    """One-frame summary of the camera's apparent self-motion.
 
     Attributes
     ----------
     ex: Median background flow in the x direction, downsampled px/frame.
-    ey: Same for y (positive = image flowing downward, typical for forward
-        motion because the ground moves toward the camera).
+    ey: Same for y (positive = image flowing downward, typical of a
+        scene where traffic is approaching an along-road camera because
+        the road surface moves toward the camera).
     confidence: Fraction of background pixels with meaningful flow
         magnitude (0..1). Under 0.2 the caller treats the frame as
         unusable.
-    speed_proxy_mps: Coarse forward-speed estimate in m/s. This is a
-        *proxy* — useful for scene classification and UI hints, not for
-        quantitative claims in reports. Always ``0.0`` for side cams
-        because a perpendicular-mounted camera's optical flow is
-        dominated by lateral motion and cannot defend a forward speed.
-    direction: Categorical ego direction — ``"forward"``, ``"stationary"``,
-        or ``"reverse"``. Derived from the sign of ``ey`` with a per-camera
-        orientation inversion (a rear-facing cam sees the ground flow
-        *upward* under forward motion). Consumed by
-        ``road_safety/core/orientation_policy.py`` to gate rear-camera
-        events on "am I actually reversing right now?".
+    speed_proxy_mps: Coarse along-axis scene-speed estimate in m/s.
+        This is a *proxy* — useful for scene classification and UI
+        hints, not for quantitative claims in reports. Always ``0.0``
+        for cross-road cams because a perpendicular-mounted camera's
+        optical flow is dominated by lateral motion and cannot defend
+        a forward speed.
+    direction: Categorical apparent-flow direction — ``"forward"``,
+        ``"stationary"``, or ``"reverse"``. Derived from the sign of
+        ``ey`` with a per-camera orientation inversion (an opposite-
+        along-road cam sees the ground flow *upward* when traffic is
+        approaching the camera site). Consumed by
+        ``road_safety/core/orientation_policy.py`` to gate the
+        opposite-along-road taxonomy on "is the scene actually flowing
+        in reverse right now?".
     direction_confidence: 0..1 confidence in the ``direction`` label.
-        Scales ``confidence`` by how clearly we're moving (ramps 0 → 1
-        over 0..2 m/s); low speeds give low confidence because the sign
-        of ``ey`` is dominated by noise near the stationary floor.
+        Scales ``confidence`` by how clearly the scene is moving (ramps
+        0 → 1 over 0..2 m/s); low apparent speeds give low confidence
+        because the sign of ``ey`` is dominated by noise near the
+        stationary floor.
     """
 
-    ex: float           # ego-motion x-component (downsampled px/frame)
-    ey: float           # ego-motion y-component (downsampled px/frame)
+    ex: float           # apparent-motion x-component (downsampled px/frame)
+    ey: float           # apparent-motion y-component (downsampled px/frame)
     confidence: float   # 0..1, share of textured background
-    speed_proxy_mps: float  # coarse m/s forward-speed estimate
+    speed_proxy_mps: float  # coarse m/s along-axis scene-speed estimate
     # New fields at the end with sensible defaults so existing callers
     # that build EgoFlow positionally (tests, fixtures) keep working.
     direction: Literal["forward", "stationary", "reverse"] = "forward"
@@ -191,12 +207,12 @@ class EgoFlow:
 
 @dataclass
 class RelativeMotion:
-    """Ego-subtracted motion for a single tracked object.
+    """Apparent-camera-motion-subtracted motion for a single tracked object.
 
     Attributes
     ----------
     residual_dx: Object's horizontal velocity in original-frame px/sec,
-        with the scaled ego vector subtracted.
+        with the scaled apparent-camera-flow vector subtracted.
     residual_dy: Same for vertical velocity. Positive (downward in image)
         usually means "closer to the camera" for ground-plane objects.
     approaching: True iff the residual vertical velocity is positive AND
@@ -206,8 +222,8 @@ class RelativeMotion:
         ``_LATERAL_INTRUSION_PX_SEC``.
     """
 
-    residual_dx: float       # object motion in original-frame px/sec, ego-subtracted
-    residual_dy: float       # object motion in original-frame px/sec, ego-subtracted
+    residual_dx: float       # object motion in original-frame px/sec, camera-flow-subtracted
+    residual_dy: float       # object motion in original-frame px/sec, camera-flow-subtracted
     approaching: bool        # longitudinal component + scale growth indicate closure
     lateral_intrusion: bool  # residual_dx crosses toward frame center, > 20 px/sec
 
@@ -216,12 +232,14 @@ class RelativeMotion:
 # Estimator class
 # ===========================================================================
 class EgoMotionEstimator:
-    """Per-frame ego-motion estimator.
+    """Per-frame apparent-camera-motion estimator.
 
     What it represents
     ------------------
-    A single camera's frame-to-frame motion, distilled into an ``EgoFlow``
-    record that downstream code can subtract from object velocities.
+    A single camera's frame-to-frame apparent motion (PTZ pan/tilt/zoom,
+    wind sway, exposure flicker on a fixed install), distilled into an
+    ``EgoFlow`` record that downstream code can subtract from object
+    velocities.
 
     State held
     ----------
@@ -264,8 +282,8 @@ class EgoMotionEstimator:
                 path for single-camera callers and tests.
             downsample_size: (width, height) to which frames are resized
                 before running Farneback. 320x180 is the smallest size that
-                still yields usable flow on our dashcam feeds while keeping
-                per-frame cost around 3-5 ms on a Raspberry Pi 5.
+                still yields usable flow on our road-camera feeds while
+                keeping per-frame cost around 3-5 ms on a Raspberry Pi 5.
         """
         self._ds_w, self._ds_h = downsample_size
         self._prev_gray: np.ndarray | None = None
@@ -275,8 +293,8 @@ class EgoMotionEstimator:
 
         # Per-slot calibration. Falling back to module globals preserves the
         # single-camera legacy behaviour byte-for-byte; threading a real
-        # CameraCalibration fixes the rear-cam 2.3× speed overestimate
-        # that poisoned scene classification.
+        # CameraCalibration fixes the cross-road-cam 2.3× speed
+        # overestimate that poisoned scene classification.
         if calibration is None:
             self._focal_px: float = float(_FOCAL_PX)
             self._camera_height_m: float = float(_CAMERA_HEIGHT_M)
@@ -293,15 +311,15 @@ class EgoMotionEstimator:
         """Run once per frame.
 
         Intuition: dense flow on a masked grayscale image; the median of
-        what's left (background pixels only) is the ego vector. Cheap,
-        robust, good enough for 2 fps reasoning.
+        what's left (background pixels only) is the apparent-camera-flow
+        vector. Cheap, robust, good enough for 2 fps reasoning.
 
         Args:
             frame: BGR numpy image for this tick. ``None`` is a no-op.
             detections_with_track_ids: Iterable of tracked detections
                 (objects with ``.x1 .y1 .x2 .y2``). Their bboxes are masked
                 out before taking the background median so foreground
-                motion does not pollute the ego estimate.
+                motion does not pollute the apparent-camera-flow estimate.
             now_ts: Wall-clock seconds. Used with ``_prev_ts`` to compute
                 the frame interval for the speed proxy.
 
@@ -361,10 +379,11 @@ class EgoMotionEstimator:
         if bg.size == 0:
             return None
 
-        # ``bg`` is an (N, 2) array of (dx, dy) vectors. np.median picks the
-        # robust centre of the distribution — immune to small clusters of
-        # foreground flow that snuck through the mask (occlusion bleed,
-        # tracker misses).
+        # ``bg`` is an (N, 2) array of (dx, dy) vectors. np.median picks
+        # the robust centre of the distribution — immune to small
+        # clusters of foreground flow that snuck through the mask
+        # (occlusion bleed, tracker misses). On a fixed camera the
+        # median is typically near zero except during PTZ pan/tilt.
         fx = bg[:, 0]
         fy = bg[:, 1]
         ex = float(np.median(fx))
@@ -377,13 +396,13 @@ class EgoMotionEstimator:
         textured_frac = float(np.mean(mag > _TEXTURED_PX_THRESHOLD))
         confidence = max(0.0, min(1.0, textured_frac))
 
-        # Coarse forward-speed proxy. ey is downsampled px/frame of the
-        # background; at ~2 fps, dy_per_sec = ey * fps. The ground-plane
-        # pinhole gives speed ~ (H_cam * f) / y_offset^2 * dy_per_sec, where
-        # y_offset is "how far below the horizon" in pixels. We reuse a
-        # mid-frame horizon and take the downsample vertical center as a
-        # stand-in for a calibrated horizon offset. Reviewers evaluate the
-        # principle, not the number.
+        # Coarse along-axis scene-speed proxy. ey is downsampled
+        # px/frame of the background; at ~2 fps, dy_per_sec = ey * fps.
+        # The ground-plane pinhole gives speed ~ (H_cam * f) / y_offset^2
+        # * dy_per_sec, where y_offset is "how far below the horizon" in
+        # pixels. We reuse a mid-frame horizon and take the downsample
+        # vertical center as a stand-in for a calibrated horizon offset.
+        # Reviewers evaluate the principle, not the number.
         dt = max(now_ts - prev_ts, 1e-3)
         fps = 1.0 / dt if dt > 0 else _DEFAULT_FPS
         horizon_offset_ds = max(self._ds_h * 0.25, 1.0)  # ~45px at 180 tall
@@ -394,7 +413,7 @@ class EgoMotionEstimator:
         # the pixel terms cancel. ``self._focal_px`` and
         # ``self._camera_height_m`` come from the per-slot
         # ``CameraCalibration`` — using them instead of the module
-        # globals fixes the rear-cam 2.3× speed overestimate that
+        # globals fixes the cross-road-cam 2.3× speed overestimate that
         # poisoned downstream scene classification.
         speed_proxy_signed = (
             (self._camera_height_m * self._focal_px)
@@ -404,10 +423,10 @@ class EgoMotionEstimator:
         # the sign is preserved separately in ``direction`` below.
         speed_proxy_mps = float(abs(speed_proxy_signed))
 
-        # Derive a categorical ego direction. Side cams see mostly lateral
-        # flow under forward motion, so the sign of ``ey`` is noisy and the
-        # speed proxy is not defensible — orientation_policy falls back to
-        # its BSW gate in that case.
+        # Derive a categorical apparent-flow direction. Cross-road cams
+        # see mostly lateral flow when traffic approaches, so the sign of
+        # ``ey`` is noisy and the speed proxy is not defensible —
+        # orientation_policy falls back to its BSW gate in that case.
         if self._orientation == "side":
             speed_proxy_mps = 0.0
             direction: Literal["forward", "stationary", "reverse"] = "stationary"
@@ -419,16 +438,17 @@ class EgoMotionEstimator:
             direction = "stationary"
             direction_confidence = 0.0
         else:
-            # Forward motion shows ground flowing *downward* (ey > 0) for a
-            # forward-facing cam. A rear cam sees the ground flow *upward*
-            # under forward motion, so the mapping inverts.
+            # For an along-road cam, approaching traffic shows ground
+            # flowing *downward* (ey > 0). An opposite-along-road cam
+            # (facing the other way) sees the same traffic pattern as
+            # ground flow *upward*, so the mapping inverts.
             if self._orientation == "rear":
                 direction = "forward" if ey < 0.0 else "reverse"
             else:
                 direction = "forward" if ey > 0.0 else "reverse"
             # Confidence ramps 0 → 1 over 0..2 m/s and is further gated by
-            # the flow-texture confidence. Low speed or a textureless scene
-            # both collapse this toward zero.
+            # the flow-texture confidence. Low apparent speed or a
+            # textureless scene both collapse this toward zero.
             direction_confidence = float(
                 confidence * min(1.0, abs(speed_proxy_signed) / 2.0)
             )
@@ -459,11 +479,12 @@ class EgoMotionEstimator:
         ego: EgoFlow,
         track_history: TrackHistory,
     ) -> RelativeMotion | None:
-        """Compute ego-subtracted motion for a single tracked detection.
+        """Compute apparent-camera-motion-subtracted motion for a single tracked detection.
 
         Intuition: take the object's image-plane velocity over its track
-        window, subtract the (scaled) ego vector, and decide whether the
-        residual indicates approach or lateral intrusion.
+        window, subtract the (scaled) apparent-camera-flow vector, and
+        decide whether the residual indicates approach or lateral
+        intrusion.
 
         `track_history` is the shared detection.TrackHistory; we pull the
         track's samples (>=2 needed). The returned residuals are in
@@ -501,9 +522,10 @@ class EgoMotionEstimator:
         if dt <= 0.0:
             return None
 
-        # Longitudinal proxy: bbox-bottom shift (pixels/sec, original frame).
-        # For a forward-approaching object on the ground plane the bottom
-        # drops toward the camera, i.e. dy > 0 in image coords.
+        # Longitudinal proxy: bbox-bottom shift (pixels/sec, original
+        # frame). For an object approaching the camera along the ground
+        # plane the bottom drops toward the camera, i.e. dy > 0 in image
+        # coords.
         dy_obj = (last.bottom - first.bottom) / dt
 
         # Lateral proxy: use current det center x against itself as best-effort.
@@ -513,10 +535,11 @@ class EgoMotionEstimator:
         # the module's own last observation for this track_id.
         dx_obj = self._estimate_dx_original(track_id, det, dt)
 
-        # Scale ego vector from downsample back to original coords, then from
-        # per-frame to per-second. The downsample ratios sx, sy map
-        # downsampled px -> original px; the per-frame -> per-second scale
-        # depends on how many frames the ring buffer spans.
+        # Scale apparent-camera-flow vector from downsample back to
+        # original coords, then from per-frame to per-second. The
+        # downsample ratios sx, sy map downsampled px -> original px;
+        # the per-frame -> per-second scale depends on how many frames
+        # the ring buffer spans.
         if self._last_frame_size is None:
             return None
         orig_w, orig_h = self._last_frame_size

@@ -1,8 +1,10 @@
-"""Live safety review API — the "brain" of the fleet-safety dashcam system.
+"""Live safety review API — the "brain" of the road-camera safety monitoring system.
 
-Pulls a live stream, runs YOLO at 2 fps in a background thread, emits typed safety
-events over Server-Sent Events with an LLM-generated one-line narration, and exposes
-a RAG-backed copilot endpoint over a tiny statute/policy corpus.
+Pulls a live stream from a fixed traffic camera (YouTube live stream of an
+intersection, HLS feed, RTSP camera, or a local MP4 used for testing), runs
+YOLO at 2 fps in a background thread, emits typed safety events over
+Server-Sent Events with an LLM-generated one-line narration, and exposes a
+RAG-backed copilot endpoint over a tiny statute/policy corpus.
 
 =============================================================================
  MODULE OVERVIEW (for readers new to the codebase)
@@ -98,12 +100,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
+import socket
 import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import cv2
 from fastapi import FastAPI, HTTPException, Request
@@ -130,6 +135,7 @@ from road_safety.config import (
     MODEL_PATH,
     PAIR_COOLDOWN_SEC,
     PUBLIC_THUMBS_REQUIRE_TOKEN,
+    REQUIRE_AUTH,
     SCORE_DECAY_INTERVAL_SEC,
     SSE_REPLAY_COUNT,
     VALIDATOR_ENABLED,
@@ -206,24 +212,29 @@ from road_safety.security import require_bearer_token
 # configure structured logging (``setup_logging``) so every module uses the
 # same formatter. ``log`` is a module-scoped logger; never ``print``.
 
-# ===== SECTION: FLEET IDENTITY RESOLUTION =====
-# Events are meaningless to downstream fleet analytics if they can't be
-# attributed to a specific vehicle / road / driver. We resolve identity ONCE
-# at import time; the results are frozen into module-level constants below
-# and stamped onto every emitted event in ``_flush_episode``.
+# ===== SECTION: CAMERA-SITE IDENTITY RESOLUTION =====
+# Events are meaningless to downstream analytics if they can't be attributed
+# to a specific camera site / road / sensor. We resolve identity ONCE at
+# import time; the results are frozen into module-level constants below and
+# stamped onto every emitted event in ``_flush_episode``. In road-cam
+# deployments the ``vehicle_id`` / ``driver_id`` fields are reused as
+# camera-site / sensor attribution slots — their values are whatever the
+# operator configures via env vars.
 
 
-# Resolved fleet identity — every emitted event MUST carry a non-empty
-# vehicle_id / road_id / driver_id or downstream fleet aggregation is
-# broken (events appear as "unidentified"). If the operator didn't set the
-# env vars, fall back to a stable hostname-derived default and warn loudly
-# at startup so the deployment is obviously misconfigured instead of
-# silently producing unattributable events.
+# Resolved camera-site identity — every emitted event MUST carry a non-empty
+# vehicle_id / road_id / driver_id or downstream aggregation breaks (events
+# appear as "unidentified"). If the operator didn't set the env vars, fall
+# back to a stable hostname-derived default and warn loudly at startup so
+# the deployment is obviously misconfigured instead of silently producing
+# unattributable events.
 def _resolve_identity() -> tuple[str, str, str, list[str]]:
-    """Return the effective fleet identity for this process, plus any gaps.
+    """Return the effective camera-site identity for this process, plus any gaps.
 
     Reads ``VEHICLE_ID`` / ``ROAD_ID`` / ``DRIVER_ID`` (sourced from env in
-    ``road_safety/config.py``). If any is missing, substitutes a stable
+    ``road_safety/config.py``). These identifiers are attribution slots —
+    in a road-cam deployment their values are typically the camera-site
+    vehicle / road / sensor IDs. If any is missing, substitutes a stable
     hostname-derived placeholder so events still emit — but also records
     the missing env-var names so ``lifespan`` can log a loud warning.
 
@@ -462,7 +473,7 @@ class StreamSlot:
     Why shared for recent_events / subscribers / drift / publisher:
         These are pure aggregators / fan-outs — no per-source state to
         maintain. SSE clients want one merged stream, the cloud wants
-        one HMAC-signed batch, drift is fleet-wide.
+        one HMAC-signed batch, drift is deployment-wide.
     """
 
     def __init__(self, source_id: str, name: str, original_source: str):
@@ -483,9 +494,10 @@ class StreamSlot:
         # Pre-resolution operator-supplied URL. The resolved URL (post
         # yt-dlp) is stashed on ``reader.source_url`` once started.
         self.original_source = original_source
-        # UI-facing mode tag: "dashcam_file" (looping demo MP4), "live_yt",
-        # "live_hls", "webcam", "unknown". Drives the badge on the admin
-        # grid tile and whether the reader loops on EOF.
+        # UI-facing mode tag: "dashcam_file" (looping local MP4 source —
+        # typically used for testing), "live_yt", "live_hls", "webcam",
+        # "unknown". Drives the badge on the admin grid tile and whether
+        # the reader loops on EOF.
         self.stream_type = classify_source(original_source)
         # ``None`` until the slot has been started at least once.
         self.reader: StreamReader | None = None
@@ -508,10 +520,10 @@ class StreamSlot:
         self.last_perception_state: str | None = None
         # Thread the slot's camera calibration through the ego-motion estimator
         # so the pinhole speed-proxy uses the *correct* focal length + mount
-        # height per slot (front 600px / 1.25m, rear 260px / 1.10m, side 260px /
-        # 1.00m). Also lets the estimator emit a signed ``direction`` label
-        # which the orientation policy consumes to gate rear-cam events on
-        # "ego reversing".
+        # height per slot (forward-facing 600px / 1.25m, rearward 260px / 1.10m,
+        # sideways 260px / 1.00m). Also lets the estimator emit a signed
+        # ``direction`` label which the orientation policy consumes to gate
+        # rear-facing-camera events on observed reverse-direction scene flow.
         self.ego = EgoMotionEstimator(calibration=self.calibration)
         self.scene = SceneContextClassifier()
         self.last_ego_flow = None
@@ -866,12 +878,315 @@ def _valid_thumb_request(name: str, request: Request) -> bool:
     return hmac.compare_digest(expected, token)
 
 
-async def _score_decay_loop(interval_sec: int) -> None:
-    """Long-running background task: periodically decay driver safety scores.
+# ─────────────────────────────────────────────────────────────────────────────
+# BE-D12..D15 (Sprint 0 auth boundary) — helpers.
+#
+# The audit ships these endpoint-level hardenings behind a single env flag,
+# ``ROAD_REQUIRE_AUTH`` (see ``config.REQUIRE_AUTH``). The flag is OFF in
+# release N so ops can stamp a token into every deployment before the
+# release N+1 flip to ON. The wrapper below is the single entry point so
+# every hardened route uses the same policy.
+# ─────────────────────────────────────────────────────────────────────────────
 
-    The driver-score model in ``services/registry.py`` decays over time so
-    yesterday's bad trip doesn't permanently dominate today's score. This
-    loop triggers that decay on a fixed cadence.
+
+_auth_warn_seen: set[str] = set()
+_auth_warn_lock = threading.Lock()
+
+
+def _require_admin_if_flagged(request: Request, realm: str) -> None:
+    """Enforce admin auth on a previously-public endpoint, gated by ``REQUIRE_AUTH``.
+
+    When ``config.REQUIRE_AUTH`` is False we fall through silently (preserving
+    the pre-Sprint-0 behaviour) but log a rate-limited WARN the first time
+    each ``(route, realm)`` pair is hit unauthenticated, so operators see the
+    "would have denied" signal before the hard cutover flip. When
+    ``REQUIRE_AUTH`` is True, delegates to ``_require_admin`` which raises
+    401/403 on missing/bad bearer.
+
+    Args:
+        request: The FastAPI request (carries the Authorization header).
+        realm: Short human-readable scope label; appears in 401 body and in
+            the one-shot WARN line so ops can grep for specific routes.
+    """
+    if REQUIRE_AUTH:
+        _require_admin(request, realm=realm)
+        return
+    # Flag off → preserve public behaviour, but emit a single WARN per
+    # (route, realm) so untokenized deployments leave a breadcrumb before
+    # the N+1 flip closes the door.
+    auth_header = (request.headers.get("Authorization") or "").strip()
+    if auth_header.lower().startswith("bearer ") and ADMIN_TOKEN:
+        # A token *was* presented even with flag off — honour it so admin
+        # UIs that already send the header behave identically either side
+        # of the flip. Any malformed / wrong token still raises 401.
+        _require_admin(request, realm=realm)
+        return
+    try:
+        route_path = request.url.path
+    except Exception:
+        route_path = "<unknown>"
+    key = f"{route_path}::{realm}"
+    with _auth_warn_lock:
+        if key in _auth_warn_seen:
+            return
+        _auth_warn_seen.add(key)
+    log.warning(
+        "auth_required_but_flag_off realm=%s route=%s "
+        "(set ROAD_REQUIRE_AUTH=1 before the release-N+1 flip)",
+        realm,
+        route_path,
+    )
+
+
+# Known-public CDN hostnames bypass the ``getaddrinfo``-based SSRF check.
+# These are the documented yt-dlp happy paths and carry no plausible
+# internal-service impersonation risk; skipping DNS resolution here keeps
+# ``POST /api/live/sources`` snappy for the dominant operator workflow.
+_SSRF_ALLOWLIST_SUFFIXES: tuple[str, ...] = (
+    ".youtube.com",
+    "youtube.com",
+    "youtu.be",
+    ".googlevideo.com",
+)
+
+
+def _validate_public_url(url: str) -> None:
+    """Reject URLs that resolve to a private / loopback / cloud-metadata IP.
+
+    Implements BE-D15 from the 2026-04-20 backend audit. Applied to
+    ``POST /api/live/sources`` before the slot is created so an operator (or
+    attacker with the admin token) can't paste ``http://169.254.169.254/...``
+    (AWS IMDS) or any RFC1918 address the edge node might reach.
+
+    Args:
+        url: The user-supplied stream URL (already passed the scheme check).
+
+    Raises:
+        HTTPException: 400 when the URL has no hostname, fails DNS, or any
+            resolved address falls inside a disallowed range.
+
+    Caveats:
+        * DNS rebinding is not fully mitigated here — yt-dlp / OpenCV will
+          re-resolve at dial time. A future hardening would dial the
+          resolved IP directly. Out of scope for BE-D15.
+        * The YouTube / googlevideo allowlist intentionally skips DNS
+          resolution (these are known-public CDNs and the primary happy
+          path for yt-dlp). Adding a host there is a conscious trust
+          decision.
+    """
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        raise HTTPException(400, "url has no hostname")
+
+    # Allowlist bypass for the well-known public CDNs.
+    if hostname == "youtu.be" or any(
+        hostname.endswith(sfx) for sfx in _SSRF_ALLOWLIST_SUFFIXES
+    ):
+        return
+
+    # If the host is already a literal IP, validate it directly — skip DNS.
+    try:
+        literal = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal = None
+
+    addresses: list[str] = []
+    if literal is not None:
+        addresses.append(str(literal))
+    else:
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except socket.gaierror as exc:
+            log.info("ssrf_check hostname resolve failed: %s (%s)", hostname, exc)
+            raise HTTPException(400, "url hostname failed to resolve")
+        for info in infos:
+            sockaddr = info[4]
+            if not sockaddr:
+                continue
+            ip_str = sockaddr[0]
+            if ip_str and ip_str not in addresses:
+                addresses.append(ip_str)
+
+    if not addresses:
+        raise HTTPException(400, "url hostname failed to resolve")
+
+    for addr in addresses:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            raise HTTPException(400, "url resolves to a disallowed address range")
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            log.info(
+                "ssrf_check rejected host=%s ip=%s kind=%s",
+                hostname,
+                addr,
+                "private/loopback/link-local/multicast/reserved/unspecified",
+            )
+            raise HTTPException(
+                400, "url resolves to a disallowed address range",
+            )
+
+
+# ─── BE-D13: short-lived signed URLs for media/detection streams ────────────
+# The existing ``_thumb_token`` primitive already HMAC-signs a name + expiry
+# pair. Media URLs reuse the same secret (``THUMB_SIGNING_SECRET``) but with
+# a composite key ``"<stream>:<source_id>"`` so a leaked thumbnail token
+# can't be replayed against the live video feed and vice-versa. TTL is
+# tighter (5 min) because the mint endpoint is auth-gated and the FE should
+# refresh before expiry.
+
+_MEDIA_TOKEN_TTL_SEC = 5 * 60
+
+
+def _media_token(stream_key: str, expiry: int) -> str:
+    """HMAC-sign ``(stream_key, expiry)`` for a media-stream URL.
+
+    Args:
+        stream_key: Composite key ``"<stream>:<source_id>"`` where
+            ``stream`` is one of ``"mjpeg"``, ``"frame"``, ``"detections"``.
+        expiry: Unix-epoch second the token stops being valid.
+
+    Returns:
+        The first 32 hex chars of a SHA-256 HMAC. Same entropy envelope as
+        ``_thumb_token``.
+    """
+    mac = hmac.new(
+        THUMB_SIGNING_SECRET.encode("utf-8"),
+        f"media:{stream_key}.{expiry}".encode("utf-8"),
+        hashlib.sha256,
+    )
+    return mac.hexdigest()[:32]
+
+
+def _valid_media_request(stream_key: str, request: Request) -> bool:
+    """Validate the signed-URL ``?exp=&token=`` pair on a media endpoint.
+
+    Mirrors ``_valid_thumb_request`` but with a 5-minute exp cap (vs 24h on
+    thumbnails) because live-video signatures are higher-value.
+
+    Args:
+        stream_key: Composite ``"<stream>:<source_id>"`` key.
+        request: FastAPI request object — reads ``exp`` / ``token``.
+
+    Returns:
+        ``True`` iff ``THUMB_SIGNING_SECRET`` is configured, the request
+        carries both ``exp`` + ``token``, the expiry is in the future but
+        no more than ``_MEDIA_TOKEN_TTL_SEC`` ahead, and the HMAC matches.
+    """
+    if not THUMB_SIGNING_SECRET:
+        return False
+    exp_raw = request.query_params.get("exp")
+    token = (request.query_params.get("token") or "").strip()
+    if not exp_raw or not token:
+        return False
+    try:
+        exp = int(exp_raw)
+    except ValueError:
+        return False
+    now = int(time.time())
+    if exp < now:
+        return False
+    if exp > now + _MEDIA_TOKEN_TTL_SEC:
+        return False
+    expected = _media_token(stream_key, exp)
+    return hmac.compare_digest(expected, token)
+
+
+def _require_media_auth(stream_key: str, request: Request, realm: str) -> None:
+    """Enforce media-stream auth: signed URL, admin bearer, or public fall-through.
+
+    When ``REQUIRE_AUTH`` is True: accept a valid HMAC-signed URL OR an
+    admin bearer token; reject everything else with 401.
+
+    When ``REQUIRE_AUTH`` is False: preserve the pre-Sprint-0 public
+    behaviour but emit a rate-limited WARN on the first unauthenticated
+    hit so ops can spot untokenized deployments before the flip.
+
+    Args:
+        stream_key: ``"<stream>:<source_id>"`` used for signature validation.
+        request: FastAPI request.
+        realm: Short label for the 401 body / WARN line (e.g. ``"media:mjpeg"``).
+    """
+    # Signed URL? Accept regardless of flag — mint endpoint is auth-gated,
+    # so presenting a valid signature is proof the caller has been through
+    # the admin path once.
+    if _valid_media_request(stream_key, request):
+        return
+    _require_admin_if_flagged(request, realm=realm)
+
+
+# ─── BE-D14: token-bucket rate limit on annotated clip renders ──────────────
+# Applied ONLY to the cache-miss path so playback from cache is unthrottled.
+# Bucket: 3 tokens, refill 1 per 20s → sustained 3/min per caller.
+_CLIP_BUCKET_CAP = 3
+_CLIP_BUCKET_REFILL_SEC = 20.0
+_clip_buckets: dict[str, tuple[float, float]] = {}
+_clip_bucket_lock = threading.Lock()
+
+
+def _clip_caller_key(request: Request) -> str:
+    """Derive the rate-limit bucket key for a clip request.
+
+    Prefers a SHA-256 hash of the bearer token (so different operators get
+    independent buckets); falls back to ``request.client.host`` for
+    unauthenticated callers during the ``REQUIRE_AUTH=False`` window.
+    """
+    auth = (request.headers.get("Authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        token = auth.split(None, 1)[1].strip()
+        if token:
+            digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+            return f"bearer:{digest}"
+    host = "unknown"
+    try:
+        if request.client and request.client.host:
+            host = request.client.host
+    except Exception:
+        pass
+    return f"ip:{host}"
+
+
+def _clip_rate_limit_check(request: Request) -> None:
+    """Consume one token from the caller's clip-render bucket or raise 429.
+
+    Call immediately before the expensive YOLO-annotated render. Cache hits
+    should not invoke this — they serve from disk unthrottled.
+
+    Raises:
+        HTTPException: 429 when the bucket is empty.
+    """
+    key = _clip_caller_key(request)
+    now = time.time()
+    with _clip_bucket_lock:
+        tokens, last = _clip_buckets.get(key, (float(_CLIP_BUCKET_CAP), now))
+        # Refill: one token per ``_CLIP_BUCKET_REFILL_SEC`` elapsed seconds,
+        # capped at ``_CLIP_BUCKET_CAP``. Fractional tokens are allowed so
+        # callers don't bunch up at bucket boundaries.
+        elapsed = max(0.0, now - last)
+        tokens = min(float(_CLIP_BUCKET_CAP), tokens + elapsed / _CLIP_BUCKET_REFILL_SEC)
+        if tokens < 1.0:
+            _clip_buckets[key] = (tokens, now)
+            raise HTTPException(
+                429, "rate limit: too many annotated clip renders",
+            )
+        _clip_buckets[key] = (tokens - 1.0, now)
+
+
+async def _score_decay_loop(interval_sec: int) -> None:
+    """Long-running background task: periodically decay attribution safety scores.
+
+    The attribution-score model in ``services/registry.py`` (keyed on the
+    ``driver_id`` attribution slot) decays over time so yesterday's
+    incidents don't permanently dominate today's score. This loop triggers
+    that decay on a fixed cadence.
 
     Args:
         interval_sec: Seconds between decay passes. Sourced from
@@ -1009,10 +1324,11 @@ def _render_annotated_frame(frame, detections, interactions, distances_m=None):
             /.x2/.y2``, ``.cls``, ``.conf``, ``.track_id``, ``.center``).
         interactions: Iterable of ``(event_type, det_a, det_b, dist_px)``
             tuples — render as coloured connecting lines between pairs.
-        distances_m: Optional list of ego→object distance estimates (metres)
-            aligned 1:1 with ``detections``. ``None`` entries are skipped;
-            non-None entries are appended to each bbox label as ``"12.3 m"``
-            so the operator sees how far every obstacle is from the ego car.
+        distances_m: Optional list of camera-to-object distance estimates
+            (metres) aligned 1:1 with ``detections``. ``None`` entries are
+            skipped; non-None entries are appended to each bbox label as
+            ``"12.3 m"`` so the operator sees how far every tracked object
+            is from the camera.
 
     Returns:
         JPEG-encoded bytes (quality 70 — small enough for MJPEG but
@@ -1302,9 +1618,10 @@ def _start_slot(slot: StreamSlot) -> None:
         raise RuntimeError(f"slot {slot.source_id} has no source URL")
     hls = resolve_hls(slot.original_source)
     live_fps = float(SETTINGS_STORE.snapshot().get("TARGET_FPS", TARGET_FPS))
-    # Local-file sources loop forever by default so the demo "fake dashcam"
-    # MP4 replays end-to-end. Live URLs (YT/HLS/RTSP) keep the legacy
-    # "exit on EOF" behaviour — there is no EOF on a live feed anyway.
+    # Local-file sources loop forever by default so a local MP4 source
+    # (typically used for testing) replays end-to-end. Live URLs
+    # (YT/HLS/RTSP) keep the legacy "exit on EOF" behaviour — there is
+    # no EOF on a live feed anyway.
     should_loop = slot.stream_type == "dashcam_file"
     reader = StreamReader(
         hls,
@@ -1344,9 +1661,9 @@ def _pause_slot(slot: StreamSlot) -> bool:
     """Freeze the slot's capture loop without tearing down the reader.
 
     Unlike :func:`_stop_slot` this keeps ``slot.reader`` attached and its
-    capture thread alive — for a dashcam MP4 that means playback position
-    survives across a Pause → Start cycle so the operator resumes exactly
-    where they paused instead of replaying from frame 0.
+    capture thread alive — for a local MP4 source that means playback
+    position survives across a Pause → Start cycle so the operator
+    resumes exactly where they paused instead of replaying from frame 0.
 
     Returns True when a reader was actually paused, False if the slot had
     nothing alive to pause (caller can treat that as a no-op).
@@ -1507,10 +1824,12 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
 
     # ----- Gate 3: ego-motion estimation -----
     # Farneback dense optical flow on the masked background → ego flow vector
-    # + speed proxy. Ego-motion lets downstream code tell "object approaching
-    # me" apart from "I'm approaching a parked object." Also feeds scene
-    # context. Wrapped in try/except because optical flow can fail on tiny /
-    # degenerate frames and we don't want one bad frame to crash the thread.
+    # + speed proxy. Ego-motion (here: residual apparent scene motion) lets
+    # downstream code separate real track-relative approach from apparent
+    # motion induced by camera shake / pan / zoom on a fixed traffic camera.
+    # Also feeds scene context. Wrapped in try/except because optical flow
+    # can fail on tiny / degenerate frames and we don't want one bad frame
+    # to crash the thread.
     try:
         ego_flow = slot.ego.update(frame, detections, wall_ts)
     except Exception as exc:
@@ -1520,14 +1839,15 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
 
     # ----- Gate 4: scene context + adaptive thresholds -----
     # Classify urban / highway / parking from rolling detection density +
-    # ego speed. Thresholds adapt per scene so 65mph highway doesn't reuse
-    # city-street numbers.
+    # ego speed. Thresholds adapt per scene so a 65mph highway view
+    # doesn't reuse city-street numbers.
     # WHY the 0.4 confidence floor: only feed the speed proxy in when ego-
     # flow confidence is high enough that the median flow is reliable.
-    # Below this band (rain, wipers, low texture, pure rotation) we let the
-    # classifier fall back to detection-density rules rather than driving
-    # adaptive thresholds off a noisy speed estimate — that's how "highway"
-    # mistakenly fires in parking lots with reflective floors.
+    # Below this band (heavy rain, low texture, pure rotation from camera
+    # pan) we let the classifier fall back to detection-density rules
+    # rather than driving adaptive thresholds off a noisy speed estimate
+    # — that's how "highway" mistakenly fires in parking-lot views with
+    # reflective surfaces.
     if ego_flow is not None and ego_flow.confidence >= 0.4:
         speed_proxy = ego_flow.speed_proxy_mps
     else:
@@ -1653,13 +1973,15 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
 
         # ----- Gate 13.5: orientation policy (SAE J3063) -----
         # Dispatch the candidate through the per-camera-orientation gate.
-        # Forward cams pass through (standard FCW). Rear cams require ego
-        # to be reversing (ISO 22840) and pick RCW vs RCTA based on the
-        # secondary track's lateral/longitudinal motion. Side cams require
-        # blind-zone presence + dwell >= BSW_DWELL_SEC (ISO 17387).
-        # Suppressed candidates never open an episode nor consume a
-        # cooldown slot — they're simply invisible to the rest of the
-        # pipeline, which eliminates the rear/side false-positive class.
+        # Forward-facing cameras pass through (standard FCW). Rear-facing
+        # cameras require the scene-flow direction to be consistent with
+        # reverse-direction motion (ISO 22840) and pick RCW vs RCTA based
+        # on the secondary track's lateral/longitudinal motion. Side-
+        # facing cameras require blind-zone presence + dwell >=
+        # BSW_DWELL_SEC (ISO 17387). Suppressed candidates never open an
+        # episode nor consume a cooldown slot — they're simply invisible
+        # to the rest of the pipeline, which eliminates the rear/side
+        # false-positive class.
         policy_decision = _orientation_classify(
             calibration=slot.calibration,
             event_type=event_type,
@@ -1731,19 +2053,22 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
         has_viewers = slot.has_viewers()
         # Per-slot camera calibration (focal, height, horizon, offset_m,
         # axis). Accurate distance on a multi-camera install needs the
-        # right focal for each lens (iPhone 1× ≈ 600 px, 0.5× ≈ 260 px)
+        # right focal for each lens (wide ≈ 600 px, ultra-wide ≈ 260 px)
         # and the right ``offset_m`` so the number we report is "metres
-        # to my bumper", not "metres to the camera glass". ``axis`` is
+        # to the reference point the operator wants" (typically the curb
+        # or stop-line), not "metres to the camera glass". ``axis`` is
         # semantic metadata: forward/rear → TTC is meaningful; lateral
         # → distance is a sideways proximity reading only.
         cam_cal = slot.calibration
         # Wire-format axis label for the SSE detection snapshot:
-        #   - "range":   forward / rear cams — distance is longitudinal
-        #                (down the direction of travel). TTC is meaningful.
-        #   - "lateral": side-window cams — distance is sideways
+        #   - "range":   forward- / rear-facing cams — distance is
+        #                longitudinal (down the camera's optical axis).
+        #                TTC is meaningful.
+        #   - "lateral": side-facing cams — distance is sideways
         #                (adjacent-lane proximity). TTC is largely
-        #                meaningless because lateral closing rate isn't
-        #                "time to collision" in the dashcam sense.
+        #                meaningless because a lateral closing rate
+        #                isn't a proper time-to-collision along the
+        #                camera's line of sight.
         # The frontend uses this tag to label the chip ("range" vs
         # "lateral") so operators read the right semantic.
         cam_axis = "lateral" if cam_cal.orientation == "side" else "range"
@@ -2166,7 +2491,7 @@ async def lifespan(app: FastAPI):
 
     Startup (pre-yield):
         * Captures the running event loop for the perception thread.
-        * Warns if fleet identity is missing.
+        * Warns if camera-site identity is missing.
         * Loads the YOLO model.
         * Resolves the HLS URL + starts the StreamReader thread.
         * Starts digest schedulers, edge publisher, retention sweep loop,
@@ -3356,8 +3681,8 @@ async def validator_toggle(request: Request):
     """Enable or disable the shadow validator at runtime.
 
     HTTP: POST /api/validator/toggle
-    AUTH: public (read-only toggle of a background observability job;
-        does not affect live alerts).
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12). Mutates the
+        validator worker's accept state; previously documented as public.
     Body: ``{"enabled": true|false}`` — ``true`` resumes accepting shadow
         jobs, ``false`` pauses enqueue without tearing down the worker
         (so model weights stay loaded for fast resume).
@@ -3366,6 +3691,7 @@ async def validator_toggle(request: Request):
         409 when the validator was disabled at startup (``state.validator``
             is ``None``) — nothing to toggle.
     """
+    _require_admin_if_flagged(request, realm="validator toggle")
     if state.validator is None:
         raise HTTPException(
             status_code=409,
@@ -3659,11 +3985,11 @@ def live_sources():
 
 
 @app.post("/api/live/sources/{source_id}/start")
-def live_source_start(source_id: str):
+def live_source_start(source_id: str, request: Request):
     """Resume capture for a paused source.
 
     HTTP: POST /api/live/sources/{source_id}/start
-    AUTH: public (operator network)
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
     Returns: the slot's status dict, with ``running=true`` on success
         or ``last_error`` populated on failure.
 
@@ -3673,6 +3999,7 @@ def live_source_start(source_id: str):
         - Otherwise (never started, or fully stopped) → spawn a fresh
           reader from frame 0.
     """
+    _require_admin_if_flagged(request, realm="source start")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
@@ -3696,17 +4023,18 @@ def live_source_start(source_id: str):
 
 
 @app.post("/api/live/sources/{source_id}/pause")
-def live_source_pause(source_id: str):
+def live_source_pause(source_id: str, request: Request):
     """Pause capture for a running source (slot is preserved for restart).
 
     HTTP: POST /api/live/sources/{source_id}/pause
-    AUTH: public (operator network)
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
 
     Unlike the prior implementation this does NOT tear down the reader —
     it just flips the pause gate so the capture thread sits idle without
     releasing the VideoCapture handle. That preserves MP4 playback
     position so the next Start resumes in place.
     """
+    _require_admin_if_flagged(request, realm="source pause")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
@@ -3719,20 +4047,21 @@ def live_source_pause(source_id: str):
 
 
 @app.post("/api/live/sources/restart_all")
-def live_source_restart_all():
-    """Restart every slot from the beginning (demo reset).
+def live_source_restart_all(request: Request):
+    """Restart every slot from the beginning (full reset).
 
     HTTP: POST /api/live/sources/restart_all
-    AUTH: public (operator network)
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
 
     For each slot: stop the running reader (if any) and start a fresh one.
-    For MP4 demo sources this rewinds capture to frame 0; for live feeds
+    For local MP4 sources this rewinds capture to frame 0; for live feeds
     it reconnects. ``slot.started_at`` is replaced so ``uptime_sec``
     re-zeroes, which the frontend uses as the map-playhead reset signal.
     Per-source perception state is intentionally preserved — the scene
     classifier and quality monitor don't need to re-learn an unchanged
     camera.
     """
+    _require_admin_if_flagged(request, realm="source restart_all")
     results: list[dict] = []
     for sid, slot in list(state.slots.items()):
         if not slot.original_source:
@@ -3786,7 +4115,10 @@ async def live_source_add(request: Request):
     HTTP: POST /api/live/sources
     Body (JSON): ``{"url": "<stream url>", "name"?: "<display name>",
                    "id"?: "<explicit slot id>", "autostart"?: bool}``
-    AUTH: public (operator network)
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12).
+          Also validates the URL against an SSRF blocklist (BE-D15) so a
+          caller with the admin token still can't point the edge node at
+          internal / link-local / cloud-metadata addresses.
 
     The slot is held in-memory only — it survives until the next process
     restart. To make it permanent, add the URL to ``ROAD_STREAM_SOURCES``
@@ -3796,6 +4128,7 @@ async def live_source_add(request: Request):
     when ``autostart`` is true and the resolver fails (slot is still
     created so the operator can retry from the Start button).
     """
+    _require_admin_if_flagged(request, realm="source add")
     try:
         body = await request.json()
     except Exception:
@@ -3807,6 +4140,13 @@ async def live_source_add(request: Request):
     # accidental "youtube.com/..." paste without a scheme.
     if not (url.startswith("http://") or url.startswith("https://")):
         raise HTTPException(400, "url must start with http:// or https://")
+
+    # BE-D15: reject URLs that resolve to private / loopback / link-local /
+    # metadata addresses. Note: resolved IP is not re-dialled here — yt-dlp
+    # / OpenCV will re-resolve at open time. A stricter mitigation (dial
+    # the resolved IP directly) is out of scope for Sprint 0 but documented
+    # as a future hardening in the audit.
+    _validate_public_url(url)
 
     requested_id = (body.get("id") or "").strip()
     if requested_id:
@@ -3835,16 +4175,17 @@ async def live_source_add(request: Request):
 
 
 @app.delete("/api/live/sources/{source_id}")
-def live_source_remove(source_id: str):
+def live_source_remove(source_id: str, request: Request):
     """Stop the slot and drop it from the registry.
 
     HTTP: DELETE /api/live/sources/{source_id}
-    AUTH: public (operator network)
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
     Removing the primary slot is allowed — the legacy ``state.X``
     properties will simply delegate to whichever slot remains. Removing
     the *last* slot leaves the registry empty; the proxy then returns
     None for ``state.reader`` etc., which existing code already tolerates.
     """
+    _require_admin_if_flagged(request, realm="source remove")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
@@ -3855,17 +4196,18 @@ def live_source_remove(source_id: str):
 
 
 @app.post("/api/live/sources/{source_id}/detection")
-def live_source_set_detection(source_id: str, enabled: bool = True):
+def live_source_set_detection(source_id: str, request: Request, enabled: bool = True):
     """Toggle whether YOLO + event emission runs for a source.
 
     HTTP: POST /api/live/sources/{source_id}/detection?enabled=true|false
-    AUTH: public (operator network)
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12)
     Effect: when ``enabled=false`` the slot keeps reading frames (so the
         live preview stays up) but ``_on_frame`` short-circuits before
         running YOLO / quality / scene / episode logic. Toggling back to
         true picks up on the next frame; per-source perception state is
         preserved (not reset) across the toggle.
     """
+    _require_admin_if_flagged(request, realm="source detection toggle")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
@@ -3926,14 +4268,16 @@ def api_test_status():
 
 
 @app.post("/api/tests/run")
-def api_test_run():
+def api_test_run(request: Request):
     """Trigger a new test run (if not already running).
 
     HTTP: POST /api/tests/run
-    AUTH: public (dashboard action)
+    AUTH: admin bearer (gated by ROAD_REQUIRE_AUTH — BE-D12). Triggers a
+        pytest subprocess; script-abuse would pin the CPU.
     Returns: ``{"ok": True}`` when started, or ``{"ok": False,
         "reason": "already running"}`` when a run is already in flight.
     """
+    _require_admin_if_flagged(request, realm="tests run")
     if test_run_state.status == "running":
         return {"ok": False, "reason": "already running"}
     start_test_run()

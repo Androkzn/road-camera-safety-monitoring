@@ -180,8 +180,9 @@ interface MultiSourceGridProps {
   onFocusChange: (id: string | null) => void;
   // Overrides the inline ``liveSources.restartAll`` call for the Restart
   // toolbar button. AdminPage uses this to pair the stream restart with
-  // a client-side event-list wipe so replayed dashcam scenes don't re-fill
-  // the feed with identical-looking events right after the operator cleared.
+  // a client-side event-list wipe so replayed local-file fixtures don't
+  // re-fill the feed with identical-looking events right after the operator
+  // cleared it.
   onRestart?: () => Promise<void> | void;
 }
 
@@ -228,8 +229,9 @@ export function MultiSourceGrid({
 
   // Shared "Start all" / "Pause all" controls. The per-tile start/pause
   // buttons still work for targeted control; these toolbar actions iterate
-  // every source so the operator can bring the whole fleet online with one
-  // click. The hook's optimistic update handles the running flag per-tile.
+  // every source so the operator can bring every configured road camera
+  // online with one click. The hook's optimistic update handles the running
+  // flag per-tile.
   const runningCount = sources.filter((s) => s.running).length;
   const allRunning = sources.length > 0 && runningCount === sources.length;
   const noneRunning = runningCount === 0;
@@ -299,8 +301,8 @@ export function MultiSourceGrid({
             className={styles.toolbarBtn}
             onClick={() => {
               // Prefer the parent-supplied handler (AdminPage wipes the
-              // event list first so the replayed MP4 doesn't repopulate
-              // it with identical-looking detections).
+              // event list first so a replayed local-file fixture doesn't
+              // repopulate it with identical-looking detections).
               if (onRestart) void onRestart();
               else void restartAll();
             }}

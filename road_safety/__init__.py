@@ -1,4 +1,9 @@
-"""Road Safety — live dashcam safety review system.
+"""Road Safety — fixed road-camera safety monitoring system.
+
+Monitors live YouTube streams from fixed road / intersection cameras and
+surfaces near-miss and proximity events from an external-scene vantage
+point. The sibling dashcam project handles in-vehicle cameras; this
+codebase stays focused on stationary traffic-camera streams.
 
 This file is the package marker for the ``road_safety`` Python package.
 

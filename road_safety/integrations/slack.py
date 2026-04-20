@@ -76,13 +76,20 @@ cap — noted as a follow-up item elsewhere.
 from __future__ import annotations
 
 # Standard library imports, then third-party — blank line separates groups.
+import asyncio                   # module-level lock for lazy-client construction
+import logging                   # structured logger (prefer this over print)
 import os                        # read env vars at import time
 from collections import Counter  # tally event types for digest summaries
 from pathlib import Path         # OO filesystem paths for thumbnail access
 
-# ``httpx`` is an async-capable HTTP client. We use its ``AsyncClient``
-# context manager so connections are pooled and always closed cleanly.
+# ``httpx`` is an async-capable HTTP client. We use a module-level singleton
+# ``AsyncClient`` (lazily constructed, shared across all callers) so that the
+# TCP + TLS handshake cost is paid ONCE per process rather than per POST.
+# During incident storms (Slack + cloud egress burst) re-handshaking on every
+# call amplifies latency exactly when we can least afford it.
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Section: module-level configuration (read once at import time)
@@ -150,6 +157,48 @@ from road_safety.settings_store import STORE as _SETTINGS_STORE  # noqa: E402
 # ---------------------------------------------------------------------------
 _MEDIUM_BUFFER: list[dict] = []
 _LOW_BUFFER: list[dict] = []
+
+
+# ---------------------------------------------------------------------------
+# Shared httpx.AsyncClient singleton.
+# Both Slack call sites (``notify_high`` / ``_upload_public_image`` at ~20s
+# timeout for image upload, and ``_post_digest`` at ~10s for webhook POST)
+# reuse the same pooled client. Per-call timeouts are passed on the
+# ``.post()`` calls themselves — we do NOT set a default timeout on the
+# client, so each request is still bounded by the tighter of the two values
+# (20s for catbox upload, 10s for the webhook).
+# ``_client_lock`` serializes the check-lock-check construction to avoid two
+# concurrent first-callers each spinning up a duplicate client.
+# ---------------------------------------------------------------------------
+_client: httpx.AsyncClient | None = None
+_client_lock = asyncio.Lock()
+
+
+async def _get_client() -> httpx.AsyncClient:
+    """Return the module-level ``httpx.AsyncClient``, constructing it once.
+
+    Uses double-checked locking: the fast path does a racy ``is None`` check
+    (cheap, and the client reference never un-sets itself during normal
+    operation), and only on a miss do we grab the lock and re-check.
+    """
+    global _client
+    if _client is not None:
+        return _client
+    async with _client_lock:
+        if _client is None:
+            _client = httpx.AsyncClient()
+        return _client
+
+
+async def aclose() -> None:
+    """Close the shared client on shutdown. Exposed for lifespan wiring."""
+    global _client
+    if _client is not None:
+        try:
+            await _client.aclose()
+        except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
+            logger.warning("slack client aclose failed: %s", exc)
+        _client = None
 
 
 def slack_configured() -> bool:
@@ -400,27 +449,28 @@ async def notify_high(event: dict, thumb_path: Path) -> None:
     # absent — the ``_build_blocks`` call handles both cases.
     image_url: str | None = None
     try:
-        async with httpx.AsyncClient() as client:
-            if _IMAGE_RELAY_ENABLED and thumb_path and thumb_path.exists():
-                image_url = await _upload_public_image(client, thumb_path)
+        # Reuse the module-level pooled client — no per-call TCP/TLS setup.
+        client = await _get_client()
+        if _IMAGE_RELAY_ENABLED and thumb_path and thumb_path.exists():
+            image_url = await _upload_public_image(client, thumb_path)
 
-            payload = {
-                "blocks": _build_blocks(event, image_url),
-                # ``text`` is Slack's fallback for notifications and
-                # older clients / mobile push previews. We keep it terse.
-                "text": (
-                    f"{event['risk_level'].upper()} road event: {event['event_type']} — "
-                    f"{event.get('narration') or event.get('summary', '')}"
-                ),
-            }
-            # 10s POST timeout — Slack webhooks are normally sub-second;
-            # anything over 10s is effectively a failure.
-            r = await client.post(_WEBHOOK, json=payload, timeout=10)
-            # Slack's incoming-webhook spec: success = HTTP 200 with body
-            # literally "ok". Anything else is an error.
-            if r.status_code != 200 or r.text.strip() != "ok":
-                print(f"[slack] webhook rejected: {r.status_code} {r.text[:200]}")
-                return
+        payload = {
+            "blocks": _build_blocks(event, image_url),
+            # ``text`` is Slack's fallback for notifications and
+            # older clients / mobile push previews. We keep it terse.
+            "text": (
+                f"{event['risk_level'].upper()} road event: {event['event_type']} — "
+                f"{event.get('narration') or event.get('summary', '')}"
+            ),
+        }
+        # 10s POST timeout — Slack webhooks are normally sub-second;
+        # anything over 10s is effectively a failure.
+        r = await client.post(_WEBHOOK, json=payload, timeout=10)
+        # Slack's incoming-webhook spec: success = HTTP 200 with body
+        # literally "ok". Anything else is an error.
+        if r.status_code != 200 or r.text.strip() != "ok":
+            print(f"[slack] webhook rejected: {r.status_code} {r.text[:200]}")
+            return
         print(
             f"[slack] notified {event['event_id']} ({event['risk_level']}) "
             f"image={'yes' if image_url else 'no'}"
@@ -523,10 +573,11 @@ async def _post_digest(title: str, summary: str, body: str) -> None:
         ],
     }
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(_WEBHOOK, json=payload, timeout=10)
-            if r.status_code != 200 or r.text.strip() != "ok":
-                print(f"[slack] digest webhook rejected: {r.status_code} {r.text[:200]}")
+        # Reuse the module-level pooled client — no per-call TCP/TLS setup.
+        client = await _get_client()
+        r = await client.post(_WEBHOOK, json=payload, timeout=10)
+        if r.status_code != 200 or r.text.strip() != "ok":
+            print(f"[slack] digest webhook rejected: {r.status_code} {r.text[:200]}")
     except Exception as exc:
         print(f"[slack] digest post failed: {exc}")
 

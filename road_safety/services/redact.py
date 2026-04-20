@@ -4,9 +4,11 @@ Role
 ----
 Every thumbnail that leaves the host (Slack, optional image relay, outbound
 webhook, LLM vision call to anyone other than the internal ALPR pass) must
-go through ``redact_for_egress()`` first. License plates are PII under
-GDPR Art. 4 and enumerated PI under CCPA; faces are biometric PII under
-most regimes.
+go through ``redact_for_egress()`` first. Thumbnails from the fixed road
+camera feed capture members of the public passing through the monitored
+intersection, so faces and license plates must be blurred: license plates
+are PII under GDPR Art. 4 and enumerated PI under CCPA, and faces are
+biometric PII under most regimes.
 
 Dual-thumbnail design (CORE INVARIANT)
 --------------------------------------
@@ -67,8 +69,9 @@ _PLATE_SALT = PLATE_SALT
 # GEOMETRIC BAND CONSTANTS
 # Expressed as fractions of the detection bbox height/width so the bands
 # scale automatically with detection size. These numbers were picked from
-# empirical sampling of dashcam frames; adjust with care - the goal is to
-# always OVER-cover real plates/faces, never under-cover.
+# empirical sampling of fixed intersection-camera frames; adjust with
+# care - the goal is to always OVER-cover real plates/faces, never
+# under-cover.
 # -----------------------------------------------------------------------------
 # Class-coloured palette for the "context" (non-pair) detections drawn
 # in the public thumbnail. Mirrors the live admin tile's colour map in
@@ -302,9 +305,10 @@ def hash_plate(plate_text: str | None) -> str | None:
     2. Concat ``{salt}:{normalized}``, UTF-8 encode.
     3. SHA-256, take hex digest.
     4. Prefix with ``plate_`` and truncate to 16 hex chars (64 bits of
-       entropy - enough for cross-event correlation within a fleet and
-       cheap to store/transmit; we are NOT trying to resist a full
-       cryptographic pre-image attack, only to avoid retaining the plate).
+       entropy - enough for cross-event correlation at a single
+       intersection / camera site and cheap to store/transmit; we are
+       NOT trying to resist a full cryptographic pre-image attack, only
+       to avoid retaining the plate).
 
     Args
     ----

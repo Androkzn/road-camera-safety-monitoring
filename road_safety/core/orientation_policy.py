@@ -5,26 +5,32 @@ Role in the pipeline
 --------------------
 `road_safety/server.py::_run_loop` runs a single detection + TTC stack for
 every stream slot, regardless of where that camera points. That stack was
-originally tuned for a forward dashcam, so wiring it verbatim into a
-rear-cam or side-cam slot fires "pedestrian in path" on a person walking
-the sidewalk next to a moving vehicle, or "vehicle close interaction" on
-parked cars the ego car drives past. Those are not incidents; those are
-the normal geometry of the other camera angles.
+originally tuned for a camera looking along the road, so wiring it
+verbatim into a cross-road or opposing-direction slot fires "pedestrian
+in path" on a person walking the sidewalk next to the road, or "vehicle
+close interaction" on parked cars framed off to one side of the scene.
+Those are not incidents; those are the normal geometry of the other
+camera angles at a fixed road site.
 
 This module is the *policy brain*: it takes the raw candidate event
 together with the camera's `CameraCalibration.orientation` and decides
 whether the event should be emitted at all, and if so which SAE J3063
-family it belongs to. Industry references:
+family it belongs to. Industry references — we reuse the taxonomy even
+though this is a fixed-camera deployment because the event families map
+cleanly onto "threats to traffic we can see from each angle":
 
     - SAE J3063 — taxonomy of crash-avoidance features; gives us the
       names (FCW, BSW, RCW, RCTA) the dashboards and audit log use.
     - ISO 17387 — lane-change decision aid systems; specifies the
       dwell-time requirement that keeps BSW from firing on pedestrians
-      who walk past a side window in one or two frames.
-    - ISO 22840 — rear-view low-speed manoeuvre; the gear-state
-      precondition for RCW / RCTA. We don't have a real gear signal on
-      the demo rig, so we approximate "ego is reversing" from the signed
-      ego-flow direction computed in `egomotion.py`.
+      who walk past a cross-road angle in one or two frames.
+    - ISO 22840 — rear-view low-speed manoeuvre; the equivalent of the
+      "gear-state" precondition for RCW / RCTA. We don't have a real
+      gear signal on a fixed road camera, so we approximate "scene is
+      moving in reverse along the camera's optical axis" from the
+      signed apparent-flow direction computed in `egomotion.py` —
+      which for a fixed cam captures genuine optical flow from pan /
+      zoom / light changes rather than self-motion.
 
 Gate layout (match the existing detection.py style: one gate per concern):
 
@@ -69,11 +75,11 @@ log = logging.getLogger(__name__)
 # Extend only when adding a new *front-end-visible* family; internal variants
 # go on `display_event_type` instead.
 EventTaxonomy = Literal["FCW", "BSW", "RCW", "RCTA", "NONE"]
-# FCW  — Forward Collision Warning (and pedestrian-in-path). Forward cams.
-# BSW  — Blind Spot Warning. Side cams, object persistent in blind zone.
-# RCW  — Reverse Collision Warning. Rear cams, ego reversing.
-# RCTA — Rear Cross-Traffic Alert. Rear cams, ego reversing, lateral approach.
-# NONE — Explicitly suppressed (e.g. forward-TTC fired on a side cam).
+# FCW  — Forward Collision Warning (and pedestrian-in-path). Along-road cams.
+# BSW  — Blind Spot Warning. Cross-road cams, object persistent in ROI.
+# RCW  — Reverse Collision Warning. Opposite-along-road cams, scene-reversing.
+# RCTA — Rear Cross-Traffic Alert. Opposite-along-road cams, lateral approach.
+# NONE — Explicitly suppressed (e.g. forward-TTC fired on a cross-road cam).
 
 
 @dataclass(frozen=True)
@@ -107,31 +113,35 @@ class PolicyDecision:
 # Configuration knobs (module-level, tunable; no env plumbing yet)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ISO 17387: an object must persist in the blind zone for at least this long
-# before BSW fires. Guards against transients — a pedestrian who appears in a
-# single frame of a side cam at 2 fps is not "in the blind spot", they're
-# passing through. 0.4 s sits inside the 300–500 ms band the standard
-# recommends and matches what Mobileye / Samsara ship in fleet product.
+# ISO 17387: an object must persist in the ROI for at least this long
+# before BSW fires. Guards against transients — a pedestrian who appears
+# in a single frame of a cross-road cam at 2 fps is not "loitering in the
+# danger zone", they're passing through. 0.4 s sits inside the 300–500 ms
+# band the standard recommends.
 BSW_DWELL_SEC: float = 0.4
 
 # Blind-zone ROI, expressed as fractions of frame width / height. The box
 # defines the rectangle inside which a detection center must land to count
-# as "in the adjacent lane" for a side-mounted camera.
+# as "in the adjacent lane / cross-road danger strip" for a cross-road
+# mounted camera.
 #
 # NOTE on left vs right: `CameraCalibration.orientation == "side"` does not
 # distinguish left-mount from right-mount. Without a slot_id hint threaded
 # through `classify_event`, we keep the ROI symmetric around the horizontal
 # image center — a conservative approximation that works for both installs
-# at the cost of a slightly smaller blind zone than a side-specific ROI
-# would give. Upgrade to a per-side ROI when the signature grows a hint.
+# at the cost of a slightly smaller zone than a side-specific ROI would
+# give. Upgrade to a per-side ROI when the signature grows a hint.
 BSW_ZONE_FRAC_X: float = 0.55          # width of the central band
 BSW_ZONE_FRAC_Y_TOP: float = 0.25      # top edge (skip the sky)
-BSW_ZONE_FRAC_Y_BOTTOM: float = 0.95   # bottom edge (skip the car body strip)
+BSW_ZONE_FRAC_Y_BOTTOM: float = 0.95   # bottom edge (skip the near-foreground strip)
 
-# Rear-cam reverse gate: RCW / RCTA only fire when ego appears to be moving
-# backward. Without a real gear signal, we infer from `EgoFlow.direction`
-# (produced by `egomotion.py`). When `False`, the rear cam behaves like any
-# other cam — useful for tuning / debugging, never in production.
+# Opposite-along-road cam reverse gate: RCW / RCTA only fire when the
+# scene's apparent optical flow is in the "reverse" direction (i.e.
+# traffic is approaching the camera from behind the install). We infer
+# from `EgoFlow.direction` (produced by `egomotion.py`) — for a fixed
+# camera this captures genuine scene-flow direction, not self-motion.
+# When `False`, the rear-facing cam behaves like any other cam — useful
+# for tuning / debugging, never in production.
 RCW_REQUIRE_REVERSING: bool = True
 
 # Minimum `EgoFlow.confidence` before we trust the direction label. Below
@@ -153,14 +163,15 @@ RCTA_LATERAL_DOMINANCE: float = 1.2
 
 
 def is_reversing(ego: Optional["EgoFlow"]) -> bool:
-    """True iff ego-motion direction estimate is `reverse` with enough confidence.
+    """True iff apparent-motion direction estimate is `reverse` with enough confidence.
 
-    The rear-cam reverse gate. We intentionally fail-closed when `ego` is
-    `None` (too little texture this frame) or when the confidence is below
-    `EGO_DIRECTION_MIN_CONFIDENCE` — emitting a rear-cam event while we
-    can't even tell which way the car is going is a recipe for alert
-    fatigue, and missing an event is the cheaper failure mode on the rear
-    axis (collisions while reversing are rare vs. forward).
+    The opposite-along-road reverse gate. We intentionally fail-closed
+    when `ego` is `None` (too little texture this frame) or when the
+    confidence is below `EGO_DIRECTION_MIN_CONFIDENCE` — emitting a
+    rear-facing-cam event while we can't even tell which way the scene
+    is flowing is a recipe for alert fatigue, and missing an event is
+    the cheaper failure mode on the reverse axis for a fixed road
+    camera.
 
     Args:
         ego: Latest `EgoFlow` snapshot from `EgoMotionEstimator.update`, or
@@ -185,21 +196,21 @@ def is_reversing(ego: Optional["EgoFlow"]) -> bool:
 
 
 def in_blind_zone(det, frame_w: int, frame_h: int, orientation: str) -> bool:
-    """True iff the detection's bbox center lies inside the side-cam blind zone.
+    """True iff the detection's bbox center lies inside the cross-road ROI.
 
-    The spatial half of the BSW gate. Only side cameras have a blind zone
-    in this model — forward / rear orientations get a flat `False` so any
-    forward-TTC event that leaks into this helper through a bad call site
-    doesn't accidentally become a BSW.
+    The spatial half of the BSW gate. Only cross-road ("side") cameras
+    have a blind-zone ROI in this model — along-road orientations get a
+    flat `False` so any forward-TTC event that leaks into this helper
+    through a bad call site doesn't accidentally become a BSW.
 
     The ROI is a central horizontal band of the frame: vertically bounded
     by `BSW_ZONE_FRAC_Y_TOP` / `BSW_ZONE_FRAC_Y_BOTTOM` (skip the sky and
-    the ego car body), horizontally symmetric around image-center with
-    total width `BSW_ZONE_FRAC_X`. The symmetric choice is deliberate:
-    `CameraCalibration.orientation == "side"` doesn't tell us left-mount
-    from right-mount, so we use a zone that works for both — at the cost
-    of a slightly narrower blind zone than a side-specific ROI. Upgrade
-    the call when a side hint is plumbed through.
+    the near-foreground strip), horizontally symmetric around image-
+    center with total width `BSW_ZONE_FRAC_X`. The symmetric choice is
+    deliberate: `CameraCalibration.orientation == "side"` doesn't tell us
+    left-mount from right-mount, so we use a zone that works for both —
+    at the cost of a slightly narrower zone than a side-specific ROI.
+    Upgrade the call when a side hint is plumbed through.
 
     Args:
         det: A detection-like object exposing a `.center` → `(cx, cy)`
@@ -367,28 +378,28 @@ def classify_event(
     layer shows up in the incident queue as a mis-labelled alert, which
     is harder to debug than the obvious per-orientation mapping below.
 
-    Forward cam:
+    Along-road ("forward") cam:
         Always emit. `taxonomy="FCW"`, `display_event_type=None` (keeps
         the raw internal type from `find_interactions`). This preserves
-        the pre-existing behaviour byte-for-byte for forward-facing
-        installs — no regression risk for the demo vehicle's front cam.
+        the pre-existing behaviour byte-for-byte for along-road installs
+        — no regression risk for the demo site's primary angle.
 
-    Rear cam:
+    Opposite-along-road ("rear") cam:
         Emit only when `is_reversing(ego)` reports True. When emitting,
         pick `"RCTA"` if the secondary track's motion over the trailing
         window is lateral-dominant (cross-traffic), else `"RCW"`.
         `display_event_type` is mapped to a front-end-friendly string so
-        the admin UI can render a different icon for rear events without
-        re-deriving the taxonomy client-side.
+        the admin UI can render a different icon for these events
+        without re-deriving the taxonomy client-side.
 
-    Side cam:
-        Emit only when the detection's bbox center is inside the blind
-        zone AND the track has been continuously in-zone for at least
-        `BSW_DWELL_SEC`. Ego direction is treated as a soft precondition:
-        we suppress BSW when ego is *confidently* reversing (a reversing
-        car cares about what's behind, not beside) but *allow* BSW when
-        ego is stationary / forward / low-confidence — the parked-with-
-        engine-running scenario still needs adjacent-lane awareness.
+    Cross-road ("side") cam:
+        Emit only when the detection's bbox center is inside the ROI
+        AND the track has been continuously in-zone for at least
+        `BSW_DWELL_SEC`. Scene-flow direction is treated as a soft
+        precondition: we suppress BSW when the scene is *confidently*
+        flowing in reverse (that regime is owned by the opposite-along-
+        road angle) but *allow* BSW otherwise — stationary / forward /
+        low-confidence scenes all still warrant cross-road awareness.
 
     Args:
         calibration: Resolved per-slot camera calibration.
@@ -408,7 +419,7 @@ def classify_event(
     """
     orientation = getattr(calibration, "orientation", "forward")
 
-    # Forward cam: preserve existing behaviour. The full detection.py
+    # Along-road cam: preserve existing behaviour. The full detection.py
     # gate stack has already vetted this candidate; the policy layer
     # adds nothing except the SAE label.
     if orientation == "forward":
@@ -425,13 +436,13 @@ def classify_event(
         )
         return decision
 
-    # Rear cam: ISO 22840 reverse precondition.
+    # Opposite-along-road cam: ISO 22840-style reverse precondition.
     if orientation == "rear":
         if RCW_REQUIRE_REVERSING and not is_reversing(ego):
             decision = PolicyDecision(
                 emit=False,
                 taxonomy="NONE",
-                reason="rear-cam suppressed: ego not reversing",
+                reason="rear-cam suppressed: scene not flowing in reverse",
             )
             log.debug(
                 "orientation_policy: rear suppress (type=%s, ego=%s)",
@@ -440,12 +451,12 @@ def classify_event(
             )
             return decision
 
-        # Reversing — pick RCTA if the secondary's trailing motion is
-        # lateral-dominant, else RCW. `find_interactions` may pass the
-        # same detection for primary+secondary on single-object events;
-        # in that case we still compute the heuristic on whatever track
-        # we have — a `secondary is primary` call just reads the same
-        # history twice.
+        # Reverse-direction scene flow — pick RCTA if the secondary's
+        # trailing motion is lateral-dominant, else RCW. `find_interactions`
+        # may pass the same detection for primary+secondary on single-
+        # object events; in that case we still compute the heuristic on
+        # whatever track we have — a `secondary is primary` call just
+        # reads the same history twice.
         secondary_samples = []
         if getattr(secondary, "track_id", None) is not None:
             try:
@@ -456,11 +467,11 @@ def classify_event(
         if _lateral_dominant(secondary_samples):
             taxonomy: EventTaxonomy = "RCTA"
             display = "rear_cross_traffic"
-            reason = "rear-cam reversing: lateral-dominant motion → RCTA"
+            reason = "rear-cam reverse-flow: lateral-dominant motion → RCTA"
         else:
             taxonomy = "RCW"
             display = "reverse_collision_risk"
-            reason = "rear-cam reversing: longitudinal motion → RCW"
+            reason = "rear-cam reverse-flow: longitudinal motion → RCW"
 
         decision = PolicyDecision(
             emit=True,
@@ -474,18 +485,20 @@ def classify_event(
         )
         return decision
 
-    # Side cam: ISO 17387 spatial + dwell. FCW-style TTC alerts on a side
-    # cam are almost always a pedestrian walking past the window — we
-    # route everything through the blind-spot model instead.
+    # Cross-road cam: ISO 17387 spatial + dwell. FCW-style TTC alerts on
+    # a cross-road cam are almost always a pedestrian walking past the
+    # near foreground — we route everything through the blind-spot / ROI
+    # model instead.
     if orientation == "side":
-        # Ego precondition: only actively suppress when we're confident ego
-        # is reversing. Stationary / forward / low-confidence all pass
-        # through to the spatial + dwell gates below.
+        # Scene-flow precondition: only actively suppress when we're
+        # confident the scene is flowing in reverse (the opposite-along-
+        # road angle owns that regime). Stationary / forward / low-
+        # confidence all pass through to the spatial + dwell gates below.
         if is_reversing(ego):
             decision = PolicyDecision(
                 emit=False,
                 taxonomy="NONE",
-                reason="side-cam suppressed: ego reversing (rear events own this)",
+                reason="side-cam suppressed: scene reverse-flow (rear events own this)",
             )
             log.debug("orientation_policy: side suppress (reversing)")
             return decision
@@ -494,7 +507,7 @@ def classify_event(
             decision = PolicyDecision(
                 emit=False,
                 taxonomy="NONE",
-                reason="side-cam suppressed: not in blind zone",
+                reason="side-cam suppressed: not in cross-road ROI",
             )
             log.debug(
                 "orientation_policy: side suppress (out-of-zone, type=%s)",
@@ -503,10 +516,10 @@ def classify_event(
             return decision
 
         # Dwell measured against the secondary track — that's the object
-        # being assessed for blind-spot presence. Primary may well be the
-        # ego vehicle's own body edge (pedestrian_proximity pairs a
-        # pedestrian against a vehicle; on a side cam the "vehicle" can
-        # be the ego body on the near edge).
+        # being assessed for ROI presence. Primary may well be a
+        # stationary fixture in the scene (pedestrian_proximity pairs a
+        # pedestrian against a vehicle; on a cross-road cam the "vehicle"
+        # can be a parked car on the near edge).
         sec_track_id = getattr(secondary, "track_id", None)
         dwell = 0.0
         if sec_track_id is not None:
@@ -525,7 +538,7 @@ def classify_event(
             )
             return decision
 
-        # BSW variant depends on what's in the blind spot.
+        # BSW variant depends on what's in the cross-road ROI.
         sec_cls = getattr(secondary, "cls", "")
         if sec_cls == "person":
             display = "blind_spot_pedestrian"
@@ -535,7 +548,7 @@ def classify_event(
         decision = PolicyDecision(
             emit=True,
             taxonomy="BSW",
-            reason=f"side-cam BSW: {sec_cls or 'object'} in blind zone {dwell:.2f}s",
+            reason=f"side-cam BSW: {sec_cls or 'object'} in cross-road ROI {dwell:.2f}s",
             display_event_type=display,
         )
         log.debug(
