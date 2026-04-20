@@ -18,26 +18,6 @@ import { useDialog } from "../../../shared/ui";
 import styles from "./MultiSourceGrid.module.css";
 import { StreamImage } from "./StreamImage";
 
-// Short label + tone for the per-tile mode badge. Kept here (not in a
-// shared util) because it's only used by the grid right now — inline a
-// helper rather than invent a module for three strings.
-function modeBadge(streamType: LiveSourceStatus["stream_type"]):
-  | { label: string; tone: "demo" | "live" }
-  | null {
-  switch (streamType) {
-    case "dashcam_file":
-      return { label: "Dash Cam · Demo", tone: "demo" };
-    case "live_yt":
-      return { label: "Live · YouTube", tone: "live" };
-    case "live_hls":
-      return { label: "Live · HLS", tone: "live" };
-    case "webcam":
-      return { label: "Webcam", tone: "live" };
-    default:
-      return null;
-  }
-}
-
 function StreamTile({
   source,
   focused,
@@ -128,17 +108,6 @@ function StreamTile({
           </div>
         )}
         <span className={`${styles.statusDot} ${running ? styles.dotRunning : styles.dotPaused}`} />
-        {(() => {
-          const badge = modeBadge(source.stream_type);
-          if (!badge) return null;
-          const toneClass =
-            badge.tone === "demo" ? styles.modeBadgeDemo : styles.modeBadgeLive;
-          return (
-            <span className={`${styles.modeBadge} ${toneClass}`}>
-              {badge.label}
-            </span>
-          );
-        })()}
         {!detection && running && (
           <span className={styles.detectionBadge}>detection off</span>
         )}
