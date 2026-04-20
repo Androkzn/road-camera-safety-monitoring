@@ -1,21 +1,15 @@
-"""POC: request authentication is disabled.
+"""Network-level guards only.
 
-``require_bearer_token`` keeps a stable signature for callers but performs no
-checks. Do not use this deployment pattern for production.
+This POC has no user accounts, no roles, and no request authentication.
+The helpers that live in this package guard against *network-level* abuse,
+not against unauthorised callers:
+
+* :mod:`backend.security.ssrf` — reject operator-supplied stream URLs that
+  resolve to private / loopback / cloud-metadata IPs.
+* :mod:`backend.security.rate_limit` — throttle the expensive annotated
+  clip render so a single caller cannot pin the CPU.
+
+The cloud receiver (:mod:`cloud.receiver`) owns its own HMAC verification
+for edge-to-cloud event ingest; that signing is message authentication,
+not user authentication, and is unrelated to this package.
 """
-
-from __future__ import annotations
-
-from fastapi import Request
-
-
-def require_bearer_token(
-    request: Request,
-    token: str | None,
-    *,
-    realm: str,
-    env_var: str,
-) -> None:
-    """POC: no enforcement — signature preserved for call sites."""
-    del request, token, realm, env_var
-    return

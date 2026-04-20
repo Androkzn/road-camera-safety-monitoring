@@ -132,8 +132,6 @@ class LiveStatusResponse(BaseModel):
     tracker: str
     risk_model: str
     pii_redaction: str
-    dsar_endpoint_enabled: bool
-    public_thumb_token_required: bool
     alpr_mode: str
     perception: PerceptionStateModel
     sources: list[SourceStatusModel]
@@ -178,8 +176,6 @@ class AdminIntegrationsHealthModel(BaseModel):
     slack_configured: bool
     edge_publisher: bool
     pii_redaction: str
-    dsar_endpoint: bool
-    public_thumb_token_required: bool
     alpr_mode: str
 
 

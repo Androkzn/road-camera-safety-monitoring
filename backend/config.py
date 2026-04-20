@@ -257,9 +257,6 @@ EPISODE_IDLE_FLUSH_SEC = 1.5
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: PRIVACY / COMPLIANCE
 # ─────────────────────────────────────────────────────────────────────────────
-# Data-Subject-Access-Request token. Required to download *unredacted*
-# thumbnails through ``/api/thumb?internal=1``. Unset → those routes 503.
-DSAR_TOKEN = os.getenv("ROAD_DSAR_TOKEN")
 # Salt for hashing ALPR plate text before it enters any buffer. Generated
 # per-process via ``secrets.token_hex(16)`` if not set — fine for
 # single-host dev, **must be set explicitly in production** so hashes stay
@@ -268,15 +265,6 @@ PLATE_SALT = os.getenv("ROAD_PLATE_SALT", secrets.token_hex(16))
 # Audit-log toggle. Defaults to enabled ("1"); set ``ROAD_AUDIT_LOG=0`` to
 # disable. Disabling is only acceptable in tests — compliance expects it on.
 AUDIT_ENABLED = os.getenv("ROAD_AUDIT_LOG", "1") != "0"
-# If "1", even the redacted public thumbnails require a token. Extra
-# defence in depth for extra-sensitive deployments (hospitals, schools).
-PUBLIC_THUMBS_REQUIRE_TOKEN = os.getenv("ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN", "0") == "1"
-# HMAC key used to sign thumbnail URLs (query-string integrity). Falls back
-# to ``ROAD_CLOUD_HMAC_SECRET`` to let simple deployments share one secret.
-THUMB_SIGNING_SECRET = os.getenv(
-    "ROAD_THUMB_SIGNING_SECRET",
-    os.getenv("ROAD_CLOUD_HMAC_SECRET", ""),
-)
 # ALPR integration mode for external license-plate OCR services.
 #   ``off``       — never call out (default, privacy-preserving).
 #   ``on``        — always call.

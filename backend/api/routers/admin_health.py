@@ -7,10 +7,8 @@ from fastapi import APIRouter
 from backend.api.models import AdminHealthResponse
 from backend.config import (
     ALPR_MODE,
-    DSAR_TOKEN,
     LOCATION,
     MODEL_PATH,
-    PUBLIC_THUMBS_REQUIRE_TOKEN,
     TARGET_FPS,
 )
 from backend.integrations.slack import slack_configured
@@ -25,7 +23,6 @@ def admin_health():
     """Comprehensive health snapshot for the admin dashboard.
 
     HTTP: GET /api/admin/health
-    AUTH: public (dashboard metadata only)
     Returns: nested dict with server / pipeline / integrations /
         perception / scene / ego sub-objects — designed for direct
         rendering in the admin health panel.
@@ -115,8 +112,6 @@ def admin_health():
             "slack_configured": slack_configured(),
             "edge_publisher": state.edge_publisher.enabled(),
             "pii_redaction": "face+plate",
-            "dsar_endpoint": bool(DSAR_TOKEN),
-            "public_thumb_token_required": PUBLIC_THUMBS_REQUIRE_TOKEN,
             "alpr_mode": ALPR_MODE,
         },
         "perception": {

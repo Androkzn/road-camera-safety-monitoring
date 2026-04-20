@@ -1,11 +1,9 @@
 """Watchdog + shadow-validator control routes."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.logging import get_logger
-from backend.security import require_bearer_token
-from backend.security.auth import require_admin_if_flagged
 from backend.services.watchdog import (
     delete_findings as watchdog_delete,
     delete_findings_by_id as watchdog_delete_by_id,
@@ -31,7 +29,6 @@ def watchdog_summary():
     """Watchdog status and finding counts.
 
     HTTP: GET /api/watchdog
-    AUTH: public
     """
     if state.watchdog is None:
         return {"enabled": False}
@@ -43,7 +40,6 @@ def validator_status():
     """Background shadow-validator worker status.
 
     HTTP: GET /api/validator/status
-    AUTH: public
     """
     if state.validator is None:
         return {"enabled": False}
@@ -51,13 +47,11 @@ def validator_status():
 
 
 @router.post("/api/validator/toggle")
-async def validator_toggle(request: Request, body: ValidatorToggleBody):
+async def validator_toggle(body: ValidatorToggleBody):
     """Enable or disable the shadow validator at runtime.
 
     HTTP: POST /api/validator/toggle
-    AUTH: POC (open).
     """
-    require_admin_if_flagged(request, realm="validator toggle")
     if state.validator is None:
         raise HTTPException(
             status_code=409,
@@ -77,19 +71,16 @@ def watchdog_recent(n: int = 50):
     """Most recent watchdog findings.
 
     HTTP: GET /api/watchdog/recent
-    AUTH: public
     """
     return watchdog_tail(min(n, 200))
 
 
 @router.delete("/api/watchdog/findings")
-def watchdog_delete_findings(request: Request, clear_all: bool = False):
+def watchdog_delete_findings(clear_all: bool = False):
     """Delete specific findings by composite key or clear all.
 
     HTTP: DELETE /api/watchdog/findings
-    AUTH: POC (open)
     """
-    require_bearer_token(request, None, realm="watchdog", env_var="")
     if clear_all:
         removed = watchdog_delete(indices=None)
         return {"deleted": removed}
@@ -97,13 +88,11 @@ def watchdog_delete_findings(request: Request, clear_all: bool = False):
 
 
 @router.post("/api/watchdog/findings/delete")
-async def watchdog_delete_selected(request: Request, body: DeleteFindingsBody):
+async def watchdog_delete_selected(body: DeleteFindingsBody):
     """Delete selected findings by snapshot_id + ts composite keys.
 
     HTTP: POST /api/watchdog/findings/delete
-    AUTH: POC (open)
     """
-    require_bearer_token(request, None, realm="watchdog", env_var="")
     keys = list(body.keys)
     if not keys:
         return {"deleted": 0}

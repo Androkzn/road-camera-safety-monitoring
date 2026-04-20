@@ -185,16 +185,10 @@ Max iteration cap (5 steps) prevents runaway loops.
 
 - **`backend/compliance/retention.py`** runs hourly sweeps: thumbnails (30d), feedback (90d),
   active-learning samples (60d), outbound queue (7d). All configurable via env.
-- **`backend/compliance/audit.py`** logs every access to sensitive resources (unredacted thumbnails,
+- **`backend/compliance/audit.py`** logs every access to sensitive resources (thumbnails,
   feedback submissions, AL exports, agent invocations, chat queries) with
-  timestamp, actor, action, resource, and outcome.
-- **DSAR workflow:** unredacted thumbnails require `X-DSAR-Token` header; denied
-  attempts are audit-logged.
-- **Optional signed public access:** when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`,
-  `_public` thumbnails also require valid `exp`/`token` query params and are
-  audit-logged on allow/deny.
-- **Operational routes:** audit, LLM observability, retention, road summary,
-  and agent endpoints are reachable without browser credentials in this POC (do not expose WAN-wide).
+  timestamp, action, resource, and outcome.
+- **POC access model:** this build has no user accounts, roles, or request authentication. Every JSON route, SSE stream, and live-media endpoint is fully open. Audit logging still records activity so a reviewer can reconstruct access after the fact. Do not expose this build to the public internet.
 
 ## Multi-Vehicle Road Model
 
@@ -205,4 +199,4 @@ Max iteration cap (5 steps) prevents runaway loops.
   controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (set `0` to disable).
 - `/api/road/summary` provides road-wide aggregation; `/api/road/drivers`
   ranks drivers by safety score (worst-first for manager attention). These
-  endpoints are open in this POC; add auth before any production deployment.
+  endpoints are open in this POC (no authentication anywhere); add auth before any production deployment.

@@ -14,7 +14,6 @@ from backend.config import (
     MODEL_PATH,
     PAIR_COOLDOWN_SEC,
     PLATE_SALT,
-    PUBLIC_THUMBS_REQUIRE_TOKEN,
     PROJECT_ROOT,
     SCORE_DECAY_INTERVAL_SEC,
     SERVER_HOST,
@@ -22,7 +21,6 @@ from backend.config import (
     SSE_REPLAY_COUNT,
     STATIC_DIR,
     TARGET_FPS,
-    THUMB_SIGNING_SECRET,
     THUMBS_DIR,
     VEHICLE_ID,
 )
@@ -83,12 +81,6 @@ class TestDefaults:
     def test_plate_salt_is_nonempty(self):
         assert isinstance(PLATE_SALT, str)
         assert len(PLATE_SALT) > 0
-
-    def test_public_thumbs_guard_is_bool(self):
-        assert isinstance(PUBLIC_THUMBS_REQUIRE_TOKEN, bool)
-
-    def test_thumb_signing_secret_is_string(self):
-        assert isinstance(THUMB_SIGNING_SECRET, str)
 
     def test_alpr_mode_is_string(self):
         assert isinstance(ALPR_MODE, str)

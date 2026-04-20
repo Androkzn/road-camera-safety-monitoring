@@ -15,15 +15,12 @@ from backend.compliance import audit
 from backend.config import (
     ALPR_MODE,
     DATA_DIR,
-    DSAR_TOKEN,
     LOCATION,
-    PUBLIC_THUMBS_REQUIRE_TOKEN,
     TARGET_FPS,
 )
 from backend.integrations.slack import slack_configured
 from backend.logging import get_logger
 from backend.rendering.clip import render_annotated_event_clip
-from backend.security.auth import require_admin, require_admin_if_flagged
 from backend.security.rate_limit import clip_rate_limit_check
 from backend.services.llm import llm_configured
 from backend.state import state
@@ -38,7 +35,6 @@ def live_status():
     """Public health + configuration snapshot for the operator UI.
 
     HTTP: GET /api/live/status
-    AUTH: public
     Response: a large dict with source label, running flag, frame counts,
         uptime, tracker/risk-model names, and PII-redaction config.
 
@@ -74,8 +70,6 @@ def live_status():
         "tracker": "bytetrack",
         "risk_model": "ttc+ground_plane",
         "pii_redaction": "face+plate",
-        "dsar_endpoint_enabled": bool(DSAR_TOKEN),
-        "public_thumb_token_required": PUBLIC_THUMBS_REQUIRE_TOKEN,
         "alpr_mode": ALPR_MODE,
         "perception": {
             "state": q["state"],
@@ -96,8 +90,7 @@ def live_perception(source_id: str | None = None):
     """Return the perception-quality monitor's current state.
 
     HTTP: GET /api/live/perception[?source_id=<slot>]
-    AUTH: public
-    """
+"""
     if source_id is None:
         slot = state.primary_slot
     else:
@@ -112,8 +105,7 @@ def live_scene(source_id: str | None = None):
     """Current scene context + adaptive thresholds.
 
     HTTP: GET /api/live/scene[?source_id=<slot>]
-    AUTH: public
-    """
+"""
     if source_id is None:
         slot = state.primary_slot
     else:
@@ -155,8 +147,7 @@ def api_drift():
     """Rolling precision report.
 
     HTTP: GET /api/drift
-    AUTH: public
-    """
+"""
     return state.drift.compute().as_dict()
 
 
@@ -165,8 +156,7 @@ def live_events(risk_level: str | None = None, event_type: str | None = None, li
     """Paginated read of live events with optional filters.
 
     HTTP: GET /api/live/events
-    AUTH: public
-    """
+"""
     items = state.recent_events_snapshot()
     if risk_level:
         items = [e for e in items if e["risk_level"] == risk_level]
@@ -184,7 +174,6 @@ def events(
     """Live events from the in-memory recent-events buffer.
 
     HTTP: GET /api/events
-    AUTH: public
 
     BE-D8: consumes ``state.snapshot()`` so the read is atomic with
     respect to the perception thread's appends.
@@ -203,8 +192,7 @@ def event(event_id: str):
     """Look up a single event by id.
 
     HTTP: GET /api/events/{event_id}
-    AUTH: public
-    Raises: 404 if no matching event is in the current buffer.
+Raises: 404 if no matching event is in the current buffer.
     """
     ev = state.find_recent_event(event_id)
     if ev is not None:
@@ -226,12 +214,9 @@ def event_clip(
     """Serve a ±N-second MP4 clip centred on the event's timestamp.
 
     HTTP: GET /api/events/{event_id}/clip?before=3&after=3&annotated=1
-    AUTH: POC (open).
     """
     import shlex
     import subprocess
-
-    require_admin_if_flagged(request, realm="clip")
 
     try:
         before_val = float(before)
@@ -313,14 +298,12 @@ def event_clip(
 
 
 @router.delete("/api/events")
-def clear_events(request: Request):
+def clear_events():
     """Wipe the in-memory event buffer.
 
     HTTP: DELETE /api/events
-    AUTH: admin bearer
     Returns: ``{"cleared": <n>}`` — count of events removed.
     """
-    require_admin(request, "clear events")
     cleared = state.clear_recent_events()
     audit.log("clear_events", "recent_events", outcome="success")
     return {"cleared": cleared}

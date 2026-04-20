@@ -76,7 +76,7 @@ sequenceDiagram
 | **`server.py`** | App composition root: logging, `create_app()`, router/static mounts, feedback/settings wiring. |
 | **`config.py`** | Paths and environment variables. |
 | **`logging.py`** | Logging setup. |
-| **`security.py`** | Shared `require_bearer_token` for admin/cloud read endpoints. |
+| **`security/`** | Network-level guards only: SSRF rejection of private-IP stream URLs and per-IP clip-render rate limiting. No user authentication in this POC. |
 | **`core/`** | **Perception pipeline:** stream input, YOLO + ByteTrack, egomotion, scene context, quality, interaction/TTC math. |
 | **`services/`** | **Non-CV services:** LLM + observability, redaction, agents, registry (fleet scores), drift, digest, watchdog, test runner, etc. |
 | **`integrations/`** | **Outbound integrations:** Slack, FNOL, `EdgePublisher` (cloud). |
@@ -176,7 +176,7 @@ Examples: `/api/llm/*`, `/api/audit*`, `/api/retention/sweep`, `/api/active_lear
 
 ### Thumbnails
 
-- `GET /thumbnails/{name}` — public `*_public.*` with optional signed query params; internal names need `X-DSAR-Token` when `ROAD_DSAR_TOKEN` is set.
+- `GET /thumbnails/{name}` — serves any thumbnail from `data/thumbnails/`; access is open in this POC but audit-logged.
 
 ---
 
@@ -233,7 +233,7 @@ Dev: **pytest** and plugins for tests in `tests/`.
 
 - **Plate text** must not live in buffers: enforced at enrichment (`services/llm.py` / redaction path); see `CLAUDE.md`.
 - **Audit** — `compliance/audit.py` logs sensitive actions.
-- **Access** — POC treats most operator JSON routes as open on the LAN; `X-DSAR-Token` still gates unredacted thumbnails when set (see integration doc).
+- **Access** — POC has no user authentication. Every JSON route, SSE stream, thumbnail, and live-media endpoint is open to anyone who can reach the server. Do not expose to the public internet; a real auth layer is a prerequisite for production.
 
 ---
 

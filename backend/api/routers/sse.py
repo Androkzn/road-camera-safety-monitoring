@@ -2,9 +2,9 @@
 
 Three endpoints:
 
-* ``/stream/events`` — public SSE of safety events.
-* ``/chat`` — public copilot Q&A over recent events + statute corpus.
-* ``/admin/detections`` — auth-gated SSE of per-frame detection snapshots.
+* ``/stream/events`` — SSE of safety events.
+* ``/chat`` — copilot Q&A over recent events + statute corpus.
+* ``/admin/detections`` — SSE of per-frame detection snapshots.
 """
 
 import asyncio
@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 from backend.api.models import ChatResponse
 from backend.compliance import audit
 from backend.config import SSE_REPLAY_COUNT
-from backend.security.signing import require_media_auth
 from backend.services.llm import chat as llm_chat
 from backend.state import state
 
@@ -33,7 +32,6 @@ async def stream_events(request: Request):
     """Server-Sent Events feed of live safety events.
 
     HTTP: GET /stream/events
-    AUTH: public
     Response shape: ``text/event-stream``. Each message is a JSON-
         serialised event dict on a ``data:`` line; keepalives are sent as
         ``: keepalive`` comment frames so proxies don't drop the
@@ -83,7 +81,6 @@ async def chat(body: ChatBody):
     """Copilot endpoint — RAG-style Q&A over recent events + statute corpus.
 
     HTTP: POST /chat
-    AUTH: public
     Request body: ``{"query": "<free-text question>"}``
     Response: ``{"answer": "<LLM-generated answer>"}``
     Side effects: audit-logs the first 200 chars of the query.
@@ -103,15 +100,10 @@ async def admin_detections_sse(request: Request):
     """SSE stream of per-frame detection snapshots for the admin dashboard.
 
     HTTP: GET /admin/detections
-    AUTH: POC (open).
-          Signature key is the constant ``"detections:all"`` because this
-          SSE is not source-scoped. Falls through to public when the flag
-          is off (pre-cutover).
     Response: ``text/event-stream`` of JSON snapshots — frame counters
         plus object bounding boxes. Much lighter than the MJPEG feed,
         suitable for charts / counters.
     """
-    require_media_auth("detections:all", request, realm="media:detections")
     # Smaller queue cap than the safety-event SSE — these messages are
     # per-frame at 2Hz; a client that's 50 frames behind already lost
     # 25 seconds of data and should reconnect anyway.

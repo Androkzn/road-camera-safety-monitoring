@@ -5,11 +5,10 @@ are capped at 5 to avoid tool-overload hallucination — do not widen past
 that cap without a specific reason.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.compliance import audit
-from backend.security.auth import require_admin
 from backend.services.agents import (
     run_coaching_agent,
     run_investigation_agent,
@@ -25,15 +24,13 @@ class EventIdBody(BaseModel):
 
 
 @router.post("/api/agents/coaching")
-async def api_agent_coaching(request: Request, body: EventIdBody):
+async def api_agent_coaching(body: EventIdBody):
     """Generate an AI coaching note for a specific event.
 
     HTTP: POST /api/agents/coaching
-    AUTH: admin bearer
     Request body: ``{"event_id": "<id>"}``
     Returns: agent result dict (narrative + metadata).
     """
-    require_admin(request, "agent coaching")
     event_id = body.event_id.strip()
     if not event_id:
         raise HTTPException(400, "missing 'event_id'")
@@ -45,14 +42,12 @@ async def api_agent_coaching(request: Request, body: EventIdBody):
 
 
 @router.post("/api/agents/investigation")
-async def api_agent_investigation(request: Request, body: EventIdBody):
+async def api_agent_investigation(body: EventIdBody):
     """Run an AI investigation on a specific event.
 
     HTTP: POST /api/agents/investigation
-    AUTH: admin bearer
     Request body: ``{"event_id": "<id>"}``
     """
-    require_admin(request, "agent investigation")
     event_id = body.event_id.strip()
     if not event_id:
         raise HTTPException(400, "missing 'event_id'")
@@ -64,13 +59,11 @@ async def api_agent_investigation(request: Request, body: EventIdBody):
 
 
 @router.post("/api/agents/report")
-async def api_agent_report(request: Request):
+async def api_agent_report():
     """Generate an AI safety summary report for the current session.
 
     HTTP: POST /api/agents/report
-    AUTH: admin bearer
     """
-    require_admin(request, "agent report")
     if state.agent_executor is None:
         raise HTTPException(503, "agent executor not ready")
     audit.log("agent_report", "session_report")

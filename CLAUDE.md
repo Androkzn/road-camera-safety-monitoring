@@ -57,17 +57,16 @@ Detection works with zero LLM calls. The LLM layer has multi-provider failover (
 - `backend/api/feedback.py` and `backend/api/settings.py` — feature mounts that need shared callbacks/state during registration.
 - `backend/config.py` — **single source of truth** for paths and env vars. Every module imports from here; never compute `Path(__file__).parent` in modules.
 - `backend/logging.py` — JSON-line logger setup (`setup()` called once from the FastAPI lifespan hook). Deliberately has no dependency on `config.py` so it can import early in bootstrap. `ROAD_LOG_FORMAT=text` switches to human-readable output for local dev.
-- `backend/security/` — POC: `require_bearer_token()` is a no-op stub (stable signature only). The cloud receiver still uses bearer checks for its own read token where configured.
+- `backend/security/` — network-level guards only: SSRF rejection (`ssrf.py`) and the per-IP clip-render rate limiter (`rate_limit.py`). This POC has no request authentication.
 - `tools/` — offline utilities: `analyze.py` (batch event extraction from a video file), `eval_detect.py` (detection precision/recall harness), `eval_enrich.py` (LLM enrichment scorer). See [tools/README.md](tools/README.md).
 - `cloud/receiver.py` — separate FastAPI app; verifies HMAC, dedupes by `event_id` (`INSERT OR IGNORE`), stores in `data/cloud.db`.
 - `frontend/` — React 19 + Vite + TypeScript + react-router. Pages: `AdminPage` (live detections), `DashboardPage` (fleet overview), `MonitoringPage` (incident-queue watchdog).
 
 ### Access model (POC)
 
-- **Open API** — JSON routes and live media used by the operator UI are not authenticated; do not expose this build to the public internet.
-- **`X-DSAR-Token`** (env: `ROAD_DSAR_TOKEN`) — still gates *unredacted* thumbnails when set. Denied attempts are audit-logged.
+This POC has no user accounts, no roles, and no request authentication. Every JSON route, SSE stream, and live media endpoint is fully open. Do not expose this build to the public internet.
 
-When adding endpoints that read sensitive state, audit-log through `backend/compliance/audit.py` and plan a real auth layer before any production use.
+Access to sensitive state is still audit-logged through `backend/compliance/audit.py` so a reviewer can reconstruct activity, and the cloud receiver still verifies HMAC signatures on edge-to-cloud ingest (message authentication, not user authentication). Any future production deployment must introduce a real auth layer before going live.
 
 ### Fleet identity
 

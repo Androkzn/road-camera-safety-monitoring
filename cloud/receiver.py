@@ -19,8 +19,7 @@ Responsibility (narrow by design):
     2. Reject anything whose HMAC signature doesn't validate.
     3. Idempotently persist accepted events into a SQLite file
        (``data/cloud.db``) keyed by ``event_id``.
-    4. Provide a couple of read-only dashboards (``/events``, ``/stats``)
-       guarded by a separate bearer token.
+    4. Provide a couple of read-only dashboards (``/events``, ``/stats``).
 
 Key invariants to preserve when extending this module:
 
@@ -61,8 +60,8 @@ Python concepts used here (quick glossary):
     * ``hmac`` / ``hashlib`` — stdlib crypto primitives. ``hmac.new(key,
       msg, hashlib.sha256).hexdigest()`` computes a signature that proves
       the message wasn't modified by anyone who doesn't hold ``key``.
-    * ``hmac.compare_digest`` — constant-time comparison; see the matching
-      comment in ``backend/security.py``.
+    * ``hmac.compare_digest`` — constant-time comparison used to prevent
+      timing-side-channel leaks in signature verification.
     * ``try: ... except X: ... finally: ...`` — Python's exception handling.
       ``finally`` always runs (useful for cleanup). We mostly use narrow
       ``except`` clauses here because each failure mode maps to a specific
@@ -86,11 +85,6 @@ from typing import Any
 # FastAPI + its Request type for reading headers/body in route handlers.
 from fastapi import FastAPI, HTTPException, Request
 
-# We deliberately share the bearer-token helper with the edge node so both
-# apps enforce auth identically. See ``backend/security.py`` for why
-# the comparison is constant-time and how "fail closed" is implemented.
-from backend.security import require_bearer_token
-
 # Per-module logger. All log lines carry ``logger="cloud_receiver"`` in
 # the JSON output, making them filterable in log aggregators.
 logger = logging.getLogger("cloud_receiver")
@@ -108,10 +102,6 @@ DB_PATH = Path(os.getenv("ROAD_CLOUD_DB", ROOT / "data" / "cloud.db"))
 # replay attacks. 5 minutes is lenient enough for NTP drift on fresh VMs
 # yet tight enough to bound the replay window.
 TIMESTAMP_WINDOW_SEC = 300
-# Read-side auth token, distinct from the HMAC secret used for ingest. A
-# dashboard user should be able to list events without holding the signing
-# key. Unset → read endpoints return 503.
-CLOUD_READ_TOKEN = os.getenv("ROAD_CLOUD_READ_TOKEN")
 
 # SQL schema executed by ``_init_db`` on every boot.
 # ``CREATE ... IF NOT EXISTS`` makes the boot idempotent — if the tables
@@ -227,20 +217,6 @@ async def _lifespan(app: FastAPI):
 # locate it by import path. ``title`` shows up in the auto-generated
 # OpenAPI docs.
 app = FastAPI(title="Cloud Receiver", lifespan=_lifespan)
-
-
-def _require_read_access(request: Request) -> None:
-    """Guard read-only dashboard endpoints with ``ROAD_CLOUD_READ_TOKEN``.
-
-    Thin wrapper so every read route uses the identical error messages
-    and realm label. See :func:`backend.security.require_bearer_token`.
-    """
-    require_bearer_token(
-        request,
-        CLOUD_READ_TOKEN,
-        realm="cloud read",
-        env_var="ROAD_CLOUD_READ_TOKEN",
-    )
 
 
 # -------------------------------------------------------------------------------------
@@ -403,11 +379,10 @@ async def ingest_events(request: Request) -> dict[str, int]:
 
 
 @app.get("/events")
-async def list_events(request: Request, limit: int = 100, risk_level: str | None = None) -> dict[str, Any]:
-    """List recent events, newest first. Bearer-token protected.
+async def list_events(limit: int = 100, risk_level: str | None = None) -> dict[str, Any]:
+    """List recent events, newest first.
 
     Args:
-        request: FastAPI request, used for auth header access.
         limit: Max events to return. Clamped to [1, 500] to protect the
             server from accidental ``?limit=1000000`` queries.
         risk_level: Optional filter on the nested ``risk_level`` field
@@ -418,11 +393,7 @@ async def list_events(request: Request, limit: int = 100, risk_level: str | None
         ``{"events": [...], "count": N}`` — each event dict has two extra
         keys added by the receiver: ``_received_at`` (cloud timestamp) and
         ``_source`` (which edge node).
-
-    Raises:
-        HTTPException(401/403/503): Forwarded from :func:`_require_read_access`.
     """
-    _require_read_access(request)
     # Clamp to a safe range. ``max(1, ...)`` prevents 0 or negative;
     # ``min(..., 500)`` prevents multi-megabyte responses.
     limit = max(1, min(limit, 500))
@@ -460,8 +431,8 @@ async def list_events(request: Request, limit: int = 100, risk_level: str | None
 
 
 @app.get("/stats")
-async def stats(request: Request) -> dict[str, Any]:
-    """Return aggregate counters for the dashboard. Bearer-token protected.
+async def stats() -> dict[str, Any]:
+    """Return aggregate counters for the dashboard.
 
     All three queries run in one connection so the counts are consistent
     relative to each other (same snapshot of the DB).
@@ -473,11 +444,7 @@ async def stats(request: Request) -> dict[str, Any]:
             "per_risk_level":   {"low": n, "medium": n, ...},
             "per_event_type":   {"near_miss": n, ...},
         }``
-
-    Raises:
-        HTTPException(401/403/503): Forwarded from :func:`_require_read_access`.
     """
-    _require_read_access(request)
     with _connect() as conn:
         total = conn.execute("SELECT COUNT(*) AS c FROM events").fetchone()["c"]
         last = conn.execute(

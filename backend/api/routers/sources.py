@@ -5,7 +5,7 @@ CRUD on ``state.slots`` + per-slot start / pause / restart-all / detection-toggl
 
 import time
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.api.models import LiveSourcesResponse
@@ -17,7 +17,6 @@ from backend.perception.slot_control import (
     start_slot,
     stop_slot,
 )
-from backend.security.auth import require_admin_if_flagged
 from backend.security.ssrf import validate_public_url
 from backend.state import StreamSlot, state
 
@@ -38,7 +37,6 @@ def live_sources():
     """List every configured source with running status + counters.
 
     HTTP: GET /api/live/sources
-    AUTH: public (the same status info is on ``/api/live/status``)
     """
     return {
         "primary_id": state.PRIMARY_ID,
@@ -47,13 +45,11 @@ def live_sources():
 
 
 @router.post("/api/live/sources/{source_id}/start")
-def live_source_start(source_id: str, request: Request):
+def live_source_start(source_id: str):
     """Resume capture for a paused source.
 
     HTTP: POST /api/live/sources/{source_id}/start
-    AUTH: POC (open)
     """
-    require_admin_if_flagged(request, realm="source start")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
@@ -73,13 +69,11 @@ def live_source_start(source_id: str, request: Request):
 
 
 @router.post("/api/live/sources/{source_id}/pause")
-def live_source_pause(source_id: str, request: Request):
+def live_source_pause(source_id: str):
     """Pause capture for a running source (slot is preserved for restart).
 
     HTTP: POST /api/live/sources/{source_id}/pause
-    AUTH: POC (open)
     """
-    require_admin_if_flagged(request, realm="source pause")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
@@ -90,13 +84,11 @@ def live_source_pause(source_id: str, request: Request):
 
 
 @router.post("/api/live/sources/restart_all")
-def live_source_restart_all(request: Request):
+def live_source_restart_all():
     """Restart every slot from the beginning (full reset).
 
     HTTP: POST /api/live/sources/restart_all
-    AUTH: POC (open)
     """
-    require_admin_if_flagged(request, realm="source restart_all")
     results: list[dict] = []
     for sid, slot in list(state.slots.items()):
         if not slot.original_source:
@@ -140,15 +132,14 @@ def _unique_slot_id(seed: str) -> str:
 
 
 @router.post("/api/live/sources")
-async def live_source_add(request: Request, body: AddSourceBody):
+async def live_source_add(body: AddSourceBody):
     """Register a new perception source from a URL the operator pastes.
 
     HTTP: POST /api/live/sources
     Body (JSON): ``{"url": "<stream url>", "name"?: "<display name>",
                    "id"?: "<explicit slot id>", "autostart"?: bool}``
-    AUTH: POC (open); SSRF-guarded.
+    SSRF-guarded.
     """
-    require_admin_if_flagged(request, realm="source add")
     url = body.url.strip()
     if not url:
         raise HTTPException(400, "missing 'url'")
@@ -186,13 +177,11 @@ async def live_source_add(request: Request, body: AddSourceBody):
 
 
 @router.delete("/api/live/sources/{source_id}")
-def live_source_remove(source_id: str, request: Request):
+def live_source_remove(source_id: str):
     """Stop the slot and drop it from the registry.
 
     HTTP: DELETE /api/live/sources/{source_id}
-    AUTH: POC (open)
     """
-    require_admin_if_flagged(request, realm="source remove")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")
@@ -203,13 +192,11 @@ def live_source_remove(source_id: str, request: Request):
 
 
 @router.post("/api/live/sources/{source_id}/detection")
-def live_source_set_detection(source_id: str, request: Request, enabled: bool = True):
+def live_source_set_detection(source_id: str, enabled: bool = True):
     """Toggle whether YOLO + event emission runs for a source.
 
     HTTP: POST /api/live/sources/{source_id}/detection?enabled=true|false
-    AUTH: POC (open)
     """
-    require_admin_if_flagged(request, realm="source detection toggle")
     slot = state.slots.get(source_id)
     if slot is None:
         raise HTTPException(404, f"unknown source: {source_id}")

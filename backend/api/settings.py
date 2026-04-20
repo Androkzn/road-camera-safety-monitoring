@@ -40,7 +40,6 @@ from pydantic import BaseModel, Field
 
 from backend import settings_spec
 from backend.compliance import audit
-from backend.security import require_bearer_token
 from backend.services import settings_db
 from backend.services import templates as template_svc
 from backend.services.impact import ImpactMonitor
@@ -132,10 +131,6 @@ class StreamTicketBody(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _bearer(request: Request) -> None:
-    require_bearer_token(request, None, realm="settings", env_var="")
-
-
 def _actor(request: Request, label: str | None = None) -> str:
     """Best-effort operator label from the request (POC has no user accounts)."""
     if label:
@@ -143,7 +138,7 @@ def _actor(request: Request, label: str | None = None) -> str:
     fwd = request.headers.get("x-operator-label")
     if fwd:
         return fwd.strip()[:120]
-    return "admin"
+    return "operator"
 
 
 def _validation_response(errors: list[dict]) -> JSONResponse:
@@ -225,13 +220,11 @@ def mount(
     # Reads
     # ------------------------------------------------------------------
     @app.get("/api/settings/schema")
-    async def get_schema(request: Request):
-        _bearer(request)
+    async def get_schema():
         return settings_spec.schema_payload()
 
     @app.get("/api/settings/effective")
-    async def get_effective(request: Request):
-        _bearer(request)
+    async def get_effective():
         snap = dict(STORE.snapshot())
         return {
             "schema_version": settings_spec.SCHEMA_VERSION,
@@ -241,28 +234,24 @@ def mount(
         }
 
     @app.get("/api/settings/templates")
-    async def get_templates(request: Request):
-        _bearer(request)
+    async def get_templates():
         return {"templates": template_svc.list_templates()}
 
     @app.get("/api/settings/templates/{template_id}/revisions")
-    async def get_template_revisions(template_id: str, request: Request):
-        _bearer(request)
+    async def get_template_revisions(template_id: str):
         if template_svc.get_template(template_id) is None:
             raise HTTPException(status_code=404, detail=f"template {template_id} not found")
         return {"revisions": template_svc.list_revisions(template_id)}
 
     @app.get("/api/settings/baseline")
-    async def get_baseline(request: Request, audit_id: str = Query(...)):
-        _bearer(request)
+    async def get_baseline(audit_id: str = Query(...)):
         bl = settings_db.baseline_for_audit(audit_id)
         if bl is None:
             raise HTTPException(status_code=404, detail="no baseline for that audit_id")
         return bl
 
     @app.get("/api/settings/impact")
-    async def get_impact(request: Request, audit_id: str | None = None):
-        _bearer(request)
+    async def get_impact(audit_id: str | None = None):
         report = (
             impact_monitor.report_for(audit_id)
             if audit_id
@@ -273,28 +262,24 @@ def mount(
         return {"report": report.to_dict()}
 
     @app.get("/api/settings/impact/history")
-    async def get_impact_history(request: Request, limit: int = 20):
-        _bearer(request)
+    async def get_impact_history(limit: int = 20):
         limit = max(1, min(limit, 200))
         return {"items": settings_db.list_archived_sessions(limit=limit)}
 
     @app.get("/api/settings/apply_log")
-    async def get_apply_log(request: Request, limit: int = 50):
-        _bearer(request)
+    async def get_apply_log(limit: int = 50):
         limit = max(1, min(limit, 200))
         return {"items": settings_db.list_apply_log(limit=limit)}
 
     @app.get("/api/settings/observability")
-    async def get_observability(request: Request):
-        _bearer(request)
+    async def get_observability():
         return {"counters": dict(STORE.counters), "revision_no": STORE.revision_no()}
 
     # ------------------------------------------------------------------
     # Writes — settings
     # ------------------------------------------------------------------
     @app.post("/api/settings/validate")
-    async def validate(body: ValidateBody, request: Request):
-        _bearer(request)
+    async def validate(body: ValidateBody):
         snap = dict(STORE.snapshot())
         merged = dict(snap)
         cleaned: dict[str, Any] = {}
@@ -319,7 +304,6 @@ def mount(
 
     @app.post("/api/settings/apply")
     async def apply(body: ApplyBody, request: Request):
-        _bearer(request)
         actor = _actor(request, body.operator_label)
         # Check-only: failed attempts below do not stamp the cooldown clock.
         _check_apply_cooldown(actor)
@@ -396,7 +380,6 @@ def mount(
 
     @app.post("/api/settings/rollback")
     async def rollback(request: Request):
-        _bearer(request)
         actor = _actor(request)
         # Check-only; stamp the cooldown only if the rollback actually
         # mutated state (a no-op rollback against an unchanged store
@@ -438,7 +421,6 @@ def mount(
     # ------------------------------------------------------------------
     @app.post("/api/settings/templates")
     async def create_template(body: TemplateCreateBody, request: Request):
-        _bearer(request)
         actor = _actor(request)
         try:
             tmpl = template_svc.create_template(
@@ -460,7 +442,6 @@ def mount(
 
     @app.patch("/api/settings/templates/{template_id}")
     async def update_template(template_id: str, body: TemplateUpdateBody, request: Request):
-        _bearer(request)
         actor = _actor(request)
         try:
             tmpl = template_svc.update_template(
@@ -485,7 +466,6 @@ def mount(
 
     @app.delete("/api/settings/templates/{template_id}")
     async def delete_template(template_id: str, request: Request):
-        _bearer(request)
         actor = _actor(request)
         try:
             modified = template_svc.soft_delete_template(template_id)
@@ -504,7 +484,6 @@ def mount(
 
     @app.post("/api/settings/templates/{template_id}/apply")
     async def apply_template(template_id: str, body: TemplateApplyBody, request: Request):
-        _bearer(request)
         actor = _actor(request, body.operator_label)
         # Check-only; the cooldown clock is stamped only after a real
         # state change below (so a missing template, validation failure,
@@ -587,7 +566,6 @@ def mount(
     # ------------------------------------------------------------------
     @app.post("/api/settings/baseline/capture")
     async def capture_baseline(request: Request):
-        _bearer(request)
         actor = _actor(request)
         snap = dict(STORE.snapshot())
         audit_id = impact_monitor.on_settings_change(
@@ -600,7 +578,6 @@ def mount(
     # ------------------------------------------------------------------
     @app.post("/api/settings/stream_ticket")
     async def stream_ticket(body: StreamTicketBody, request: Request):
-        _bearer(request)
         actor = _actor(request, body.operator_label)
         ticket, ttl = await _issue_ticket(actor)
         audit.log(

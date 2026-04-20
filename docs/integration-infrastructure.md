@@ -122,18 +122,13 @@ flowchart LR
 
 ---
 
-## 5. Access tiers (edge server, POC)
+## 5. Access model (edge server, POC)
 
-See `CLAUDE.md` for the current model. This demo build keeps most operator JSON routes **unauthenticated** on the network you bind to.
+This demo build has no user accounts, no roles, and no request authentication. Every JSON route, SSE stream, thumbnail, and live-media endpoint is fully open.
 
-| Tier | Mechanism | Typical use |
-|------|-----------|-------------|
-| **Open API** | None | SSE, dashboard UI, settings, live control, LLM stats, audit reads, etc. |
-| **DSAR / sensitive imagery** | Header `X-DSAR-Token` must match `ROAD_DSAR_TOKEN` | Unredacted thumbnails when token is configured. |
+**Frontend note:** the React app uses same-origin `fetch` without stored credentials.
 
-**Frontend note:** the React app uses same-origin `fetch` without stored credentials. Treat the host like a lab appliance — not internet-facing.
-
-**Thumbnail URL signing:** when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN` is enabled, public thumbnails may require `exp` + `token` query parameters (HMAC-derived on the server). The event payload may carry presigned URLs from integrations like cloud export (`edge_publisher.build_thumbnail_url`).
+**Do not expose this build to the public internet.** A real auth layer (JWT, OAuth, per-tenant scopes) is a prerequisite for any production deployment.
 
 ---
 
