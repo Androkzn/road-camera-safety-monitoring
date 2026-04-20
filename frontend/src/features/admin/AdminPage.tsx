@@ -108,22 +108,6 @@ export function AdminPage() {
     return selectedSource;
   }, [liveSources.sources, focusedId, selectedSource]);
 
-  // Debug: inspect which stream is driving the map.
-  useEffect(() => {
-    if (!mapClockSource) return;
-    console.debug("[map-sync] clock source:", {
-      id: mapClockSource.id,
-      name: mapClockSource.name,
-      running: mapClockSource.running,
-      uptime_sec: mapClockSource.uptime_sec,
-      frames: mapClockSource.frames_processed,
-    });
-  }, [
-    mapClockSource?.id,
-    mapClockSource?.running,
-    mapClockSource?.uptime_sec,
-  ]);
-
   return (
     <>
       <TopBar

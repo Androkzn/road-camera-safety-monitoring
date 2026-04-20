@@ -40,6 +40,7 @@ Design constraints
 """
 
 import asyncio
+import collections
 import logging
 import time
 from dataclasses import dataclass, field
@@ -504,6 +505,10 @@ class ValidatorWorker:
         self._finding_ctor = finding_ctor
         self._observer_record_skip = observer_record_skip
         self.queue: asyncio.Queue[ValidatorJob] = asyncio.Queue(maxsize=queue_max)
+        # Unbounded overflow for episode jobs — every primary event earns a
+        # re-check, so we never drop them even when the bounded queue is full.
+        # Sampled jobs still drop on overflow (best-effort second-opinion).
+        self._priority_overflow: collections.deque[ValidatorJob] = collections.deque()
         self.sample_sec = sample_sec
         # Last sampled-job acceptance time per source — used for rate
         # limiting the sampled stream tee.
@@ -516,6 +521,11 @@ class ValidatorWorker:
         self.jobs_processed = 0
         self.jobs_dropped = 0
         self.findings_emitted = 0
+        # Episode-specific counter: number of primary-event re-checks that
+        # have been accepted (bounded queue OR overflow). The invariant is
+        # ``episodes_enqueued >= primary events emitted`` — surfaced in the
+        # status payload so operators can verify the guarantee holds.
+        self.episodes_enqueued = 0
         self._running = False
         # Operator pause: when True, ``enqueue()`` short-circuits so no new
         # shadow jobs are accepted. The background worker keeps running so
@@ -534,11 +544,13 @@ class ValidatorWorker:
             "device": self.detector.device or "auto",
             "queue_depth": self.queue.qsize(),
             "queue_max": self.queue.maxsize,
+            "overflow_depth": len(self._priority_overflow),
             "sample_sec": self.sample_sec,
             "iou_threshold": self.comparator.iou_threshold,
             "jobs_processed": self.jobs_processed,
             "jobs_dropped": self.jobs_dropped,
             "findings_emitted": self.findings_emitted,
+            "episodes_enqueued": self.episodes_enqueued,
         }
 
     def set_paused(self, paused: bool) -> None:
@@ -559,13 +571,48 @@ class ValidatorWorker:
         self._last_primary_event_ts[slot_id] = wall_ts
 
     def enqueue(self, job: ValidatorJob) -> bool:
-        """Non-blocking put. Returns False when the queue is full or paused."""
+        """Non-blocking put. Returns False when the queue is full or paused.
+
+        Episode jobs (primary-event re-checks) are never dropped: if the
+        bounded queue is full they spill into an unbounded overflow deque
+        which the worker drains first. This upholds the invariant that
+        the validator sees at least one re-check per primary event.
+        """
         if self._paused:
             # Dropped on the floor without counting as a real drop (the
             # queue isn't backed up, the operator just turned us off).
             return False
+        if job.kind == "episode":
+            try:
+                self.queue.put_nowait(job)
+            except asyncio.QueueFull:
+                self._priority_overflow.append(job)
+                log.info(
+                    "validator: episode queue full, spilled to overflow "
+                    "slot=%s overflow_depth=%d queue=%d/%d",
+                    job.slot_id,
+                    len(self._priority_overflow),
+                    self.queue.qsize(),
+                    self.queue.maxsize,
+                )
+            self.episodes_enqueued += 1
+            log.info(
+                "validator: episode enqueued slot=%s episodes_enqueued=%d queue=%d/%d overflow=%d",
+                job.slot_id,
+                self.episodes_enqueued,
+                self.queue.qsize(),
+                self.queue.maxsize,
+                len(self._priority_overflow),
+            )
+            return True
         try:
             self.queue.put_nowait(job)
+            log.info(
+                "validator: sampled enqueued slot=%s queue=%d/%d",
+                job.slot_id,
+                self.queue.qsize(),
+                self.queue.maxsize,
+            )
             return True
         except asyncio.QueueFull:
             self.jobs_dropped += 1
@@ -607,7 +654,21 @@ class ValidatorWorker:
         )
         try:
             while True:
-                job = await self.queue.get()
+                # Priority: drain the episode overflow deque first so primary
+                # event re-checks never get stuck behind a backlog of sampled
+                # frames. ``_priority_overflow`` only holds episode jobs.
+                if self._priority_overflow:
+                    job = self._priority_overflow.popleft()
+                else:
+                    job = await self.queue.get()
+                log.info(
+                    "validator: dequeued slot=%s kind=%s queue=%d/%d overflow=%d",
+                    job.slot_id,
+                    job.kind,
+                    self.queue.qsize(),
+                    self.queue.maxsize,
+                    len(self._priority_overflow),
+                )
                 try:
                     await self._process(job)
                 except asyncio.CancelledError:
@@ -624,11 +685,12 @@ class ValidatorWorker:
         started = time.monotonic()
         secondary = await asyncio.to_thread(self.detector.predict, job.frame)
         latency_ms = (time.monotonic() - started) * 1000.0
-        log.debug(
-            "validator: processed slot=%s kind=%s dets=%d latency_ms=%.0f",
+        log.info(
+            "validator: processed slot=%s kind=%s secondary_dets=%d primary_dets=%d latency_ms=%.0f",
             job.slot_id,
             job.kind,
             len(secondary),
+            len(job.primary_detections),
             latency_ms,
         )
         frame_h = _frame_height(job.frame)

@@ -24,6 +24,8 @@ export interface ValidatorStatusPayload {
   jobs_processed?: number;
   jobs_dropped?: number;
   findings_emitted?: number;
+  episodes_enqueued?: number;
+  overflow_depth?: number;
 }
 
 const VALIDATOR_QUERY_KEY = ["monitoring", "validator"] as const;

@@ -6,7 +6,7 @@
  * filter bar and TestDrawer toggle. Everything else is composition.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
@@ -29,12 +29,30 @@ import { useScene } from "./hooks/useScene";
 import styles from "./DashboardPage.module.css";
 
 export function DashboardPage() {
-  const { events, perception, connected, counts } = useEventStream();
+  const { events, perception, connected, counts, clearEvents } = useEventStream();
   const { data: liveStatus } = useLiveStatus();
   const { data: scene } = useScene();
   const { data: drift, refetch: refreshDrift } = useDrift();
   const { status: testStatus, rerun: rerunTests } = useTests();
-  const { status: wdStatus } = useWatchdogCtx();
+  const {
+    status: wdStatus,
+    findings,
+    clearAll: clearAllFindings,
+  } = useWatchdogCtx();
+  const [clearingEvents, setClearingEvents] = useState(false);
+  const hasFindings = (findings?.length ?? 0) > 0;
+
+  const handleClearEvents = useCallback(async () => {
+    setClearingEvents(true);
+    try {
+      clearEvents();
+      if (hasFindings) {
+        await clearAllFindings();
+      }
+    } finally {
+      setClearingEvents(false);
+    }
+  }, [clearEvents, clearAllFindings, hasFindings]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const prevTestStatus = useRef<string>("idle");
@@ -153,6 +171,15 @@ export function DashboardPage() {
                 : `${events.length}`}{" "}
               events
             </span>
+            <button
+              type="button"
+              className={styles.clearAllBtn}
+              onClick={() => void handleClearEvents()}
+              disabled={clearingEvents || (events.length === 0 && !hasFindings)}
+              title="Clear events and all corresponding monitoring records"
+            >
+              {clearingEvents ? "Clearing…" : "Clear all events"}
+            </button>
           </div>
 
           <div className={styles.stream}>

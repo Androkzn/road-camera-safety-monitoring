@@ -37,6 +37,19 @@ export function EventCard({ event: e, isNew }: EventCardProps) {
   const objs = e.objects?.length ? e.objects.join(" · ") : "—";
   const enr = e.enrichment;
 
+  // Friendly copy for the per-event skip reasons. ``alpr_policy_disabled``
+  // is the *default* deployment state (ROAD_ALPR_MODE=off) — it would
+  // stamp every card with a notice that is neither actionable nor
+  // event-specific, so we suppress it here and keep only the per-event
+  // signals worth surfacing to operators.
+  const skipLabel: Record<string, string> = {
+    perception_degraded: "ALPR skipped — image quality too low",
+    low_risk_event: "ALPR skipped — low-risk (batch review)",
+  };
+  const skipNote = e.enrichment_skipped
+    ? skipLabel[e.enrichment_skipped]
+    : undefined;
+
   return (
     <div className={`${styles.card} ${flash ? styles.flash : ""}`}>
       <div className={styles.thumb}>
@@ -94,11 +107,7 @@ export function EventCard({ event: e, isNew }: EventCardProps) {
           <div className={styles.summ}>{e.summary}</div>
         ) : null}
 
-        {e.enrichment_skipped && (
-          <div className={styles.skipNote}>
-            vision enrichment skipped ({e.enrichment_skipped})
-          </div>
-        )}
+        {skipNote && <div className={styles.skipNote}>{skipNote}</div>}
 
         <div className={styles.row3}>
           {e.track_ids?.length ? (

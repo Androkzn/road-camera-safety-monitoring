@@ -19,6 +19,8 @@ export function ValidatorControl() {
   const queueDepth = status?.queue_depth ?? 0;
   const findings = status?.findings_emitted ?? 0;
   const jobs = status?.jobs_processed ?? 0;
+  const episodes = status?.episodes_enqueued ?? 0;
+  const overflow = status?.overflow_depth ?? 0;
 
   return (
     <div className={styles.card}>
@@ -57,10 +59,17 @@ export function ValidatorControl() {
           </span>
           <span>•</span>
           <span>
+            <strong>{episodes.toLocaleString()}</strong> episodes
+          </span>
+          <span>•</span>
+          <span>
             <strong>{findings.toLocaleString()}</strong> findings
           </span>
           <span>•</span>
-          <span>queue {queueDepth}/{status?.queue_max ?? "—"}</span>
+          <span>
+            queue {queueDepth}/{status?.queue_max ?? "—"}
+            {overflow > 0 ? ` (+${overflow} overflow)` : ""}
+          </span>
           {status?.backend && (
             <>
               <span>•</span>

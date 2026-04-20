@@ -95,6 +95,31 @@
   white-space: nowrap;
 }
 
+/* Destructive "Clear all events" button — empties the client event buffer
+ * and also clears monitoring findings so corresponding records disappear. */
+.clearAllBtn {
+  background: transparent;
+  color: var(--high);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.clearAllBtn:hover:not(:disabled) {
+  border-color: var(--high);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.clearAllBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Scrollable event stream container. */
 .stream {
   flex: 1;

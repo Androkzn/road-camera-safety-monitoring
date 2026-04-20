@@ -37,10 +37,16 @@ export function useEventStream() {
     onMessage,
   });
 
+  const clearEvents = useCallback(() => {
+    setEvents([]);
+    countsRef.current = { total: 0, high: 0, medium: 0 };
+  }, []);
+
   return {
     events,
     perception,
     connected,
     counts: countsRef.current,
+    clearEvents,
   };
 }

@@ -126,9 +126,13 @@
   flex-wrap: wrap;
 }
 
-/* Small red-tinted note shown when an event was skipped/suppressed. */
+/* Informational note shown when ALPR enrichment was skipped for this
+ * event (e.g. degraded perception, low-risk). Muted/italic — this is
+ * normal, expected behaviour, NOT an error. The default-policy skip
+ * reason (`alpr_policy_disabled`) is suppressed in the .tsx because
+ * it would stamp every card. */
 .skipNote {
-  color: #fca5a5;
+  color: var(--muted);
   font-size: 10.5px;
   font-style: italic;
   margin-top: 2px;

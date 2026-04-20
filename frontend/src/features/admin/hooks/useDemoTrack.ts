@@ -258,21 +258,9 @@ export function useVehiclePosition(
     // loopSec compression used for full-timeline mode.
     const videoSynced = !!data.video && !!data.sync_mode && data.sync_mode !== "none";
 
-    console.debug("[map-sync] effect mount", {
-      points: points.length,
-      firstT,
-      lastT,
-      span,
-      loopSec,
-      videoSynced,
-      syncMode: data.sync_mode,
-    });
-
     const FRAME_MS = 1000 / 30;
     let lastFrame = 0;
     let lastTickMs = performance.now();
-    let lastDebugMs = 0;
-    const DEBUG_EVERY_MS = 2000;
 
     const tick = (now: number) => {
       if (now - lastFrame >= FRAME_MS) {
@@ -334,18 +322,6 @@ export function useVehiclePosition(
           : firstT + ((playheadSec / loopSec) * span) % span;
         const next = sampleTrack(points, trackTime);
         if (next) setPos(next);
-
-        if (now - lastDebugMs >= DEBUG_EVERY_MS) {
-          lastDebugMs = now;
-          console.debug("[map-sync] tick", {
-            clockRunning: c?.running,
-            videoPosSec: c?.videoPosSec?.toFixed(2),
-            playhead: playheadSec.toFixed(2),
-            trackTime: trackTime.toFixed(1),
-            lat: next?.lat.toFixed(5),
-            lng: next?.lng.toFixed(5),
-          });
-        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
