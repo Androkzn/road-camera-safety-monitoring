@@ -48,19 +48,20 @@ export function useDetections() {
     const counter = fpsCounterRef.current;
     counter.count++;
     const now = Date.now();
-    let fps = stats.fps;
-    if (now - counter.start >= 3000) {
-      fps = (counter.count / ((now - counter.start) / 1000)).toFixed(1);
-      counter.count = 0;
-      counter.start = now;
-    }
-
-    setStats({
-      detections: msg.detections || 0,
-      persons: msg.persons || 0,
-      vehicles: msg.vehicles || 0,
-      interactions: msg.interactions || 0,
-      fps,
+    setStats((prev) => {
+      let fps = prev.fps;
+      if (now - counter.start >= 3000) {
+        fps = (counter.count / ((now - counter.start) / 1000)).toFixed(1);
+        counter.count = 0;
+        counter.start = now;
+      }
+      return {
+        detections: msg.detections || 0,
+        persons: msg.persons || 0,
+        vehicles: msg.vehicles || 0,
+        interactions: msg.interactions || 0,
+        fps,
+      };
     });
 
     if (msg.objects?.length) {
@@ -96,7 +97,6 @@ export function useDetections() {
         return { ...prev, [msg.source_id!]: sample };
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useSSE<DetectionSnapshot>({ url: "/admin/detections", onMessage });

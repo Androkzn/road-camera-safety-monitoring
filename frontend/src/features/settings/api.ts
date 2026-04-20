@@ -29,9 +29,17 @@ interface TemplatesResponse {
   templates: SettingsTemplate[];
 }
 
+interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 export const settingsApi = {
-  getSchema: () => adminFetch<SettingsSchema>("/api/settings/schema"),
-  getEffective: () => adminFetch<EffectiveSettings>("/api/settings/effective"),
+  getSchema: (opts: RequestOptions = {}) =>
+    adminFetch<SettingsSchema>("/api/settings/schema", { signal: opts.signal }),
+  getEffective: (opts: RequestOptions = {}) =>
+    adminFetch<EffectiveSettings>("/api/settings/effective", {
+      signal: opts.signal,
+    }),
 
   validate: (diff: Record<string, unknown>) =>
     adminFetch<unknown>("/api/settings/validate", {
@@ -60,10 +68,14 @@ export const settingsApi = {
       { method: "POST" },
     ),
 
-  getImpact: () => adminFetch<ImpactResponse>("/api/settings/impact"),
+  getImpact: (opts: RequestOptions = {}) =>
+    adminFetch<ImpactResponse>("/api/settings/impact", { signal: opts.signal }),
 
   // --- Templates ---
-  listTemplates: () => adminFetch<TemplatesResponse>("/api/settings/templates"),
+  listTemplates: (opts: RequestOptions = {}) =>
+    adminFetch<TemplatesResponse>("/api/settings/templates", {
+      signal: opts.signal,
+    }),
 
   createTemplate: (
     name: string,

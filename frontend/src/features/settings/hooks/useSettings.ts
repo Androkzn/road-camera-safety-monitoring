@@ -81,7 +81,7 @@ export function useSettings(token: string | null): SettingsState {
   // Schema is stable for the life of the server process — no interval.
   const schemaQuery = useQuery({
     queryKey: settingsQueryKeys.schema,
-    queryFn: settingsApi.getSchema,
+    queryFn: ({ signal }) => settingsApi.getSchema({ signal }),
     enabled: !!token,
     staleTime: Infinity,
     retry: (_count, err) =>
@@ -94,7 +94,7 @@ export function useSettings(token: string | null): SettingsState {
   // on return, so the tab-visible poll is a best-effort refresh only.
   const effectiveQuery = useQuery({
     queryKey: settingsQueryKeys.effective,
-    queryFn: settingsApi.getEffective,
+    queryFn: ({ signal }) => settingsApi.getEffective({ signal }),
     enabled: !!token,
     refetchInterval: EFFECTIVE_POLL_MS,
     refetchIntervalInBackground: false,

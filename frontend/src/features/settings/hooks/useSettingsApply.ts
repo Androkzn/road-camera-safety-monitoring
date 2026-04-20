@@ -53,6 +53,24 @@ interface UseSettingsApplyArgs {
   dialog: DialogApi;
 }
 
+export type ApplyErrorKind =
+  | "validation"
+  | "privacy_confirm"
+  | "missing_token"
+  | "revision_conflict"
+  | "rate_limited"
+  | "unknown";
+
+export function classifyApplyError(exc: unknown): ApplyErrorKind {
+  if (extractValidationErrors(exc)) return "validation";
+  if (isPrivacyConfirmRequired(exc)) return "privacy_confirm";
+  if (exc instanceof MissingAdminTokenError) return "missing_token";
+  const status = (exc as AdminApiError).status;
+  if (status === 409) return "revision_conflict";
+  if (status === 429) return "rate_limited";
+  return "unknown";
+}
+
 export interface UseSettingsApplyResult {
   draft: Record<string, DraftValue>;
   setDraft: React.Dispatch<React.SetStateAction<Record<string, DraftValue>>>;
@@ -155,12 +173,12 @@ export function useSettingsApply({
       } catch (exc) {
         // eslint-disable-next-line no-console
         console.warn("[settings] apply failed", exc);
-        const errors = extractValidationErrors(exc);
-        if (errors) {
-          setValidationErrors(errors);
+        const kind = classifyApplyError(exc);
+        if (kind === "validation") {
+          setValidationErrors(extractValidationErrors(exc) ?? []);
           return;
         }
-        if (isPrivacyConfirmRequired(exc)) {
+        if (kind === "privacy_confirm") {
           const confirmed = await dialog.confirm({
             title: "Privacy-sensitive change",
             message:
@@ -174,9 +192,8 @@ export function useSettingsApply({
           }
           return;
         }
-        if (exc instanceof MissingAdminTokenError) return;
-        const status = (exc as AdminApiError).status;
-        if (status === 409) {
+        if (kind === "missing_token") return;
+        if (kind === "revision_conflict") {
           await dialog.alert({
             title: "Settings changed elsewhere",
             message:
@@ -187,7 +204,7 @@ export function useSettingsApply({
           setDraft({});
           return;
         }
-        if (status === 429) {
+        if (kind === "rate_limited") {
           await dialog.alert({
             title: "Apply rate-limited",
             message:

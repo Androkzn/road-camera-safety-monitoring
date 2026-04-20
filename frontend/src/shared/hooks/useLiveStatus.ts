@@ -16,7 +16,7 @@ export const liveStatusQueryKey = ["shared", "liveStatus"] as const;
 export function useLiveStatus(refetchIntervalMs = 5000) {
   return useQuery({
     queryKey: liveStatusQueryKey,
-    queryFn: () => fetchJson<LiveStatus>("/api/live/status"),
+    queryFn: ({ signal }) => fetchJson<LiveStatus>("/api/live/status", { signal }),
     refetchInterval: refetchIntervalMs,
   });
 }

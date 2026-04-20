@@ -11,7 +11,7 @@ import { dashboardApi, dashboardQueryKeys } from "../api";
 export function useScene(refetchIntervalMs = 7000) {
   return useQuery({
     queryKey: dashboardQueryKeys.scene,
-    queryFn: dashboardApi.getScene,
+    queryFn: ({ signal }) => dashboardApi.getScene(signal),
     refetchInterval: refetchIntervalMs,
   });
 }

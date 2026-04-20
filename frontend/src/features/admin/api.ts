@@ -10,9 +10,11 @@ import type {
 } from "../../shared/types/common";
 
 export const adminApi = {
-  getHealth: () => fetchJson<HealthData>("/api/admin/health"),
+  getHealth: (signal?: AbortSignal) =>
+    fetchJson<HealthData>("/api/admin/health", { signal }),
 
-  getLiveSources: () => fetchJson<LiveSourcesResponse>("/api/live/sources"),
+  getLiveSources: (signal?: AbortSignal) =>
+    fetchJson<LiveSourcesResponse>("/api/live/sources", { signal }),
   startLiveSource: (id: string) =>
     fetchJson<LiveSourceStatus>(
       `/api/live/sources/${encodeURIComponent(id)}/start`,
@@ -53,16 +55,19 @@ export const adminApi = {
       { method: "DELETE" },
     ),
 
-  getLiveEvents: (params?: {
-    risk_level?: string;
-    event_type?: string;
-    limit?: number;
-  }) => {
+  getLiveEvents: (
+    params?: {
+      risk_level?: string;
+      event_type?: string;
+      limit?: number;
+    },
+    signal?: AbortSignal,
+  ) => {
     const q = new URLSearchParams();
     if (params?.risk_level) q.set("risk_level", params.risk_level);
     if (params?.event_type) q.set("event_type", params.event_type);
     q.set("limit", String(params?.limit ?? 200));
-    return fetchJson<SafetyEvent[]>(`/api/live/events?${q}`);
+    return fetchJson<SafetyEvent[]>(`/api/live/events?${q}`, { signal });
   },
 };
 

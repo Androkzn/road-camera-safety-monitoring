@@ -5,9 +5,9 @@
  *
  * Cross-tab sync: subscribes via `subscribeToAdminTokenChanges` which uses a
  * `BroadcastChannel` so setting the token in one tab is picked up by other
- * tabs in the same browser session. `sessionStorage` is per-tab, so each
- * tab still has to observe the change and call `setAdminToken` itself —
- * that's what the broadcast triggers downstream listeners to do.
+ * tabs in the same browser session. Because `sessionStorage` is per-tab,
+ * the subscriber mirrors the token payload into the local tab before the
+ * hook re-reads it.
  */
 
 import { useCallback, useEffect, useState } from "react";

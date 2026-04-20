@@ -32,7 +32,7 @@ export function useLiveSourcesList(
 ): UseLiveSourcesListResult {
   const { data, error, refetch, isLoading } = useQuery<LiveSourcesResponse>({
     queryKey: adminQueryKeys.liveSources,
-    queryFn: adminApi.getLiveSources,
+    queryFn: ({ signal }) => adminApi.getLiveSources(signal),
     refetchInterval: refetchIntervalMs,
     staleTime: 2_000,
   });

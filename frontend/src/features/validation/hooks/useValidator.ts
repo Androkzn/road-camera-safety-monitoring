@@ -35,7 +35,8 @@ export function useValidator(refetchMs = 5000) {
 
   const status = useQuery<ValidatorStatusPayload>({
     queryKey: VALIDATOR_QUERY_KEY,
-    queryFn: () => fetchJson<ValidatorStatusPayload>("/api/validator/status"),
+    queryFn: ({ signal }) =>
+      fetchJson<ValidatorStatusPayload>("/api/validator/status", { signal }),
     refetchInterval: refetchMs,
     staleTime: 2000,
   });

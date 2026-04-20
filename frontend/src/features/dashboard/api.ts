@@ -8,8 +8,10 @@ import type {
 } from "../../shared/types/common";
 
 export const dashboardApi = {
-  getScene: () => fetchJson<SceneContext>("/api/live/scene"),
-  getDrift: () => fetchJson<DriftReport>("/api/drift"),
+  getScene: (signal?: AbortSignal) =>
+    fetchJson<SceneContext>("/api/live/scene", { signal }),
+  getDrift: (signal?: AbortSignal) =>
+    fetchJson<DriftReport>("/api/drift", { signal }),
   chat: (query: string) =>
     postJson<{ answer: string }>("/chat", { query }),
 };

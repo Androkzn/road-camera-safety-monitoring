@@ -39,7 +39,7 @@ export interface ImpactState {
 export function useImpact(token: string | null): ImpactState {
   const query = useQuery({
     queryKey: settingsQueryKeys.impact,
-    queryFn: settingsApi.getImpact,
+    queryFn: ({ signal }) => settingsApi.getImpact({ signal }),
     enabled: !!token,
     refetchInterval: POLL_MS,
     refetchIntervalInBackground: false,

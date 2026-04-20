@@ -10,7 +10,7 @@ import { dashboardApi, dashboardQueryKeys } from "../api";
 export function useDrift(refetchIntervalMs = 30_000) {
   return useQuery({
     queryKey: dashboardQueryKeys.drift,
-    queryFn: dashboardApi.getDrift,
+    queryFn: ({ signal }) => dashboardApi.getDrift(signal),
     refetchInterval: refetchIntervalMs,
   });
 }

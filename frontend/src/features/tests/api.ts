@@ -5,7 +5,8 @@ import { fetchJson } from "../../shared/lib/fetchClient";
 import type { TestStatus } from "../../shared/types/common";
 
 export const testsApi = {
-  getStatus: () => fetchJson<TestStatus>("/api/tests/status"),
+  getStatus: (signal?: AbortSignal) =>
+    fetchJson<TestStatus>("/api/tests/status", { signal }),
   run: () => fetchJson<{ ok: boolean }>("/api/tests/run", { method: "POST" }),
 };
 

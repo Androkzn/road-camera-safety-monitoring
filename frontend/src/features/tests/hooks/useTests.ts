@@ -14,7 +14,7 @@ export function useTests() {
   const qc = useQueryClient();
   const { data: status, refetch } = useQuery<TestStatus>({
     queryKey: testsQueryKeys.status,
-    queryFn: testsApi.getStatus,
+    queryFn: ({ signal }) => testsApi.getStatus(signal),
     refetchInterval: (query) =>
       query.state.data?.status === "running" ? 1_500 : 10_000,
     staleTime: 1_000,

@@ -22,6 +22,11 @@ export class MissingAdminTokenError extends Error {
   }
 }
 
+interface AdminTokenBroadcastMessage {
+  type: "admin-token-changed";
+  token: string | null;
+}
+
 // BroadcastChannel is the only way to sync `sessionStorage`-scoped state
 // across tabs within the same browser session: `storage` events fire only
 // for `localStorage`, and a `window.dispatchEvent` hits only the current
@@ -39,15 +44,37 @@ const _channel: BroadcastChannel | null = (() => {
   }
 })();
 
-/** Notify listeners (current tab + other same-origin tabs) that the token changed. */
-function _notifyTokenChanged(): void {
+function _writeSessionToken(token: string | null): void {
   try {
-    window.dispatchEvent(new CustomEvent("admin-token-changed"));
+    if (token === null) sessionStorage.removeItem(STORAGE_KEY);
+    else sessionStorage.setItem(STORAGE_KEY, token);
+  } catch {
+    // sessionStorage can be denied by privacy modes; ignore.
+  }
+}
+
+function _tokenFromCustomEvent(ev: Event): string | null | undefined {
+  if (!(ev instanceof CustomEvent)) return undefined;
+  const detail = ev.detail as { token?: string | null } | undefined;
+  if (!detail || !("token" in detail)) return undefined;
+  return detail.token ?? null;
+}
+
+/** Notify listeners (current tab + other same-origin tabs) that the token changed. */
+function _notifyTokenChanged(token: string | null): void {
+  try {
+    window.dispatchEvent(
+      new CustomEvent("admin-token-changed", { detail: { token } }),
+    );
   } catch {
     /* ignore */
   }
   try {
-    _channel?.postMessage({ type: "admin-token-changed" });
+    const msg: AdminTokenBroadcastMessage = {
+      type: "admin-token-changed",
+      token,
+    };
+    _channel?.postMessage(msg);
   } catch {
     /* ignore */
   }
@@ -61,10 +88,19 @@ function _notifyTokenChanged(): void {
  * Returns an unsubscribe callback.
  */
 export function subscribeToAdminTokenChanges(listener: () => void): () => void {
-  const same = () => listener();
+  const same = (ev: Event) => {
+    const token = _tokenFromCustomEvent(ev);
+    if (token !== undefined) _writeSessionToken(token);
+    listener();
+  };
   window.addEventListener("admin-token-changed", same);
   const onMessage = (ev: MessageEvent) => {
-    if (ev?.data?.type === "admin-token-changed") listener();
+    const data = ev.data as Partial<AdminTokenBroadcastMessage> | undefined;
+    if (data?.type !== "admin-token-changed") return;
+    if ("token" in data) {
+      _writeSessionToken(data.token ?? null);
+    }
+    listener();
   };
   _channel?.addEventListener("message", onMessage);
   return () => {
@@ -82,21 +118,13 @@ export function getAdminToken(): string | null {
 }
 
 export function setAdminToken(token: string): void {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, token);
-    _notifyTokenChanged();
-  } catch {
-    // sessionStorage can be denied by privacy modes; ignore.
-  }
+  _writeSessionToken(token);
+  _notifyTokenChanged(token);
 }
 
 export function clearAdminToken(): void {
-  try {
-    sessionStorage.removeItem(STORAGE_KEY);
-    _notifyTokenChanged();
-  } catch {
-    /* ignore */
-  }
+  _writeSessionToken(null);
+  _notifyTokenChanged(null);
 }
 
 function withAdminAuth(init?: RequestInit): RequestInit {

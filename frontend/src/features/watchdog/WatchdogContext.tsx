@@ -43,10 +43,10 @@ const Ctx = createContext<WatchdogCtx>({
   clearAll: async () => {},
 });
 
-async function fetchBoth(): Promise<WatchdogData> {
+async function fetchBoth(signal?: AbortSignal): Promise<WatchdogData> {
   const [status, findings] = await Promise.all([
-    watchdogApi.getStatus(),
-    watchdogApi.getRecent(100),
+    watchdogApi.getStatus(signal),
+    watchdogApi.getRecent(100, signal),
   ]);
   return { status, findings };
 }
@@ -85,7 +85,7 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: watchdogQueryKeys.combined,
-    queryFn: fetchBoth,
+    queryFn: ({ signal }) => fetchBoth(signal),
     refetchInterval: 15_000,
     staleTime: 10_000,
   });

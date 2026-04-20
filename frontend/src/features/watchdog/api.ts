@@ -13,9 +13,10 @@ import type {
 } from "../../shared/types/common";
 
 export const watchdogApi = {
-  getStatus: () => fetchJson<WatchdogStatus>("/api/watchdog"),
-  getRecent: (n = 100) =>
-    fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`),
+  getStatus: (signal?: AbortSignal) =>
+    fetchJson<WatchdogStatus>("/api/watchdog", { signal }),
+  getRecent: (n = 100, signal?: AbortSignal) =>
+    fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`, { signal }),
   deleteFindings: (keys: string[]) =>
     adminFetch<{ deleted: number }>("/api/watchdog/findings/delete", {
       method: "POST",
