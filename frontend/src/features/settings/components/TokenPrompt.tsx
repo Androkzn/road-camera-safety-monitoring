@@ -12,6 +12,7 @@ interface TokenPromptProps {
   sourceName: string;
   connected?: boolean;
   errorCount?: number;
+  driftCount?: number;
   error: string | null;
   onSave: (token: string) => void;
 }
@@ -20,6 +21,7 @@ export function TokenPrompt({
   sourceName,
   connected,
   errorCount,
+  driftCount,
   error,
   onSave,
 }: TokenPromptProps) {
@@ -31,6 +33,7 @@ export function TokenPrompt({
         sourceName={sourceName}
         connected={connected}
         errorCount={errorCount}
+        driftCount={driftCount}
       />
       <main className={styles.main}>
         <section className={styles.center}>

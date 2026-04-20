@@ -24,6 +24,9 @@ const DashboardPage = lazy(() =>
 const MonitoringPage = lazy(() =>
   import("../features/monitoring").then((m) => ({ default: m.MonitoringPage })),
 );
+const ValidationPage = lazy(() =>
+  import("../features/validation").then((m) => ({ default: m.ValidationPage })),
+);
 const SettingsPage = lazy(() =>
   import("../features/settings").then((m) => ({ default: m.SettingsPage })),
 );
@@ -64,6 +67,14 @@ export function AppRouter() {
         element={
           <RouteShell label="Monitoring">
             <MonitoringPage />
+          </RouteShell>
+        }
+      />
+      <Route
+        path="/validation"
+        element={
+          <RouteShell label="Validation">
+            <ValidationPage />
           </RouteShell>
         }
       />

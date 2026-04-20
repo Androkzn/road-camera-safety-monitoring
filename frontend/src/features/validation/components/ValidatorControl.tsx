@@ -16,11 +16,9 @@ export function ValidatorControl() {
   // Surface that explicitly so the operator knows a restart is needed.
   const startupDisabled = !!status && status.enabled === false;
   const active = !!status?.enabled && !status?.paused;
-  const queueDepth = status?.queue_depth ?? 0;
   const findings = status?.findings_emitted ?? 0;
   const jobs = status?.jobs_processed ?? 0;
   const episodes = status?.episodes_enqueued ?? 0;
-  const overflow = status?.overflow_depth ?? 0;
 
   return (
     <div className={styles.card}>
@@ -65,17 +63,6 @@ export function ValidatorControl() {
           <span>
             <strong>{findings.toLocaleString()}</strong> findings
           </span>
-          <span>•</span>
-          <span>
-            queue {queueDepth}/{status?.queue_max ?? "—"}
-            {overflow > 0 ? ` (+${overflow} overflow)` : ""}
-          </span>
-          {status?.backend && (
-            <>
-              <span>•</span>
-              <span>{status.backend}</span>
-            </>
-          )}
         </div>
       )}
       {error && <p className={styles.warn}>Status unavailable: {error.message}</p>}

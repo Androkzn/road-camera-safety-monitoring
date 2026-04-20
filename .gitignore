@@ -34,6 +34,9 @@ data/audit.jsonl
 data/watchdog.jsonl
 data/active_learning/pending/
 data/test_suite/results.json
+# Event clip extracts (±3s around each event) — generated at runtime for
+# the EventDialog video player; can be large and not worth versioning.
+data/clips/
 .test-report.json
 
 # Input video (too large for git)

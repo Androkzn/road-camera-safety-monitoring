@@ -45,6 +45,23 @@ interface AdminEventCardProps {
 // TEACH: `{ event: e }` is destructuring-with-rename. The prop is named `event`
 // on the outside, but inside the function body we call it `e`. This is only a
 // local alias; callers still pass `<AdminEventCard event={...} />`.
+// TEACH: Map camera_orientation → display label. For "side" we try to
+// disambiguate left vs right from the source name/id substring; fall back to
+// "SIDE" when it's ambiguous.
+function orientationLabel(e: SafetyEvent): string | null {
+  const o = e.camera_orientation;
+  if (!o) return null;
+  if (o === "forward") return "FRONT";
+  if (o === "rear") return "REAR";
+  if (o === "side") {
+    const hay = `${e.source_name ?? ""} ${e.source_id ?? ""}`.toLowerCase();
+    if (hay.includes("left")) return "LEFT";
+    if (hay.includes("right")) return "RIGHT";
+    return "SIDE";
+  }
+  return o.toUpperCase();
+}
+
 export function AdminEventCard({ event: e }: AdminEventCardProps) {
   // Pre-compute display values once. Keeping them above the return keeps the
   // JSX below cleaner.
@@ -52,6 +69,12 @@ export function AdminEventCard({ event: e }: AdminEventCardProps) {
   // TEACH: `||` gives the first truthy operand — a handy fallback when you
   // accept either of two optional string fields.
   const narr = e.narration || e.summary || "";
+  const orientation = orientationLabel(e);
+  const taxonomy = e.event_taxonomy && e.event_taxonomy !== "NONE" ? e.event_taxonomy : null;
+  // Map taxonomy family → CSS class for a subtle per-family tint.
+  const taxonomyClass = taxonomy
+    ? styles[`taxonomy_${taxonomy}`] ?? styles.taxonomyBadge
+    : "";
 
   return (
     <div className={styles.card}>
@@ -83,6 +106,14 @@ export function AdminEventCard({ event: e }: AdminEventCardProps) {
           {/* TEACH: Child components receive data via props just like HTML
               attributes. `compact` is a boolean prop (shorthand for compact={true}). */}
           <RiskBadge level={e.risk_level} compact />
+          {orientation && (
+            <span className={styles.orientationBadge}>{orientation}</span>
+          )}
+          {taxonomy && (
+            <span className={`${styles.taxonomyBadge} ${taxonomyClass}`}>
+              {taxonomy}
+            </span>
+          )}
           <span className={styles.type}>{humanEventType(e.event_type)}</span>
           <span className={styles.time}>{formatWallTime(e.wall_time)}</span>
         </div>

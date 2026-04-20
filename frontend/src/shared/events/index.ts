@@ -6,4 +6,5 @@
  */
 
 export { EventCard } from "./EventCard";
+export { EventDialog } from "./EventDialog";
 export { FeedbackButtons } from "./FeedbackButtons";

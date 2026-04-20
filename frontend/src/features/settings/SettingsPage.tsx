@@ -29,6 +29,7 @@ import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
 import { TopBar } from "../../shared/layout/TopBar";
 import { useDialog } from "../../shared/ui";
 import { useLiveSources } from "../admin/hooks/useLiveSources";
+import { useDriftCount } from "../validation";
 import { useWatchdogCtx } from "../watchdog";
 
 import {
@@ -62,6 +63,7 @@ export function SettingsPage() {
   const { data: live, error: liveError } = useLiveStatus(5000);
   const liveSources = useLiveSources(5000);
   const { status: wdStatus } = useWatchdogCtx();
+  const driftCount = useDriftCount();
   const dialog = useDialog();
 
   const connected: boolean | undefined =
@@ -306,6 +308,7 @@ export function SettingsPage() {
         sourceName={sourceName}
         connected={connected}
         errorCount={errorCount}
+        driftCount={driftCount}
         error={settings.error}
         onSave={setToken}
       />
@@ -321,6 +324,7 @@ export function SettingsPage() {
         sourceName={sourceName}
         connected={connected}
         errorCount={errorCount}
+        driftCount={driftCount}
       />
       <main className={styles.main}>
         <section className={styles.center}>

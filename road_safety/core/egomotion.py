@@ -69,24 +69,35 @@ Python idioms used (once-per-file):
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from typing import Literal
 
 import cv2
 import numpy as np
 
-from road_safety.config import CAMERA_FOCAL_PX, CAMERA_HEIGHT_M
+from road_safety.config import CAMERA_FOCAL_PX, CAMERA_HEIGHT_M, CameraCalibration
 from road_safety.core.detection import TrackHistory, TrackSample  # noqa: F401
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
 # Camera intrinsics + FPS defaults
 # ---------------------------------------------------------------------------
-# Pinhole / ground-plane constants come from per-camera config. A wrong
-# focal length or mounting height poisons the speed proxy for every scene
-# classification downstream, so this module reads the same env the
-# depth estimator reads — never drift these two apart.
+# Legacy single-camera defaults. Used only when an ``EgoMotionEstimator`` is
+# constructed without a ``CameraCalibration`` (older call sites / tests).
+# For multi-camera fleets, always pass a per-slot ``CameraCalibration`` to
+# the constructor so the speed proxy uses the correct focal + mount height —
+# a rear cam with focal 260 px used the front cam's 600 px before this, and
+# the resulting 2.3× speed overestimate was poisoning scene classification.
 _FOCAL_PX = CAMERA_FOCAL_PX
 _CAMERA_HEIGHT_M = CAMERA_HEIGHT_M
+# Below this absolute speed-proxy reading (m/s) we refuse to commit to a
+# forward/reverse direction — the median-of-flow signal is dominated by
+# sensor / JPEG noise and the sign flip-flops.
+_MIN_SPEED_FOR_DIRECTION_MPS = 0.5
 # Default FPS when we cannot infer from timestamps (first frame, clock skew).
 _DEFAULT_FPS = 2.0
 
@@ -153,13 +164,29 @@ class EgoFlow:
         unusable.
     speed_proxy_mps: Coarse forward-speed estimate in m/s. This is a
         *proxy* — useful for scene classification and UI hints, not for
-        quantitative claims in reports.
+        quantitative claims in reports. Always ``0.0`` for side cams
+        because a perpendicular-mounted camera's optical flow is
+        dominated by lateral motion and cannot defend a forward speed.
+    direction: Categorical ego direction — ``"forward"``, ``"stationary"``,
+        or ``"reverse"``. Derived from the sign of ``ey`` with a per-camera
+        orientation inversion (a rear-facing cam sees the ground flow
+        *upward* under forward motion). Consumed by
+        ``road_safety/core/orientation_policy.py`` to gate rear-camera
+        events on "am I actually reversing right now?".
+    direction_confidence: 0..1 confidence in the ``direction`` label.
+        Scales ``confidence`` by how clearly we're moving (ramps 0 → 1
+        over 0..2 m/s); low speeds give low confidence because the sign
+        of ``ey`` is dominated by noise near the stationary floor.
     """
 
     ex: float           # ego-motion x-component (downsampled px/frame)
     ey: float           # ego-motion y-component (downsampled px/frame)
     confidence: float   # 0..1, share of textured background
     speed_proxy_mps: float  # coarse m/s forward-speed estimate
+    # New fields at the end with sensible defaults so existing callers
+    # that build EgoFlow positionally (tests, fixtures) keep working.
+    direction: Literal["forward", "stationary", "reverse"] = "forward"
+    direction_confidence: float = 0.0
 
 
 @dataclass
@@ -219,10 +246,22 @@ class EgoMotionEstimator:
     back to original coordinates.
     """
 
-    def __init__(self, downsample_size: tuple[int, int] = (320, 180)):
+    def __init__(
+        self,
+        calibration: CameraCalibration | None = None,
+        downsample_size: tuple[int, int] = (320, 180),
+    ) -> None:
         """Create a fresh estimator.
 
         Args:
+            calibration: Per-slot camera calibration. When provided, its
+                ``focal_px`` and ``height_m`` drive the pinhole speed
+                proxy and its ``orientation`` determines the sign rule
+                that maps ``ey`` → forward/reverse direction. When
+                ``None``, the module-level legacy defaults (``_FOCAL_PX``,
+                ``_CAMERA_HEIGHT_M``) are used and orientation is
+                treated as ``"forward"`` — this is the backward-compat
+                path for single-camera callers and tests.
             downsample_size: (width, height) to which frames are resized
                 before running Farneback. 320x180 is the smallest size that
                 still yields usable flow on our dashcam feeds while keeping
@@ -233,6 +272,19 @@ class EgoMotionEstimator:
         self._prev_ts: float | None = None
         self._last_frame_size: tuple[int, int] | None = None  # (w, h) original
         self._last_ego: EgoFlow | None = None
+
+        # Per-slot calibration. Falling back to module globals preserves the
+        # single-camera legacy behaviour byte-for-byte; threading a real
+        # CameraCalibration fixes the rear-cam 2.3× speed overestimate
+        # that poisoned scene classification.
+        if calibration is None:
+            self._focal_px: float = float(_FOCAL_PX)
+            self._camera_height_m: float = float(_CAMERA_HEIGHT_M)
+            self._orientation: str = "forward"
+        else:
+            self._focal_px = float(calibration.focal_px)
+            self._camera_height_m = float(calibration.height_m)
+            self._orientation = str(calibration.orientation)
 
     # ------------------------------------------------------------------
     # Frame-level ego estimate
@@ -339,20 +391,55 @@ class EgoMotionEstimator:
         # Pinhole ground-plane speed: world_speed = (H*f) / y^2 * dy
         # where H is camera height, f is focal length in px, y is pixels
         # below horizon. Units here end up in m/s because H is metres and
-        # the pixel terms cancel.
-        speed_proxy = (
-            (_CAMERA_HEIGHT_M * _FOCAL_PX) / (horizon_offset_ds * horizon_offset_ds)
+        # the pixel terms cancel. ``self._focal_px`` and
+        # ``self._camera_height_m`` come from the per-slot
+        # ``CameraCalibration`` — using them instead of the module
+        # globals fixes the rear-cam 2.3× speed overestimate that
+        # poisoned downstream scene classification.
+        speed_proxy_signed = (
+            (self._camera_height_m * self._focal_px)
+            / (horizon_offset_ds * horizon_offset_ds)
         ) * dy_per_sec_ds
-        # Report as magnitude; forward motion shows as positive ey (ground
-        # flowing downward in the image), but we don't want to claim a sign
-        # we can't defend from a median alone.
-        speed_proxy_mps = float(abs(speed_proxy))
+        # Absolute magnitude is what downstream scene classification consumes;
+        # the sign is preserved separately in ``direction`` below.
+        speed_proxy_mps = float(abs(speed_proxy_signed))
+
+        # Derive a categorical ego direction. Side cams see mostly lateral
+        # flow under forward motion, so the sign of ``ey`` is noisy and the
+        # speed proxy is not defensible — orientation_policy falls back to
+        # its BSW gate in that case.
+        if self._orientation == "side":
+            speed_proxy_mps = 0.0
+            direction: Literal["forward", "stationary", "reverse"] = "stationary"
+            direction_confidence = 0.0
+        elif abs(speed_proxy_signed) < _MIN_SPEED_FOR_DIRECTION_MPS:
+            # Below the stationary floor the sign is noise-dominated; refuse
+            # to commit. orientation_policy treats "stationary" as "don't
+            # gate on direction this frame".
+            direction = "stationary"
+            direction_confidence = 0.0
+        else:
+            # Forward motion shows ground flowing *downward* (ey > 0) for a
+            # forward-facing cam. A rear cam sees the ground flow *upward*
+            # under forward motion, so the mapping inverts.
+            if self._orientation == "rear":
+                direction = "forward" if ey < 0.0 else "reverse"
+            else:
+                direction = "forward" if ey > 0.0 else "reverse"
+            # Confidence ramps 0 → 1 over 0..2 m/s and is further gated by
+            # the flow-texture confidence. Low speed or a textureless scene
+            # both collapse this toward zero.
+            direction_confidence = float(
+                confidence * min(1.0, abs(speed_proxy_signed) / 2.0)
+            )
 
         ego = EgoFlow(
             ex=ex,
             ey=ey,
             confidence=confidence,
             speed_proxy_mps=round(speed_proxy_mps, 3),
+            direction=direction,
+            direction_confidence=round(direction_confidence, 3),
         )
         self._last_ego = ego
 

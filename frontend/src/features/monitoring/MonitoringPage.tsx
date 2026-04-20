@@ -5,6 +5,10 @@
  * Each visual block (header, summary tiles, meta cards, immediate-actions
  * strip, selection toolbar, incident feed) is its own component under
  * `components/`. This file is just composition + local UI state.
+ *
+ * The shadow-mode dual-model validator + its detection feed moved out
+ * to the `/validation` route. Validator-category findings are filtered
+ * from this page's incident feed so the two tabs don't double-count.
  */
 
 import { useCallback, useMemo, useState } from "react";
@@ -13,38 +17,43 @@ import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
 import { TopBar } from "../../shared/layout/TopBar";
 import { useDialog } from "../../shared/ui";
+import { useDriftCount } from "../validation";
 import { useWatchdogCtx } from "../watchdog";
 
 import {
-  EventsPanel,
   IncidentFeed,
   ImmediateActions,
   MetaGrid,
   SelectionBar,
   SummaryGrid,
   SummaryHeader,
-  ValidatorControl,
 } from "./components";
-import { useValidator } from "./hooks/useValidator";
 import { buildIncidents } from "./utils/incidents";
 import type { SevFilter } from "./types";
 
 import styles from "./MonitoringPage.module.css";
 
 export function MonitoringPage() {
-  const { connected, events } = useEventStream();
+  const { connected } = useEventStream();
   const { data: liveStatus } = useLiveStatus();
   const { status, findings, deleteFindings, clearAll } = useWatchdogCtx();
-  const { status: validatorStatus } = useValidator();
-  const validatorActive =
-    !!validatorStatus?.enabled && !validatorStatus?.paused;
+  const driftCount = useDriftCount();
 
   const [filter, setFilter] = useState<SevFilter>("all");
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
-  const incidents = useMemo(() => buildIncidents(findings ?? []), [findings]);
+  // Validator findings live on /validation — strip them here so the two
+  // tabs don't double-surface the same drift incidents.
+  const systemFindings = useMemo(
+    () => (findings ?? []).filter((f) => f.category !== "validator"),
+    [findings],
+  );
+  const incidents = useMemo(
+    () => buildIncidents(systemFindings),
+    [systemFindings],
+  );
   const filtered = useMemo(
     () =>
       filter === "all"
@@ -125,6 +134,7 @@ export function MonitoringPage() {
         sourceName={sourceName}
         connected={connected}
         errorCount={status?.by_severity?.error ?? 0}
+        driftCount={driftCount}
       />
 
       <div className={styles.page}>
@@ -153,8 +163,6 @@ export function MonitoringPage() {
             filteredCount={filtered.length}
             repeatingIncidents={repeatingIncidents}
           />
-
-          <ValidatorControl />
         </div>
 
         {selectMode && (
@@ -170,12 +178,6 @@ export function MonitoringPage() {
         )}
 
         <div className={styles.content}>
-          <EventsPanel
-            events={events}
-            findings={findings ?? []}
-            validatorEnabled={validatorActive}
-            filter={filter}
-          />
           <ImmediateActions incidents={actionQueue} />
           <IncidentFeed
             filter={filter}

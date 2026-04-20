@@ -98,3 +98,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* --- Orientation / SAE-taxonomy badges --------------------------------
+ * Small monospace pills that sit in .top next to the RiskBadge. They
+ * stay subtle — muted palette, thin border, no drop-shadow — so the
+ * severity pill remains the dominant visual signal.
+ */
+.orientationBadge,
+.taxonomyBadge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Per-family taxonomy tint. Border + text get the family color; background
+ * stays the card surface for a muted outlined look. */
+.taxonomy_FCW  { color: var(--medium); border-color: var(--medium); }
+.taxonomy_BSW  { color: var(--accent); border-color: var(--accent); }
+.taxonomy_RCW  { color: var(--high);   border-color: var(--high); }
+.taxonomy_RCTA { color: #fb923c;       border-color: #fb923c; }
+.taxonomy_NONE { color: var(--muted);  border-color: var(--border); }

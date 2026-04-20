@@ -72,6 +72,15 @@
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+.rowClickable {
+  cursor: pointer;
+}
+
+.rowClickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .row.high {
   border-left-color: var(--high);
 }

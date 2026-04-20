@@ -1083,6 +1083,21 @@ def _rule_checks(snapshot: dict, prev_snapshot: dict | None) -> list[WatchdogFin
     prev_frames_processed = int(prev_snapshot.get("pipeline", {}).get("frames_processed", 0) or 0) if prev_snapshot else 0
     processed_delta = frames_processed - prev_frames_processed
 
+    # The reader is recreated whenever an operator stops/starts a slot
+    # (server.py _start_slot/_stop_slot). The new StreamReader resets its
+    # frame counters to zero while the process-level event buffer keeps
+    # accumulating, so per-tick deltas can go strongly negative across a
+    # restart. Detect that here so the throughput detectors below can skip
+    # this tick instead of firing a false "stalled" alert.
+    #
+    # Two signals: uptime regressed (process restarted) OR processed
+    # counter regressed without a process restart (slot reader recycled).
+    prev_uptime = float(prev_snapshot.get("server", {}).get("uptime_sec", 0) or 0) if prev_snapshot else 0.0
+    current_uptime = float(server.get("uptime_sec", 0) or 0)
+    reader_restarted = prev_snapshot is not None and (
+        current_uptime + 1.0 < prev_uptime or processed_delta < 0
+    )
+
     # 1. Camera / perception quality
     # Detects: camera image quality degrading or failing (low confidence,
     # low luminance, blur, obstruction).
@@ -1446,7 +1461,15 @@ def _rule_checks(snapshot: dict, prev_snapshot: dict | None) -> list[WatchdogFin
     # processed in a tick of 10+ seconds. A silent stall looks healthy
     # by every other metric, so we catch it here. 10s is the minimum
     # interval that can confidently distinguish "stalled" from "slow".
-    if prev_snapshot and server.get("running", True) and processed_delta <= 0 and interval_sec >= 10:
+    # Skip across reader restarts: the new reader's counters start at
+    # zero, which would otherwise look identical to a stall.
+    if (
+        prev_snapshot
+        and not reader_restarted
+        and server.get("running", True)
+        and processed_delta <= 0
+        and interval_sec >= 10
+    ):
         findings.append(_make_finding(
             severity="error",
             category="stream",
@@ -1462,33 +1485,26 @@ def _rule_checks(snapshot: dict, prev_snapshot: dict | None) -> list[WatchdogFin
             snapshot_id=snap_id,
         ))
 
-    # Detects: the pipeline is dropping more than 10% of frames
-    # (>25% escalates to ``error``). The ``frames_read > 100`` guard
-    # avoids firing on startup noise where ratios swing wildly with
-    # single-frame movements.
-    if frames_read > 100:
-        drop_rate = 1.0 - (frames_processed / frames_read) if frames_read > 0 else 0.0
-        if drop_rate > 0.1:
-            findings.append(_make_finding(
-                severity="error" if drop_rate > 0.25 else "warning",
-                category="stream",
-                title=f"Frame drop rate elevated ({drop_rate:.0%})",
-                detail=f"The pipeline has read {frames_read} frames but processed only {frames_processed}, leaving a {drop_rate:.1%} drop rate.",
-                suggestion="Inspect CPU and memory pressure before lowering FPS or model load.",
-                fingerprint="stream/frame-drop",
-                evidence=[
-                    _evidence("Frames read", frames_read),
-                    _evidence("Frames processed", frames_processed),
-                    _evidence("Drop rate", f"{drop_rate:.1%}", threshold="<= 10%", status="breach"),
-                ],
-                snapshot_id=snap_id,
-            ))
+    # NOTE: a "frame drop rate" detector that compared frames_processed to
+    # frames_read used to live here. It fired constantly because StreamReader
+    # subsamples by design — at TARGET_FPS=2 over a 30fps source it pulls
+    # every frame but only forwards every 15th one to the perception loop,
+    # so the "drop rate" sits at ~93% during healthy operation. The actual
+    # concern (effective fps falling below target) is covered by the
+    # detector below, which compares processed_delta to target_fps directly.
 
     # Detects: actual processed FPS is less than half of the configured
     # target FPS. The 200-frame floor ensures we only evaluate this once
     # the pipeline has been warmed up; transient first-tick underruns
-    # are not operationally interesting.
-    if prev_snapshot and target_fps > 0 and interval_sec > 0 and frames_read > 200:
+    # are not operationally interesting. Skipped across reader restarts
+    # because processed_delta will be negative and meaningless.
+    if (
+        prev_snapshot
+        and not reader_restarted
+        and target_fps > 0
+        and interval_sec > 0
+        and frames_read > 200
+    ):
         actual_fps = processed_delta / interval_sec if processed_delta >= 0 else 0.0
         if actual_fps < target_fps * 0.5:
             findings.append(_make_finding(

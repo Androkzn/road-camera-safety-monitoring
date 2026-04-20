@@ -16,6 +16,7 @@ import { TopBar } from "../../shared/layout/TopBar";
 import { useDialog } from "../../shared/ui";
 import { EventCard } from "../../shared/events";
 import { TestBadge, TestDrawer, useTests } from "../tests";
+import { useDriftCount } from "../validation";
 import { useWatchdogCtx } from "../watchdog";
 
 import {
@@ -41,6 +42,7 @@ export function DashboardPage() {
     findings,
     clearAll: clearAllFindings,
   } = useWatchdogCtx();
+  const driftCount = useDriftCount();
   const [clearingEvents, setClearingEvents] = useState(false);
   const hasFindings = (findings?.length ?? 0) > 0;
   const dialog = useDialog();
@@ -123,6 +125,7 @@ export function DashboardPage() {
         sourceName={sourceName}
         connected={connected}
         errorCount={wdStatus?.by_severity?.error ?? 0}
+        driftCount={driftCount}
       >
         <TestBadge status={testStatus} onClick={() => setDrawerOpen((o) => !o)} />
       </TopBar>

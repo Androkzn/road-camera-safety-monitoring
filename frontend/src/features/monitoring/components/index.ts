@@ -9,5 +9,3 @@ export { SelectionBar } from "./SelectionBar";
 export { ImmediateActions } from "./ImmediateActions";
 export { IncidentCard } from "./IncidentCard";
 export { IncidentFeed } from "./IncidentFeed";
-export { ValidatorControl } from "./ValidatorControl";
-export { EventsPanel } from "./EventsPanel";

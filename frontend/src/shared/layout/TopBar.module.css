@@ -103,6 +103,13 @@
   pointer-events: none;
 }
 
+/* Amber variant for the Validation bubble — drift is worth paying
+ * attention to but not as alarming as a hard monitoring error.
+ * `background` overrides the default red from .errorBubble. */
+.driftBubble {
+  background: var(--medium);
+}
+
 /* Local keyframes — scale pulse that grabs the eye.
  * TEACH: @keyframes declared inside a .module.css are NOT scoped;
  * they live in the global animation name space. Use unique names

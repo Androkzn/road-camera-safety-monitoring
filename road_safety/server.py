@@ -178,6 +178,7 @@ from road_safety.core.validator import (
 from road_safety.core.quality import QualityMonitor
 from road_safety.core.context import SceneContextClassifier
 from road_safety.core.egomotion import EgoMotionEstimator
+from road_safety.core.orientation_policy import classify_event as _orientation_classify
 from road_safety.services.llm import chat as llm_chat, enrich_event, llm_configured, narrate_event
 from road_safety.services.llm_obs import observer as llm_observer
 from road_safety.services.redact import hash_plate, public_thumbnail_name, write_thumbnails
@@ -318,6 +319,16 @@ class Episode:
         self.pair = pair
         self.started_at = started_at
         self.last_seen_at = started_at
+        # Orientation-policy decision cached on the episode so `_flush_episode`
+        # can stamp SAE J3063 family + display-type overrides onto the emitted
+        # event payload without re-running the gate at flush time. Populated
+        # by the first frame that opens the episode (see `_run_loop`); later
+        # frames never overwrite it because a pair that started as BSW cannot
+        # mid-episode become FCW without a new pair key.
+        self.camera_orientation: str | None = None
+        self.event_taxonomy: str = "FCW"
+        self.display_event_type: str | None = None
+        self.policy_reason: str | None = None
         self.peak_frame = None
         self.peak_detections: list = []
         self.peak_primary = None
@@ -496,7 +507,13 @@ class StreamSlot:
         self.pair_cooldown: dict[tuple[int, int], float] = {}
         self.quality = QualityMonitor()
         self.last_perception_state: str | None = None
-        self.ego = EgoMotionEstimator()
+        # Thread the slot's camera calibration through the ego-motion estimator
+        # so the pinhole speed-proxy uses the *correct* focal length + mount
+        # height per slot (front 600px / 1.25m, rear 260px / 1.10m, side 260px /
+        # 1.00m). Also lets the estimator emit a signed ``direction`` label
+        # which the orientation policy consumes to gate rear-cam events on
+        # "ego reversing".
+        self.ego = EgoMotionEstimator(calibration=self.calibration)
         self.scene = SceneContextClassifier()
         self.last_ego_flow = None
         self.last_scene_ctx = None
@@ -1232,6 +1249,7 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     # ----- Gate 1: tracked detection (YOLO + ByteTrack) -----
     detections = detect_frame(state.model, frame)
     frame_h = frame.shape[0]  # image height — needed by pinhole distance estimates.
+    frame_w = frame.shape[1]  # image width — needed by orientation_policy BSW ROI.
 
     # ----- Shadow-mode validator tee (sampled) -----
     # Non-blocking fan-out to the background dual-model validator. Runs
@@ -1412,6 +1430,32 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
         if event_type == "pedestrian_proximity" and risk == "low":
             continue
 
+        # ----- Gate 13.5: orientation policy (SAE J3063) -----
+        # Dispatch the candidate through the per-camera-orientation gate.
+        # Forward cams pass through (standard FCW). Rear cams require ego
+        # to be reversing (ISO 22840) and pick RCW vs RCTA based on the
+        # secondary track's lateral/longitudinal motion. Side cams require
+        # blind-zone presence + dwell >= BSW_DWELL_SEC (ISO 17387).
+        # Suppressed candidates never open an episode nor consume a
+        # cooldown slot — they're simply invisible to the rest of the
+        # pipeline, which eliminates the rear/side false-positive class.
+        policy_decision = _orientation_classify(
+            calibration=slot.calibration,
+            event_type=event_type,
+            primary=a,
+            secondary=b,
+            frame_w=frame_w,
+            frame_h=frame_h,
+            ego=ego_flow,
+            track_history=slot.track_history,
+        )
+        if not policy_decision.emit:
+            log.debug(
+                "event suppressed by orientation policy: slot=%s type=%s reason=%s",
+                slot.source_id, event_type, policy_decision.reason,
+            )
+            continue
+
         # ----- Gate 14: cooldown check -----
         key = _pair_key(event_type, a, b)
         if key is None:
@@ -1429,6 +1473,13 @@ def _on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
         ep = slot.episodes.get(key)
         if ep is None:
             ep = Episode(event_type, key, wall_ts)
+            # Stamp the orientation-policy decision onto the episode at open
+            # time; downstream `_flush_episode` reads these to stamp the
+            # SAE taxonomy + display type onto the final event payload.
+            ep.camera_orientation = slot.calibration.orientation
+            ep.event_taxonomy = policy_decision.taxonomy
+            ep.display_event_type = policy_decision.display_event_type
+            ep.policy_reason = policy_decision.reason
             slot.episodes[key] = ep
         ep.update(frame, detections, a, b, distance_px, ttc, dist_m, risk, wall_ts)
 
@@ -1620,7 +1671,12 @@ def _flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
         "video_id": display_video_id(slot.original_source or DEFAULT_SOURCE),
         "timestamp_sec": round(stream_t, 2),
         "wall_time": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "event_type": ep.event_type,
+        # Prefer the orientation-aware display type the policy provided
+        # (e.g. "blind_spot_pedestrian" for a side-cam BSW), falling back
+        # to the raw internal type from `find_interactions` for forward
+        # cams where the policy opts out of relabelling.
+        "event_type": ep.display_event_type or ep.event_type,
+        "internal_event_type": ep.event_type,
         "risk_level": final_risk,
         "peak_risk_level": ep.peak_risk,
         "risk_demoted": risk_demoted,
@@ -1630,6 +1686,13 @@ def _flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
         "objects": sorted({a.cls, b.cls}),
         "track_ids": pair_ids,
         "episode_duration_sec": duration_sec,
+        # SAE J3063 taxonomy + camera orientation. These let downstream
+        # consumers (UI badges, LLM narration, Slack, cloud) render the
+        # right label per orientation ("FCW" for forward, "BSW" for side,
+        # "RCW"/"RCTA" for rear) instead of every event looking identical.
+        "camera_orientation": ep.camera_orientation,
+        "event_taxonomy": ep.event_taxonomy,
+        "policy_reason": ep.policy_reason,
         "ttc_sec": ep.peak_ttc,
         "distance_m": ep.peak_distance_m,
         "distance_px": round(ep.peak_distance_px, 1),
@@ -1655,6 +1718,8 @@ def _flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
         "summary": build_event_summary(
             ep.event_type, a, b, ep.peak_distance_px, final_risk,
             ttc_sec=ep.peak_ttc, distance_m=ep.peak_distance_m,
+            camera_orientation=ep.camera_orientation,
+            event_taxonomy=ep.event_taxonomy,
         ),
         "narration": None,
         # Egress-safe URL — internal unredacted copy is not served publicly.
@@ -2809,6 +2874,85 @@ def event(event_id: str):
         if ev.get("event_id") == event_id:
             return ev
     raise HTTPException(404, "event not found")
+
+
+@app.get("/api/events/{event_id}/clip")
+def event_clip(event_id: str, before: float = 3.0, after: float = 3.0):
+    """Serve a ±N-second MP4 clip centred on the event's timestamp.
+
+    HTTP: GET /api/events/{event_id}/clip?before=3&after=3
+    AUTH: public
+    Returns: ``FileResponse`` with the cached clip; 404 if the event is
+        unknown, the source is not a seekable local file, or the clip
+        can't be produced.
+
+    Clips are extracted on first request via ffmpeg, then cached under
+    ``data/clips/`` keyed by ``{event_id}_{before}_{after}.mp4``. Subsequent
+    hits are served from disk with native Range-request support, so a
+    ``<video>`` tag can seek freely.
+    """
+    import shlex
+    import subprocess
+
+    event = None
+    for ev in state.recent_events:
+        if ev.get("event_id") == event_id:
+            event = ev
+            break
+    if event is None:
+        raise HTTPException(404, "event not found")
+
+    ts_sec = event.get("timestamp_sec")
+    source_id = event.get("source_id")
+    if ts_sec is None or not source_id:
+        raise HTTPException(404, "event has no seekable source timestamp")
+
+    slot = state.slots.get(source_id)
+    if slot is None or not slot.original_source:
+        raise HTTPException(404, "source slot not found")
+
+    source_path = Path(slot.original_source)
+    if not source_path.exists() or not source_path.is_file():
+        raise HTTPException(
+            404, "source is not a local file (live streams can't be clipped)",
+        )
+
+    before = max(0.0, min(30.0, float(before)))
+    after = max(0.0, min(30.0, float(after)))
+    start = max(0.0, float(ts_sec) - before)
+    duration = before + after
+
+    clips_dir = DATA_DIR / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = clips_dir / f"{event_id}_{before:g}_{after:g}.mp4"
+
+    if not cache_path.exists():
+        # -ss before -i is fast (keyframe seek); -c copy would be fastest but
+        # breaks on non-keyframe starts, so we re-encode the short clip.
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss", f"{start:.3f}",
+            "-i", str(source_path),
+            "-t", f"{duration:.3f}",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-an",
+            str(cache_path),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=30)
+        except FileNotFoundError:
+            raise HTTPException(500, "ffmpeg not installed on server")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, "clip extraction timed out")
+        except subprocess.CalledProcessError as exc:
+            log.warning("clip extraction failed: %s", exc.stderr[-400:] if exc.stderr else exc)
+            raise HTTPException(500, f"clip extraction failed: {shlex.quote(str(exc))[-200:]}")
+
+    return FileResponse(cache_path, media_type="video/mp4")
 
 
 @app.delete("/api/events")

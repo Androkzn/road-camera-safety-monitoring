@@ -9,23 +9,17 @@
  *   - otherwise                     → "Pending" (validator hasn't checked yet or is off)
  *
  * The "Clear all events" action lives on the Dashboard, not here — this
- * panel is purely informational on the Monitoring tab.
+ * panel is purely informational on the Validation tab.
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
+import { EventDialog } from "../../../shared/events";
 import type {
   SafetyEvent,
   WatchdogFinding,
 } from "../../../shared/types/common";
-import type { SevFilter } from "../types";
 
 import styles from "./EventsPanel.module.css";
-
-const SEV_TO_RISK: Record<Exclude<SevFilter, "all">, "high" | "medium" | "low"> = {
-  error: "high",
-  warning: "medium",
-  info: "low",
-};
 
 const VERIFY_GRACE_MS = 5_000;
 
@@ -83,28 +77,21 @@ interface EventsPanelProps {
   events: SafetyEvent[];
   findings: WatchdogFinding[];
   validatorEnabled: boolean;
-  filter: SevFilter;
 }
 
 export function EventsPanel({
   events,
   findings,
   validatorEnabled,
-  filter,
 }: EventsPanelProps) {
+  const [openEvent, setOpenEvent] = useState<{
+    ev: SafetyEvent;
+    dispute?: DisputeInfo;
+  } | null>(null);
+
   const validatorFindings = useMemo(
     () => findings.filter((f) => f.category === "validator"),
     [findings],
-  );
-
-  const riskFilter = filter === "all" ? null : SEV_TO_RISK[filter];
-
-  const filteredEvents = useMemo(
-    () =>
-      riskFilter === null
-        ? events
-        : events.filter((ev) => ev.risk_level === riskFilter),
-    [events, riskFilter],
   );
 
   const disputesByEventId = useMemo(() => {
@@ -118,7 +105,7 @@ export function EventsPanel({
 
   const panelEvents: PanelEvent[] = useMemo(() => {
     const now = Date.now();
-    return filteredEvents.map((ev) => {
+    return events.map((ev) => {
       const dispute = disputesByEventId.get(ev.event_id);
       if (dispute) {
         return { ev, verdict: "disputed" as const, dispute: parseDispute(dispute) };
@@ -130,15 +117,15 @@ export function EventsPanel({
         verdict: validatorEnabled && settled ? ("verified" as const) : ("pending" as const),
       };
     });
-  }, [filteredEvents, disputesByEventId, validatorEnabled]);
+  }, [events, disputesByEventId, validatorEnabled]);
 
-  const shadowOnly = useMemo(() => {
-    const base = validatorFindings.filter((f) =>
-      (f.fingerprint ?? "").endsWith("false-negative"),
-    );
-    if (filter === "all") return base;
-    return base.filter((f) => f.severity === filter);
-  }, [validatorFindings, filter]);
+  const shadowOnly = useMemo(
+    () =>
+      validatorFindings.filter((f) =>
+        (f.fingerprint ?? "").endsWith("false-negative"),
+      ),
+    [validatorFindings],
+  );
 
   return (
     <div className={styles.wrap}>
@@ -156,14 +143,18 @@ export function EventsPanel({
 
         {panelEvents.length === 0 ? (
           <div className={styles.empty}>
-            {filter === "all"
-              ? "No events yet — they appear here as the primary detector emits them."
-              : `No ${riskFilter} risk events match the active filter.`}
+            No events yet — they appear here as the primary detector emits them.
           </div>
         ) : (
           <div className={styles.list}>
             {panelEvents.map(({ ev, verdict, dispute }) => (
-              <EventRow key={ev.event_id} ev={ev} verdict={verdict} dispute={dispute} />
+              <EventRow
+                key={ev.event_id}
+                ev={ev}
+                verdict={verdict}
+                dispute={dispute}
+                onClick={() => setOpenEvent({ ev, dispute })}
+              />
             ))}
           </div>
         )}
@@ -204,6 +195,19 @@ export function EventsPanel({
           </div>
         )}
       </section>
+
+      <EventDialog
+        event={openEvent?.ev ?? null}
+        disputeLabel={openEvent?.dispute?.kind}
+        disputeBody={
+          openEvent?.dispute
+            ? openEvent.dispute.primary || openEvent.dispute.secondary
+              ? `Primary said ${humanize(openEvent.dispute.primary)} · Secondary said ${humanize(openEvent.dispute.secondary)}`
+              : "Secondary detector disagreed with the primary on this frame."
+            : undefined
+        }
+        onClose={() => setOpenEvent(null)}
+      />
     </div>
   );
 }
@@ -212,9 +216,10 @@ interface EventRowProps {
   ev: SafetyEvent;
   verdict: Verdict;
   dispute?: DisputeInfo;
+  onClick?: () => void;
 }
 
-function EventRow({ ev, verdict, dispute }: EventRowProps) {
+function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
   const risk = ev.risk_level;
   const objects =
     ev.objects?.slice(0, 3).map((o) => humanize(o)).join(" · ") ?? "";
@@ -232,7 +237,18 @@ function EventRow({ ev, verdict, dispute }: EventRowProps) {
     verdict === "verified" ? "✓ Verified" : verdict === "disputed" ? "⚠ Disputed" : "Pending";
 
   return (
-    <div className={`${styles.row} ${styles[risk] ?? ""}`}>
+    <div
+      className={`${styles.row} ${styles[risk] ?? ""} ${styles.rowClickable ?? ""}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (onClick && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <span className={styles.time}>{formatTime(ev.wall_time)}</span>
       <div className={styles.mid}>
         <div className={styles.midTop}>

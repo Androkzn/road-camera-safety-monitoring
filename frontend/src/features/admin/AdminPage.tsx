@@ -18,6 +18,7 @@ import { useEventStream } from "../../shared/hooks/useEventStream";
 import { TopBar } from "../../shared/layout/TopBar";
 import { Pill, Tabs } from "../../shared/ui";
 import { formatUptime } from "../../shared/lib/format";
+import { useDriftCount } from "../validation";
 import { useWatchdogCtx } from "../watchdog";
 
 import {
@@ -41,6 +42,7 @@ export function AdminPage() {
   const { events: liveEvents, connected, clearEvents } = useEventStream();
   const liveSources = useLiveSources(5000);
   const { status: wdStatus } = useWatchdogCtx();
+  const driftCount = useDriftCount();
 
   // Restart flow: wipe the admin event list BEFORE kicking the streams so
   // the replayed MP4 produces a fresh timeline of detections instead of
@@ -124,6 +126,7 @@ export function AdminPage() {
         sourceName={health?.server.source ?? "—"}
         connected={connected}
         errorCount={wdStatus?.by_severity?.error ?? 0}
+        driftCount={driftCount}
       >
         <Pill style={{ marginLeft: 8 }}>
           uptime{" "}

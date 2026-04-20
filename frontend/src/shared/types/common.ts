@@ -39,19 +39,34 @@ export interface SafetyEvent {
   wall_time?: string;
   event_type: string;
   risk_level: "high" | "medium" | "low";
+  peak_risk_level?: "high" | "medium" | "low";
+  risk_demoted?: boolean;
   confidence?: number;
   objects?: string[];
   track_ids?: number[];
   episode_duration_sec?: number;
-  ttc_sec?: number;
-  distance_m?: number;
-  distance_px?: number;
+  ttc_sec?: number | null;
+  distance_m?: number | null;
+  distance_px?: number | null;
   summary?: string;
-  narration?: string;
+  narration?: string | null;
   thumbnail?: string;
   enrichment?: Enrichment;
   enrichment_skipped?: string;
   perception_state?: string;
+  scene_context?: SceneContext;
+  ego_flow?: {
+    speed_proxy_mps?: number;
+    confidence?: number;
+  };
+  /** Camera slot orientation from CameraCalibration: "forward" | "rear" | "side". */
+  camera_orientation?: string;
+  /** SAE J3063 taxonomy family: FCW | BSW | RCW | RCTA | NONE. */
+  event_taxonomy?: string;
+  /** Source slot id (optional for backwards compat with older snapshots). */
+  source_id?: string;
+  /** Human-readable slot name (e.g. "Left mirror"). */
+  source_name?: string;
   _meta?: string;
 }
 

@@ -1299,6 +1299,17 @@ def draw_thumbnail(frame, primary: Detection, secondary: Detection, path: Path) 
     cv2.imwrite(str(path), annotated)
 
 
+_ORIENTATION_LOCATION_PHRASES: dict[str, str] = {
+    # Used as the prefix / location hint in the templated summary. Keeps the
+    # fallback prose honest about WHERE the risk is when the LLM narrator is
+    # disabled. Forward cams stay silent on location — the existing demo
+    # copy ("Car and person ~3.2m apart") already implies "ahead".
+    "forward": "",
+    "rear": "behind (reversing): ",
+    "side": "in blind spot: ",
+}
+
+
 def build_event_summary(
     event_type: str,
     a: Detection,
@@ -1307,6 +1318,8 @@ def build_event_summary(
     risk: str,
     ttc_sec: float | None = None,
     distance_m: float | None = None,
+    camera_orientation: str | None = None,
+    event_taxonomy: str | None = None,
 ) -> str:
     """Render a short human-readable sentence describing an interaction event.
 
@@ -1318,6 +1331,14 @@ def build_event_summary(
         risk: Risk bucket string (``"high"`` / ``"medium"`` / ``"low"``).
         ttc_sec: Optional time-to-collision in seconds.
         distance_m: Optional inter-object distance in metres.
+        camera_orientation: ``"forward"``/``"rear"``/``"side"``. Prepends a
+            location hint (``"behind (reversing): ..."`` / ``"in blind spot: ..."``)
+            so the templated summary reads correctly on side / rear cams.
+            ``None`` (legacy callers) stays silent on location, preserving
+            the original forward-cam phrasing byte-for-byte.
+        event_taxonomy: Optional SAE J3063 family label (``"FCW"`` / ``"BSW"``
+            / ``"RCW"`` / ``"RCTA"``). Reserved for future templating; not
+            currently rendered in the string.
 
     Returns:
         A one-line human summary like
@@ -1339,4 +1360,6 @@ def build_event_summary(
     if ttc_sec is not None:
         parts.append(f"TTC {ttc_sec:.1f}s")
     parts.append(f"(risk={risk}).")
-    return " ".join(parts)
+    body = " ".join(parts)
+    prefix = _ORIENTATION_LOCATION_PHRASES.get(camera_orientation or "forward", "")
+    return f"{prefix}{body}" if prefix else body

@@ -19,10 +19,19 @@ interface TopBarProps {
   connected?: boolean;
   /** Unread monitoring errors — drives the red bubble on the Monitoring link. */
   errorCount?: number;
+  /** Drift findings from the shadow validator — drives the red bubble on
+   *  the Validation link. Covers false positives, class mismatches, and
+   *  shadow-only detections (false negatives). */
+  driftCount?: number;
   children?: ReactNode;
 }
 
-export function TopBar({ connected, errorCount = 0, children }: TopBarProps) {
+export function TopBar({
+  connected,
+  errorCount = 0,
+  driftCount = 0,
+  children,
+}: TopBarProps) {
   const { pathname } = useLocation();
 
   const statusVariant =
@@ -65,6 +74,20 @@ export function TopBar({ connected, errorCount = 0, children }: TopBarProps) {
           Monitoring
           {errorCount > 0 && (
             <span className={styles.errorBubble}>{errorCount}</span>
+          )}
+        </Link>
+        <Link
+          to="/validation"
+          className={`${styles.monLink} ${pathname === "/validation" ? styles.active : ""}`}
+        >
+          Validation
+          {driftCount > 0 && (
+            <span
+              className={`${styles.errorBubble} ${styles.driftBubble}`}
+              title={`${driftCount} drift finding${driftCount === 1 ? "" : "s"} — second model disagrees`}
+            >
+              {driftCount}
+            </span>
           )}
         </Link>
         <Link

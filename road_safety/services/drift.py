@@ -611,16 +611,22 @@ class DriftMonitor:
             # biased sample" trap — if operators only label 5% of events,
             # the 95% they ignore could be silently drifting and precision
             # wouldn't move.
+            #
+            # ``labeled_in_window`` counts distinct labeled event_ids in
+            # the window directly. We deliberately do NOT require the
+            # event to still be present in ``events_index`` — the live
+            # event source is a bounded ring buffer, so older labeled
+            # events scroll out and would otherwise be silently dropped
+            # from the numerator while feedback.jsonl still has the label.
             labeled_ids = {fb.get("event_id") for fb in window if fb.get("event_id")}
-            all_events = list(events_index.values())
-            total_in_window = len(all_events)
+            labeled_in_window = len(labeled_ids)
+            # ``total_in_window`` is the size of the observable event
+            # universe (events currently in the index). Floored at the
+            # label count so coverage is never < 1 label / 0 events.
+            total_in_window = max(len(events_index), labeled_in_window)
             if total_in_window > 0:
-                labeled_in_window = sum(
-                    1 for e in all_events if e.get("event_id") in labeled_ids
-                )
                 coverage = round(labeled_in_window / total_in_window, 4)
             else:
-                labeled_in_window = 0
                 coverage = 0.0
 
             return DriftReport(

@@ -22,6 +22,7 @@ interface IncidentCardProps {
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
   onDelete: (rawKeys: string[]) => void;
+  onOpenEvent?: (primaryEventId: string, incident: WatchdogIncident) => void;
 }
 
 export function IncidentCard({
@@ -30,8 +31,14 @@ export function IncidentCard({
   isSelected,
   onToggleSelect,
   onDelete,
+  onOpenEvent,
 }: IncidentCardProps) {
   const latest = incident.latest;
+  const primaryEventId = latest.evidence?.find(
+    (e) => e.label === "primary_event_id",
+  )?.value;
+  const canOpen =
+    !!onOpenEvent && !selectMode && !!primaryEventId && incident.category === "validator";
   const cls = [
     styles.incidentCard,
     styles[incident.severity],
@@ -83,16 +90,40 @@ export function IncidentCard({
           </div>
         </div>
         {!selectMode && (
-          <button
-            className={styles.deleteSingle}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(incident.rawKeys);
-            }}
-            title="Delete this incident group"
-          >
-            &times;
-          </button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {canOpen && (
+              <button
+                className={styles.viewEventBtn ?? ""}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenEvent!(primaryEventId!, incident);
+                }}
+                title="Play ±3s clip + event details"
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(56,189,248,0.3)",
+                  color: "var(--accent)",
+                  borderRadius: 6,
+                  padding: "3px 10px",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ▶ View event
+              </button>
+            )}
+            <button
+              className={styles.deleteSingle}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(incident.rawKeys);
+              }}
+              title="Delete this incident group"
+            >
+              &times;
+            </button>
+          </div>
         )}
       </div>
 

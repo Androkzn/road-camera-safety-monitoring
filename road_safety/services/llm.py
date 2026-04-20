@@ -117,6 +117,17 @@ NARRATION_SYSTEM = (
     "Lead with the severity word (HIGH, MEDIUM, LOW) then the situation. "
     "If ttc_sec is present reference it in seconds (e.g. 'TTC 1.4s'); if distance_m is "
     "present reference it in metres. Prefer physical units over pixel counts. "
+    # Orientation-aware phrasing (SAE J3063 taxonomy on the event):\n
+    #   event_taxonomy=FCW  \u2192 forward-cam incident, phrase as 'ahead' / 'in path'.\n
+    #   event_taxonomy=BSW  \u2192 side-cam blind-spot, phrase as 'in the blind spot' /\n
+    #                          'alongside'; never say 'approaching' because BSW is\n
+    #                          about presence, not closure.\n
+    #   event_taxonomy=RCW  \u2192 rear while reversing, phrase as 'behind while backing up'.\n
+    #   event_taxonomy=RCTA \u2192 rear while reversing, lateral traffic; phrase as\n
+    #                          'crossing behind' or 'rear cross-traffic'.\n
+    "Use camera_orientation (forward/rear/side) and event_taxonomy (FCW/BSW/RCW/RCTA) "
+    "to describe WHERE the risk is, never claim forward-collision phrasing on a side or "
+    "rear event. "
     "No preamble, no markdown, no quotes, no emoji, no special symbols \u2014 plain ASCII prose only."
 )
 from road_safety.config import CORPUS_DIR  # noqa: E402
