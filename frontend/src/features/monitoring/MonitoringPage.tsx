@@ -40,6 +40,7 @@ export function MonitoringPage() {
   const driftCount = useDriftCount();
 
   const [filter, setFilter] = useState<SevFilter>("all");
+  const [showLow, setShowLow] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -54,13 +55,16 @@ export function MonitoringPage() {
     () => buildIncidents(systemFindings),
     [systemFindings],
   );
-  const filtered = useMemo(
-    () =>
-      filter === "all"
-        ? incidents
-        : incidents.filter((item) => item.severity === filter),
-    [filter, incidents],
-  );
+  const filtered = useMemo(() => {
+    let list = incidents;
+    if (!showLow && filter !== "info") {
+      list = list.filter((item) => item.severity !== "info");
+    }
+    if (filter !== "all") {
+      list = list.filter((item) => item.severity === filter);
+    }
+    return list;
+  }, [filter, incidents, showLow]);
 
   const errors = incidents.filter((i) => i.severity === "error").length;
   const warnings = incidents.filter((i) => i.severity === "warning").length;
@@ -146,7 +150,16 @@ export function MonitoringPage() {
             deleting={deleting}
             onEnterSelect={() => setSelectMode(true)}
             onClearAll={handleClearAll}
-          />
+          >
+            <label className={styles.showLow}>
+              <input
+                type="checkbox"
+                checked={showLow}
+                onChange={(e) => setShowLow(e.target.checked)}
+              />
+              Show low severity
+            </label>
+          </SummaryHeader>
 
           <SummaryGrid
             errors={errors}

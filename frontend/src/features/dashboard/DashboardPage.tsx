@@ -76,6 +76,7 @@ export function DashboardPage() {
 
   const [filterRisk, setFilterRisk] = useState("");
   const [filterType, setFilterType] = useState("");
+  const [showLow, setShowLow] = useState(false);
 
   // Auto-open the TestDrawer when tests flip running → failed.
   useEffect(() => {
@@ -112,10 +113,13 @@ export function DashboardPage() {
 
   const filtered = useMemo(() => {
     let list = events;
+    if (!showLow && filterRisk !== "low") {
+      list = list.filter((e) => e.risk_level !== "low");
+    }
     if (filterRisk) list = list.filter((e) => e.risk_level === filterRisk);
     if (filterType) list = list.filter((e) => e.event_type === filterType);
     return list;
-  }, [events, filterRisk, filterType]);
+  }, [events, filterRisk, filterType, showLow]);
 
   const hasFilters = filterRisk !== "" || filterType !== "";
 
@@ -183,6 +187,14 @@ export function DashboardPage() {
                 Clear
               </button>
             )}
+            <label className={styles.showLow}>
+              <input
+                type="checkbox"
+                checked={showLow}
+                onChange={(e) => setShowLow(e.target.checked)}
+              />
+              Show low risk
+            </label>
             <span className={styles.filterCount}>
               {hasFilters
                 ? `${filtered.length} / ${events.length}`

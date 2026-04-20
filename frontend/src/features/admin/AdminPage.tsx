@@ -97,7 +97,16 @@ export function AdminPage() {
     return () => clearInterval(id);
   }, [startedAt]);
 
-  const evtCount = liveEvents.length;
+  const [showLowEvents, setShowLowEvents] = useState(false);
+  const visibleEvents = useMemo(
+    () =>
+      showLowEvents
+        ? liveEvents
+        : liveEvents.filter((ev) => ev.risk_level !== "low"),
+    [liveEvents, showLowEvents],
+  );
+  const hiddenLowCount = liveEvents.length - visibleEvents.length;
+  const evtCount = visibleEvents.length;
   const isDashcam = selectedSource?.stream_type === "dashcam_file";
 
   // Pick the stream the map should follow. Preference order:
@@ -195,17 +204,34 @@ export function AdminPage() {
                   </>
                 ),
                 content: (
-                  <div className={styles.evtList}>
-                    {liveEvents.length === 0 ? (
-                      <div className={styles.empty}>
-                        No events yet — they appear here in real time
-                      </div>
-                    ) : (
-                      liveEvents.map((ev) => (
-                        <AdminEventCard key={ev.event_id} event={ev} />
-                      ))
-                    )}
-                  </div>
+                  <>
+                    <div className={styles.evtControls}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={showLowEvents}
+                          onChange={(e) => setShowLowEvents(e.target.checked)}
+                        />
+                        Show low risk
+                        {hiddenLowCount > 0 && !showLowEvents
+                          ? ` (${hiddenLowCount} hidden)`
+                          : ""}
+                      </label>
+                    </div>
+                    <div className={styles.evtList}>
+                      {visibleEvents.length === 0 ? (
+                        <div className={styles.empty}>
+                          {liveEvents.length === 0
+                            ? "No events yet — they appear here in real time"
+                            : "No events match the current filter"}
+                        </div>
+                      ) : (
+                        visibleEvents.map((ev) => (
+                          <AdminEventCard key={ev.event_id} event={ev} />
+                        ))
+                      )}
+                    </div>
+                  </>
                 ),
               },
               {

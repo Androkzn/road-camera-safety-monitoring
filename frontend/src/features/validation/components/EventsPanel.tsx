@@ -88,6 +88,14 @@ export function EventsPanel({
     ev: SafetyEvent;
     dispute?: DisputeInfo;
   } | null>(null);
+  const [showLow, setShowLow] = useState(false);
+
+  const visibleEvents = useMemo(
+    () =>
+      showLow ? events : events.filter((ev) => ev.risk_level !== "low"),
+    [events, showLow],
+  );
+  const hiddenLowCount = events.length - visibleEvents.length;
 
   const validatorFindings = useMemo(
     () => findings.filter((f) => f.category === "validator"),
@@ -105,7 +113,7 @@ export function EventsPanel({
 
   const panelEvents: PanelEvent[] = useMemo(() => {
     const now = Date.now();
-    return events.map((ev) => {
+    return visibleEvents.map((ev) => {
       const dispute = disputesByEventId.get(ev.event_id);
       if (dispute) {
         return { ev, verdict: "disputed" as const, dispute: parseDispute(dispute) };
@@ -117,7 +125,7 @@ export function EventsPanel({
         verdict: validatorEnabled && settled ? ("verified" as const) : ("pending" as const),
       };
     });
-  }, [events, disputesByEventId, validatorEnabled]);
+  }, [visibleEvents, disputesByEventId, validatorEnabled]);
 
   const shadowOnly = useMemo(
     () =>
@@ -139,6 +147,17 @@ export function EventsPanel({
               rows expand with the secondary detector's reading.
             </p>
           </div>
+          <label className={styles.showLow}>
+            <input
+              type="checkbox"
+              checked={showLow}
+              onChange={(e) => setShowLow(e.target.checked)}
+            />
+            Show low risk
+            {hiddenLowCount > 0 && !showLow
+              ? ` (${hiddenLowCount} hidden)`
+              : ""}
+          </label>
         </header>
 
         {panelEvents.length === 0 ? (

@@ -49,6 +49,7 @@ export function ValidationPage() {
         sourceName={sourceName}
         connected={connected}
         errorCount={wdStatus?.by_severity?.error ?? 0}
+        driftCount={driftCount}
       />
 
       <div className={styles.page}>

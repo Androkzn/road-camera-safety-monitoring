@@ -298,6 +298,18 @@
   font-size: 10px !important;
 }
 
+/* Inline show-low toggle — rendered next to the header buttons. */
+.showLow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  margin-right: 4px;
+}
+
 /* Bulk-selection bar — appears under the header when findings are selected. */
 .selectionBar {
   display: flex;

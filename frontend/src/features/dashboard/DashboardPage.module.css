@@ -95,6 +95,17 @@
   white-space: nowrap;
 }
 
+/* Show-low-risk toggle — inline label + checkbox. */
+.showLow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
 /* Destructive "Clear all events" button — empties the client event buffer
  * and also clears monitoring findings so corresponding records disappear. */
 .clearAllBtn {

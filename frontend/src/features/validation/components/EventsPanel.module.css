@@ -20,6 +20,17 @@
   gap: 12px;
 }
 
+.showLow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
 .titleBlock h2 {
   margin: 0;
   font-size: 13px;
