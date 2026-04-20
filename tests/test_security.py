@@ -101,27 +101,30 @@ class TestSensitiveFeedback:
 class TestPublicThumbnailSigning:
     def test_valid_thumb_request_accepts_when_guard_disabled(self, monkeypatch):
         import road_safety.server as server
+        from road_safety.security import signing
 
-        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", False)
+        monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", False)
         req = _make_request("/thumbnails/e_public.jpg")
         assert server._valid_thumb_request("e_public.jpg", req) is True
 
     def test_valid_thumb_request_rejects_missing_query_when_enabled(self, monkeypatch):
         import road_safety.server as server
+        from road_safety.security import signing
 
-        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
-        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
+        monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
         req = _make_request("/thumbnails/e_public.jpg")
         assert server._valid_thumb_request("e_public.jpg", req) is False
 
     def test_valid_thumb_request_accepts_valid_signature(self, monkeypatch):
         import road_safety.server as server
+        from road_safety.security import signing
 
         now = 1_700_000_000
         exp = now + 120
-        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
-        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
-        monkeypatch.setattr(server.time, "time", lambda: now)
+        monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
+        monkeypatch.setattr(signing.time, "time", lambda: now)
         token = server._thumb_token("e_public.jpg", exp)
         req = _make_request(
             "/thumbnails/e_public.jpg",
@@ -130,26 +133,30 @@ class TestPublicThumbnailSigning:
         assert server._valid_thumb_request("e_public.jpg", req) is True
 
     def test_thumbnail_public_denies_invalid_token(self, monkeypatch, _isolate_data_dir):
-        import road_safety.server as server
+        import road_safety.server as server  # noqa: F401 — ensure app is wired
+        from road_safety.api.routers import thumbnails as thumbnails_router
+        from road_safety.security import signing
 
         name = "evt_public.jpg"
         thumbs_dir = _isolate_data_dir / "thumbnails"
         (thumbs_dir / name).write_bytes(b"jpeg")
 
-        monkeypatch.setattr(server, "THUMBS_DIR", thumbs_dir)
-        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
-        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
-        monkeypatch.setattr(server.audit, "log", MagicMock())
+        monkeypatch.setattr(thumbnails_router, "THUMBS_DIR", thumbs_dir)
+        monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
+        monkeypatch.setattr(thumbnails_router.audit, "log", MagicMock())
 
         req = _make_request(f"/thumbnails/{name}", query="exp=1&token=bad")
         with pytest.raises(HTTPException) as exc:
-            server.thumbnail(name, req)
+            thumbnails_router.thumbnail(name, req)
 
         assert exc.value.status_code == 403
-        server.audit.log.assert_called_once()
+        thumbnails_router.audit.log.assert_called_once()
 
     def test_thumbnail_public_allows_valid_token(self, monkeypatch, _isolate_data_dir):
-        import road_safety.server as server
+        import road_safety.server as server  # noqa: F401
+        from road_safety.api.routers import thumbnails as thumbnails_router
+        from road_safety.security import signing
 
         now = 1_700_000_000
         exp = now + 60
@@ -157,15 +164,15 @@ class TestPublicThumbnailSigning:
         thumbs_dir = _isolate_data_dir / "thumbnails"
         (thumbs_dir / name).write_bytes(b"jpeg")
 
-        monkeypatch.setattr(server, "THUMBS_DIR", thumbs_dir)
-        monkeypatch.setattr(server, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
-        monkeypatch.setattr(server, "THUMB_SIGNING_SECRET", "thumb-secret")
-        monkeypatch.setattr(server.time, "time", lambda: now)
+        monkeypatch.setattr(thumbnails_router, "THUMBS_DIR", thumbs_dir)
+        monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
+        monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
+        monkeypatch.setattr(signing.time, "time", lambda: now)
         token = server._thumb_token(name, exp)
 
         req = _make_request(
             f"/thumbnails/{name}",
             query=f"exp={exp}&token={token}",
         )
-        resp = server.thumbnail(name, req)
+        resp = thumbnails_router.thumbnail(name, req)
         assert isinstance(resp, FileResponse)

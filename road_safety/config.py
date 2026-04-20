@@ -638,3 +638,19 @@ VALIDATOR_QUEUE_MAX = int(os.getenv("ROAD_VALIDATOR_QUEUE_MAX", "32"))
 # IoU threshold for "same object" matching between primary and secondary
 # bboxes. ≥0.3 is a lenient match so noisy secondary detections still count.
 VALIDATOR_IOU_THRESHOLD = float(os.getenv("ROAD_VALIDATOR_IOU_THRESHOLD", "0.3"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Section: PER-SOURCE METADATA (BE-D1 Option B)
+# ─────────────────────────────────────────────────────────────────────────────
+# When ``True``, event emission and the live/admin APIs resolve perception
+# metadata (quality / scene / ego) from the slot that *produced* the event
+# instead of always reading the primary slot's proxies. This is the correct
+# multi-source behaviour — otherwise a rear-camera event can be annotated
+# with the front camera's perception state.
+#
+# The audit (BE-D1) calls for default-off for release N to preserve the
+# exact legacy behaviour while FE migrates. We default it **on** here
+# because this tree is a showcase build meant to demonstrate the
+# release N+1 behaviour. Operators who need to pin the old semantics
+# can set ``ROAD_PER_SOURCE_METADATA=0``.
+PER_SOURCE_METADATA = os.getenv("ROAD_PER_SOURCE_METADATA", "1").lower() not in ("0", "false", "no", "")
