@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.testclient import TestClient
 
-from road_safety.security import require_bearer_token
+from backend.security import require_bearer_token
 
 
 def _guard_app(token: str | None):
@@ -76,7 +76,7 @@ class TestBearerGuard:
 class TestSensitiveFeedback:
     @pytest.mark.asyncio
     async def test_feedback_uses_matched_vehicle_id(self, monkeypatch):
-        import road_safety.server as server
+        import backend.server as server
 
         monkeypatch.setattr(server.audit, "log", MagicMock())
         monkeypatch.setattr(server.road_registry, "record_feedback", MagicMock())
@@ -100,16 +100,16 @@ class TestSensitiveFeedback:
 
 class TestPublicThumbnailSigning:
     def test_valid_thumb_request_accepts_when_guard_disabled(self, monkeypatch):
-        import road_safety.server as server
-        from road_safety.security import signing
+        import backend.server as server
+        from backend.security import signing
 
         monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", False)
         req = _make_request("/thumbnails/e_public.jpg")
         assert server._valid_thumb_request("e_public.jpg", req) is True
 
     def test_valid_thumb_request_rejects_missing_query_when_enabled(self, monkeypatch):
-        import road_safety.server as server
-        from road_safety.security import signing
+        import backend.server as server
+        from backend.security import signing
 
         monkeypatch.setattr(signing, "PUBLIC_THUMBS_REQUIRE_TOKEN", True)
         monkeypatch.setattr(signing, "THUMB_SIGNING_SECRET", "thumb-secret")
@@ -117,8 +117,8 @@ class TestPublicThumbnailSigning:
         assert server._valid_thumb_request("e_public.jpg", req) is False
 
     def test_valid_thumb_request_accepts_valid_signature(self, monkeypatch):
-        import road_safety.server as server
-        from road_safety.security import signing
+        import backend.server as server
+        from backend.security import signing
 
         now = 1_700_000_000
         exp = now + 120
@@ -133,9 +133,9 @@ class TestPublicThumbnailSigning:
         assert server._valid_thumb_request("e_public.jpg", req) is True
 
     def test_thumbnail_public_denies_invalid_token(self, monkeypatch, _isolate_data_dir):
-        import road_safety.server as server  # noqa: F401 — ensure app is wired
-        from road_safety.api.routers import thumbnails as thumbnails_router
-        from road_safety.security import signing
+        import backend.server as server  # noqa: F401 — ensure app is wired
+        from backend.api.routers import thumbnails as thumbnails_router
+        from backend.security import signing
 
         name = "evt_public.jpg"
         thumbs_dir = _isolate_data_dir / "thumbnails"
@@ -154,9 +154,9 @@ class TestPublicThumbnailSigning:
         thumbnails_router.audit.log.assert_called_once()
 
     def test_thumbnail_public_allows_valid_token(self, monkeypatch, _isolate_data_dir):
-        import road_safety.server as server  # noqa: F401
-        from road_safety.api.routers import thumbnails as thumbnails_router
-        from road_safety.security import signing
+        import backend.server as server  # noqa: F401
+        from backend.api.routers import thumbnails as thumbnails_router
+        from backend.security import signing
 
         now = 1_700_000_000
         exp = now + 60

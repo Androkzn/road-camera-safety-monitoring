@@ -10,7 +10,7 @@ Extracted from ``server.py`` (step 7).
 
 import asyncio
 
-from road_safety.state import StreamSlot, state
+from backend.state import StreamSlot, state
 
 
 async def broadcast_perception(qstate: dict, slot: StreamSlot | None = None) -> None:

@@ -6,17 +6,17 @@ import cv2
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
-from road_safety.config import THUMB_SIGNING_SECRET
-from road_safety.logging import get_logger
-from road_safety.rendering.frame import WARMING_UP_JPEG
-from road_safety.rendering.mjpeg import mjpeg_response
-from road_safety.security.auth import require_admin
-from road_safety.security.signing import (
+from backend.config import THUMB_SIGNING_SECRET
+from backend.logging import get_logger
+from backend.rendering.frame import WARMING_UP_JPEG
+from backend.rendering.mjpeg import mjpeg_response
+from backend.security.auth import require_admin
+from backend.security.signing import (
     MEDIA_TOKEN_TTL_SEC,
     media_token,
     require_media_auth,
 )
-from road_safety.state import state
+from backend.state import state
 
 log = get_logger(__name__)
 

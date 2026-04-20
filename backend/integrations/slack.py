@@ -147,7 +147,7 @@ SLACK_HIGH_MIN_FRAMES = int(os.getenv("SLACK_HIGH_MIN_FRAMES", "2"))
 SLACK_HIGH_MIN_CONFIDENCE = float(os.getenv("SLACK_HIGH_MIN_CONFIDENCE", "0.55"))
 
 # Settings Console: confidence floor is operator-tunable at runtime.
-from road_safety.settings_store import STORE as _SETTINGS_STORE  # noqa: E402
+from backend.settings_store import STORE as _SETTINGS_STORE  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Tiered buffers — drained by digest.py schedulers.

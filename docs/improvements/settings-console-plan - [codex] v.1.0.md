@@ -28,12 +28,12 @@ drop.
 Many of the knobs the UI wants to expose are not currently live settings.
 They are module-level literals or import-time env reads in:
 
-- [server.py](../../road_safety/server.py#L1310)
-- [config.py](../../road_safety/config.py#L90)
-- [detection.py](../../road_safety/core/detection.py#L101)
-- [quality.py](../../road_safety/core/quality.py#L86)
-- [context.py](../../road_safety/core/context.py#L336)
-- [drift.py](../../road_safety/services/drift.py#L395)
+- [server.py](../../backend/server.py#L1310)
+- [config.py](../../backend/config.py#L90)
+- [detection.py](../../backend/core/detection.py#L101)
+- [quality.py](../../backend/core/quality.py#L86)
+- [context.py](../../backend/core/context.py#L336)
+- [drift.py](../../backend/services/drift.py#L395)
 
 That means the Settings Console cannot just be a UI over existing config. It
 needs a proper runtime settings layer with explicit mutability classes.
@@ -49,7 +49,7 @@ changed, the scene switched from urban to parking, or the camera degraded.
 The earlier draft treated drift and false-positive impact as if they were
 available instantly. That is not true in this system. Drift precision depends
 on operator feedback and a rolling label window in
-[drift.py](../../road_safety/services/drift.py#L395), so it must be treated as
+[drift.py](../../backend/services/drift.py#L395), so it must be treated as
 lagging evidence, not immediate impact.
 
 ### 5. Control-plane durability was not explicit enough
@@ -58,8 +58,8 @@ The previous version correctly mentioned SSE, but SSE cannot be the canonical
 state. The current event fan-out drops under queue pressure and provides no
 durable acknowledgement path:
 
-- [server.py](../../road_safety/server.py#L1319)
-- [server.py](../../road_safety/server.py#L1761)
+- [server.py](../../backend/server.py#L1319)
+- [server.py](../../backend/server.py#L1761)
 
 Settings apply state, baseline state, and benchmark state must be stored
 durably first, then broadcast as best-effort notifications.
@@ -81,8 +81,8 @@ The plan already called out hardening, but this needs to be explicit:
 mutation endpoints marked public today must be fixed before the Settings
 Console ships:
 
-- [server.py](../../road_safety/server.py#L2276)
-- [server.py](../../road_safety/server.py#L2292)
+- [server.py](../../backend/server.py#L2276)
+- [server.py](../../backend/server.py#L2292)
 
 ## Revised Implementation Approach
 

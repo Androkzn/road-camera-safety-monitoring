@@ -9,15 +9,15 @@ Extracted from ``server.py`` (step 7).
 import asyncio
 from pathlib import Path
 
-from road_safety.compliance import audit
-from road_safety.config import ALPR_MODE, MAX_RECENT_EVENTS, PER_SOURCE_METADATA, THUMBS_DIR
-from road_safety.integrations.slack import notify_event as slack_notify, slack_configured
-from road_safety.logging import get_logger
-from road_safety.perception.risk import _none_coro
-from road_safety.services.drift import drift_warning_message
-from road_safety.services.llm import enrich_event, narrate_event
-from road_safety.services.registry import road_registry
-from road_safety.state import state
+from backend.compliance import audit
+from backend.config import ALPR_MODE, MAX_RECENT_EVENTS, PER_SOURCE_METADATA, THUMBS_DIR
+from backend.integrations.slack import notify_event as slack_notify, slack_configured
+from backend.logging import get_logger
+from backend.perception.risk import _none_coro
+from backend.services.drift import drift_warning_message
+from backend.services.llm import enrich_event, narrate_event
+from backend.services.registry import road_registry
+from backend.state import state
 
 log = get_logger(__name__)
 
@@ -181,7 +181,7 @@ async def on_feedback(record: dict, matched: dict | None) -> None:
     if not warning or not slack_configured():
         return
     try:
-        from road_safety.integrations.slack import _post_digest
+        from backend.integrations.slack import _post_digest
         await _post_digest(
             title="Drift warning",
             summary=f"Precision {report.precision:.2f} over {report.window_size} labels",

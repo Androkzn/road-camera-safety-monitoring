@@ -19,7 +19,7 @@ divergence, and quality-state similarity. The output ``confidence_tier``
 is one of ``"high" | "medium" | "low" | "insufficient"``.
 
 Persistence: every tick upserts the session into
-:mod:`road_safety.services.settings_db` so a server restart inside the
+:mod:`backend.services.settings_db` so a server restart inside the
 monitoring window does not lose the operator's experiment.
 """
 
@@ -32,7 +32,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterable, Mapping
 
-from road_safety.services import settings_db
+from backend.services import settings_db
 
 
 # ---------------------------------------------------------------------------

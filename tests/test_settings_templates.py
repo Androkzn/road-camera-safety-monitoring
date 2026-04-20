@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from road_safety import settings_spec
-from road_safety.services import settings_db, templates as template_svc
+from backend import settings_spec
+from backend.services import settings_db, templates as template_svc
 
 
 @pytest.fixture(autouse=True)

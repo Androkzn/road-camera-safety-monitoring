@@ -41,8 +41,8 @@ Detection satisfies) so it stays decoupled and testable.
 
 Consumers
 ---------
-- ``road_safety/core/detection.py`` via ``AdaptiveThresholds``.
-- ``road_safety/server.py`` — logs the label with each event.
+- ``backend/core/detection.py`` via ``AdaptiveThresholds``.
+- ``backend/server.py`` — logs the label with each event.
 
 Python idioms used here (once-per-file):
 - ``from __future__ import annotations`` — makes all type hints lazy strings

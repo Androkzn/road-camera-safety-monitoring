@@ -9,9 +9,9 @@ Python primer (read once, applies to the whole codebase)
 - A directory becomes a Python "package" when it contains an ``__init__.py``
   file (even an empty one). The triple-quoted string at the top of this
   module — the one you are reading — is called a *module docstring*; Python
-  stores it on the package object as ``road_safety.integrations.__doc__``
+  stores it on the package object as ``backend.integrations.__doc__``
   and tools like ``help()`` and IDEs surface it to developers.
-- ``from road_safety.integrations import slack`` works because this file
+- ``from backend.integrations import slack`` works because this file
   exists. Without ``__init__.py`` the import system would raise
   ``ModuleNotFoundError``.
 

@@ -12,7 +12,7 @@ Run cheap correctness checks. This project deliberately has **no formatter** (bl
 
 1. **Backend** (`make lint` equivalent):
    ```
-   .venv/bin/python -m py_compile road_safety/server.py road_safety/config.py start.py
+   .venv/bin/python -m py_compile backend/server.py backend/config.py start.py
    ```
    Or simply: `make lint`.
 

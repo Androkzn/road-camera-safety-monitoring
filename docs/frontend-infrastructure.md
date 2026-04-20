@@ -191,7 +191,7 @@ Proxied prefixes include: `/api`, `/stream`, `/chat`, `/thumbnails`, `/admin/vid
 ### Production (`npm run build` + Python)
 
 - Vite emits static assets into **`frontend/dist/`**.
-- The FastAPI app sets `STATIC_DIR` to that folder when it exists (`road_safety/config.py`).
+- The FastAPI app sets `STATIC_DIR` to that folder when it exists (`backend/config.py`).
 - Uvicorn serves **one origin**: HTML, JS, `/api/*`, SSE, thumbnails — **no CORS puzzle** for same host/port.
 
 ```mermaid

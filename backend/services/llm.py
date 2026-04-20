@@ -2,7 +2,7 @@
 
 Role
 ----
-The core perception pipeline in ``road_safety.core`` works with ZERO LLM
+The core perception pipeline in ``backend.core`` works with ZERO LLM
 calls. Everything in this module is *enrichment* on top of detections:
 
   * ``narrate_event`` - one-sentence operator-facing description of an event
@@ -64,8 +64,8 @@ from pathlib import Path
 
 from anthropic import AsyncAnthropic
 
-from road_safety.compliance.privacy import hash_and_strip_plate as _hash_and_strip_plate
-from road_safety.services.llm_obs import observer as llm_observer
+from backend.compliance.privacy import hash_and_strip_plate as _hash_and_strip_plate
+from backend.services.llm_obs import observer as llm_observer
 
 # ============================================================================
 # MODEL SELECTION
@@ -132,7 +132,7 @@ NARRATION_SYSTEM = (
     "rear event. "
     "No preamble, no markdown, no quotes, no emoji, no special symbols \u2014 plain ASCII prose only."
 )
-from road_safety.config import CORPUS_DIR  # noqa: E402
+from backend.config import CORPUS_DIR  # noqa: E402
 
 # JSON schema used by the Anthropic structured-outputs beta. The schema is
 # enforced server-side where supported; when the SDK doesn't support it we
@@ -993,7 +993,7 @@ def _rebuild_haiku_bucket(before, after) -> None:
 
 
 try:
-    from road_safety.settings_store import STORE as _SETTINGS_STORE
+    from backend.settings_store import STORE as _SETTINGS_STORE
     _SETTINGS_STORE.register_subscriber_for(
         ["LLM_BUCKET_CAPACITY", "LLM_BUCKET_REFILL_PER_MIN"],
         _rebuild_haiku_bucket,

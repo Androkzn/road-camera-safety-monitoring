@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Request
 
-from road_safety.compliance import audit
-from road_safety.compliance.retention import run_sweep as retention_sweep
-from road_safety.security.auth import require_admin
+from backend.compliance import audit
+from backend.compliance.retention import run_sweep as retention_sweep
+from backend.security.auth import require_admin
 
 router = APIRouter()
 

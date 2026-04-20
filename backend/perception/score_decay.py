@@ -5,8 +5,8 @@ Spawned from the lifespan hook. Extracted from ``server.py`` (step 7).
 
 import asyncio
 
-from road_safety.logging import get_logger
-from road_safety.services.registry import road_registry
+from backend.logging import get_logger
+from backend.services.registry import road_registry
 
 log = get_logger(__name__)
 

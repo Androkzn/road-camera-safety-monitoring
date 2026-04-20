@@ -1,7 +1,7 @@
 """Structured logging configuration.
 
 Call :func:`setup` exactly once at process startup (the FastAPI lifespan hook
-in ``road_safety.server`` does this) to configure Python's root logger with
+in ``backend.server`` does this) to configure Python's root logger with
 output suitable for production log aggregators (ELK, Datadog, CloudWatch).
 Every log line is emitted as a compact single-line JSON object so aggregators
 can parse the level, timestamp, logger name, and message without custom
@@ -19,7 +19,7 @@ Python concept — the ``logging`` module:
     logger automatically inherits the format — no per-module setup needed.
 
 Layering note:
-    ``logging.py`` intentionally has no dependency on :mod:`road_safety.config`
+    ``logging.py`` intentionally has no dependency on :mod:`backend.config`
     so it can be imported extremely early in bootstrap (before env parsing is
     done) without circular-import risk. It reads its own two env vars
     directly.
@@ -142,7 +142,7 @@ def setup(level: str | None = None) -> None:
         handler.setFormatter(_JSONFormatter())
 
     # Root logger is the top of the hierarchy. Every named logger
-    # (``logging.getLogger("road_safety.server")`` etc.) propagates here, so
+    # (``logging.getLogger("backend.server")`` etc.) propagates here, so
     # configuring just the root is enough to catch everything.
     root = logging.getLogger()
     # Clear first — otherwise repeated calls stack handlers and produce

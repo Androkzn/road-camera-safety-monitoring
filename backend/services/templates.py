@@ -1,8 +1,8 @@
 """Settings Console — template service.
 
 Operator-named presets of full settings dicts. Built on
-:mod:`road_safety.services.settings_db` for storage and
-:mod:`road_safety.settings_spec` for the canonical schema. The single most
+:mod:`backend.services.settings_db` for storage and
+:mod:`backend.settings_spec` for the canonical schema. The single most
 load-bearing function here is :func:`apply_template`, which performs the
 spec-migration + re-validation dance documented in the plan §S3 — old
 templates must not silently bypass new validators.
@@ -17,8 +17,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from road_safety import settings_spec
-from road_safety.services import settings_db
+from backend import settings_spec
+from backend.services import settings_db
 
 
 # Synthetic "default" template id. It is not stored in SQLite — we render it

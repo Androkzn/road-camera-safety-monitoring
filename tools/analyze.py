@@ -17,7 +17,7 @@ from pathlib import Path
 
 import cv2
 
-from road_safety.core.detection import (
+from backend.core.detection import (
     TrackHistory,
     build_event_summary,
     classify_risk,
@@ -27,8 +27,8 @@ from road_safety.core.detection import (
     find_interactions,
     load_model,
 )
-from road_safety.services.redact import public_thumbnail_name, write_thumbnails
-from road_safety.config import DATA_DIR
+from backend.services.redact import public_thumbnail_name, write_thumbnails
+from backend.config import DATA_DIR
 THUMBS_DIR = DATA_DIR / "thumbnails"
 EVENTS_PATH = DATA_DIR / "events.json"
 SUMMARY_PATH = DATA_DIR / "summary.json"

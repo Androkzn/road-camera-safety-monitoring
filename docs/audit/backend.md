@@ -1,6 +1,6 @@
-# Backend audit — `road_safety/`
+# Backend audit — `backend/`
 
-**Scope:** Python / FastAPI / perception pipeline under `road_safety/` plus `cloud/`.
+**Scope:** Python / FastAPI / perception pipeline under `backend/` plus `cloud/`.
 **Method:** Read every module top-to-bottom, counted lines, traced the hot path through `_on_frame`, and inspected every route registration in `server.py`. Findings cite the exact path + line range so the reasoning is auditable.
 
 Each finding follows the same template:
@@ -13,8 +13,8 @@ Each finding follows the same template:
 
 Strengths to call out first (so this reads as analytical, not a complaint sheet):
 
-- The package layout under `road_safety/` already separates concerns at the top level — `core/` (perception), `services/` (LLM, redact, drift, watchdog, registry), `compliance/` (audit, retention), `integrations/` (slack, edge_publisher), `api/` (settings, feedback). The skeleton is right; the issue is that `server.py` never finished migrating into it.
-- Privacy is treated as a real invariant, not an afterthought — `_hash_and_strip_plate` is enforced at ingest in `services/llm.py::enrich_event` and `_emit_event` re-pops `plate_text` / `plate_state` as defence in depth ([road_safety/server.py:2117-2125](../../road_safety/server.py)).
+- The package layout under `backend/` already separates concerns at the top level — `core/` (perception), `services/` (LLM, redact, drift, watchdog, registry), `compliance/` (audit, retention), `integrations/` (slack, edge_publisher), `api/` (settings, feedback). The skeleton is right; the issue is that `server.py` never finished migrating into it.
+- Privacy is treated as a real invariant, not an afterthought — `_hash_and_strip_plate` is enforced at ingest in `services/llm.py::enrich_event` and `_emit_event` re-pops `plate_text` / `plate_state` as defence in depth ([backend/server.py:2117-2125](../../backend/server.py)).
 - LLM layer already implements multi-provider failover, token-bucket rate budget, circuit breaker, and self-consistency ALPR — these are real production patterns, not toys.
 - `tests/` actually exercises the pipeline (`tests/test_core.py` covers the gates).
 - `compliance/retention.py` runs hourly retention sweeps; `compliance/audit.py` logs sensitive accesses. Compliance posture is mature for the project's stage.
@@ -30,7 +30,7 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 **Why it matters.** The 22,000-line backend has rich domain types (`Detection`, `Episode`, `StreamSlot`, `LiveState`, `CameraCalibration`) but the *flow between them* is unchecked. The `event` dict is the central currency of the system and its shape is asserted nowhere.
 
 **Options.**
-- **(a)** `mypy --strict` on a small allow-list — `road_safety/api/`, `road_safety/services/llm.py`, `road_safety/services/redact.py`. Grow over time.
+- **(a)** `mypy --strict` on a small allow-list — `backend/api/`, `backend/services/llm.py`, `backend/services/redact.py`. Grow over time.
 - **(b)** `pyright` workspace-wide in `basic` mode — broader coverage, more findings up front.
 - **(c)** Skip until the refactor settles.
 
@@ -43,11 +43,11 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 ### 1.2 The central domain object is `dict`
 
-**Observed.** Searched signatures across `road_safety/`:
+**Observed.** Searched signatures across `backend/`:
 
-- `_emit_event(event: dict, internal_thumb_name: str)` ([server.py:2053](../../road_safety/server.py))
-- `narrate_event(event: dict)` ([services/llm.py:498](../../road_safety/services/llm.py))
-- `enrich_event(event: dict, thumb_path: Path)` ([services/llm.py:788](../../road_safety/services/llm.py))
+- `_emit_event(event: dict, internal_thumb_name: str)` ([server.py:2053](../../backend/server.py))
+- `narrate_event(event: dict)` ([services/llm.py:498](../../backend/services/llm.py))
+- `enrich_event(event: dict, thumb_path: Path)` ([services/llm.py:788](../../backend/services/llm.py))
 - `slack_notify(event: dict, ...)`, `edge_publisher.enqueue(event, ...)` — all take `dict`.
 - The FE mirror is hand-written at [frontend/src/shared/types/common.ts](../../frontend/src/shared/types/common.ts) (340 lines).
 
@@ -71,7 +71,7 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 ### 2.1 `server.py` is a 4,000-line god module
 
-**Observed.** [road_safety/server.py](../../road_safety/server.py) is **3,972 lines**. It contains:
+**Observed.** [backend/server.py](../../backend/server.py) is **3,972 lines**. It contains:
 
 | Concern | Location |
 | --- | --- |
@@ -94,7 +94,7 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 **Options.**
 - **(a)** Extract routers only — one `APIRouter` per feature: `api/live.py`, `api/admin.py`, `api/road.py`, `api/agents.py`, `api/watchdog.py`, `api/retention.py`, `api/llm.py`, `api/tests.py`, `api/streams.py`. Keep `server.py` as the composition root that mounts them. **No behaviour change.**
-- **(b)** Also move `LiveState` / `StreamSlot` / `Episode` into `road_safety/runtime/`.
+- **(b)** Also move `LiveState` / `StreamSlot` / `Episode` into `backend/runtime/`.
 - **(c)** Full pipeline split (see item 5.1 below) — extract `_on_frame` into a `Pipeline` of `Gate` objects.
 - **(d)** Leave as-is; the file works.
 
@@ -106,9 +106,9 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 **Recommendation.** **(a)** in Plan A; **(b)** then **(c)** in Plan B.
 
-### 2.2 Split between `server.py` and `road_safety/api/` is inconsistent
+### 2.2 Split between `server.py` and `backend/api/` is inconsistent
 
-**Observed.** Two of the 53 routes have already been extracted into [road_safety/api/settings.py](../../road_safety/api/settings.py) (669 lines) and [road_safety/api/feedback.py](../../road_safety/api/feedback.py) (308 lines). The other 51 routes live inline in `server.py`. There is a `road_safety/api/__init__.py` but no per-feature router file.
+**Observed.** Two of the 53 routes have already been extracted into [backend/api/settings.py](../../backend/api/settings.py) (669 lines) and [backend/api/feedback.py](../../backend/api/feedback.py) (308 lines). The other 51 routes live inline in `server.py`. There is a `backend/api/__init__.py` but no per-feature router file.
 
 **Why it matters.** New contributors don't know where to add a route. The pattern "extract when convenient" produces an arbitrary split.
 
@@ -118,7 +118,7 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 ### 2.3 Privacy logic lives in the wrong package
 
-**Observed.** `_hash_and_strip_plate` is in [services/llm.py:732](../../road_safety/services/llm.py). The `compliance/` package exists for exactly this kind of invariant ([compliance/audit.py](../../road_safety/compliance/audit.py), [compliance/retention.py](../../road_safety/compliance/retention.py)) but the plate scrub is not there.
+**Observed.** `_hash_and_strip_plate` is in [services/llm.py:732](../../backend/services/llm.py). The `compliance/` package exists for exactly this kind of invariant ([compliance/audit.py](../../backend/compliance/audit.py), [compliance/retention.py](../../backend/compliance/retention.py)) but the plate scrub is not there.
 
 **Why it matters.** The privacy invariant is the *most important* invariant in the system per [CLAUDE.md](../../CLAUDE.md). Hiding it inside `services/llm.py` means a future contributor wiring a non-LLM enrichment provider could miss it.
 
@@ -133,23 +133,23 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 ## 3. Massive files (LOC ranking)
 
 ```
-3972  road_safety/server.py
-1804  road_safety/services/watchdog.py
-1365  road_safety/core/detection.py
-1063  road_safety/services/llm.py
-1009  road_safety/services/drift.py
- 885  road_safety/services/agents.py
- 785  road_safety/core/validator.py
- 722  road_safety/integrations/edge_publisher.py
- 675  road_safety/integrations/slack.py
- 669  road_safety/api/settings.py
- 663  road_safety/core/stream.py
- 650  road_safety/core/egomotion.py
- 641  road_safety/services/settings_db.py
- 599  road_safety/services/impact.py
- 598  road_safety/config.py
- 570  road_safety/core/orientation_policy.py
- 543  road_safety/services/test_runner.py
+3972  backend/server.py
+1804  backend/services/watchdog.py
+1365  backend/core/detection.py
+1063  backend/services/llm.py
+1009  backend/services/drift.py
+ 885  backend/services/agents.py
+ 785  backend/core/validator.py
+ 722  backend/integrations/edge_publisher.py
+ 675  backend/integrations/slack.py
+ 669  backend/api/settings.py
+ 663  backend/core/stream.py
+ 650  backend/core/egomotion.py
+ 641  backend/services/settings_db.py
+ 599  backend/services/impact.py
+ 598  backend/config.py
+ 570  backend/core/orientation_policy.py
+ 543  backend/services/test_runner.py
  517  cloud/receiver.py
 ```
 
@@ -173,8 +173,8 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 ### 4.1 `/api/live/status` and `/api/admin/health` overlap; FE polls both
 
 **Observed.**
-- [/api/live/status](../../road_safety/server.py) at line 2777 returns ~13 fields (source, running, frame counts, uptime, perception flags…).
-- [/api/admin/health](../../road_safety/server.py) at line 3279 returns nested `server` / `pipeline` / `integrations` / `perception` / `scene` / `ego` — most of the live/status fields again, plus more.
+- [/api/live/status](../../backend/server.py) at line 2777 returns ~13 fields (source, running, frame counts, uptime, perception flags…).
+- [/api/admin/health](../../backend/server.py) at line 3279 returns nested `server` / `pipeline` / `integrations` / `perception` / `scene` / `ego` — most of the live/status fields again, plus more.
 - FE: `useLiveStatus` polls every 5 s ([shared/hooks/useLiveStatus.ts](../../frontend/src/shared/hooks/useLiveStatus.ts:16)); `useAdminHealth` polls every 4 s ([features/admin/hooks/useAdminHealth.ts](../../frontend/src/features/admin/hooks/useAdminHealth.ts:8)). Dashboard mounts the first; Admin mounts the second; **Settings mounts both**.
 
 **Why it matters.** Settings page open = ~22 status requests / minute for what is, in operator terms, a uptime pill in the TopBar. This is the canonical "too many API calls for not important UI" pattern.
@@ -195,7 +195,7 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 ### 4.2 Routes touch shared state without holding `state.lock`
 
-**Observed.** [server.py:2777](../../road_safety/server.py) `live_status()` is `def` (sync — runs in the FastAPI thread pool) and reads `state.reader.frames_read`, `state.reader.frames_processed`, `state.episodes`, `state.recent_events`. The hot-path `_on_frame` mutates the same fields from the perception thread. Same pattern in `admin_health` (line 3279), `events` (line 2937), `summary` (line 3964).
+**Observed.** [server.py:2777](../../backend/server.py) `live_status()` is `def` (sync — runs in the FastAPI thread pool) and reads `state.reader.frames_read`, `state.reader.frames_processed`, `state.episodes`, `state.recent_events`. The hot-path `_on_frame` mutates the same fields from the perception thread. Same pattern in `admin_health` (line 3279), `events` (line 2937), `summary` (line 3964).
 
 **Why it matters.** Tearing reads under load — uptime can briefly read a `None` reader during a slot restart. Today it works because the GIL serializes pointer reads; that's an implementation accident, not a contract.
 
@@ -210,7 +210,7 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 ### 4.3 MJPEG / polling endpoints have no cache headers
 
-**Observed.** [server.py:3534](../../road_safety/server.py) `_mjpeg_response` and the polling fallback at line 3619 emit JPEGs without `Cache-Control: no-store` (`StreamImage` polls `/admin/frame/{id}` every 400 ms when not over HTTP/2). No `Last-Modified` either.
+**Observed.** [server.py:3534](../../backend/server.py) `_mjpeg_response` and the polling fallback at line 3619 emit JPEGs without `Cache-Control: no-store` (`StreamImage` polls `/admin/frame/{id}` every 400 ms when not over HTTP/2). No `Last-Modified` either.
 
 **Why it matters.** Some intermediaries cache aggressively; an MJPEG burst can get pinned. Polling fallback re-fetches even when the perception thread hasn't produced a new frame.
 
@@ -224,12 +224,12 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 ### 5.1 Hot path is one 430-line function
 
-**Observed.** `_on_frame` at [server.py:1396–1832](../../road_safety/server.py) executes 16 numbered gates inline (YOLO → quality → ego → scene → track-history update → interactions → depth gate → convergence gate → ego-relative motion gate → pair TTC → approach-required scrub → quality-adjusted classify → per-type floors → cooldown → episode open/update → idle-flush). Comments warn `do not short-circuit these gates`.
+**Observed.** `_on_frame` at [server.py:1396–1832](../../backend/server.py) executes 16 numbered gates inline (YOLO → quality → ego → scene → track-history update → interactions → depth gate → convergence gate → ego-relative motion gate → pair TTC → approach-required scrub → quality-adjusted classify → per-type floors → cooldown → episode open/update → idle-flush). Comments warn `do not short-circuit these gates`.
 
 **Why it matters.** The system's correctness lives in this function and there's no way to test gate 11 independently of gates 1–10. Any change has to run end-to-end through `tests/test_core.py`.
 
 **Options.**
-- **(a)** Define a `Gate` protocol (`run(ctx) -> ctx | None`); one gate per file under `road_safety/pipeline/gates/`. Pipeline is `for gate in gates: ctx = gate.run(ctx) or break`.
+- **(a)** Define a `Gate` protocol (`run(ctx) -> ctx | None`); one gate per file under `backend/pipeline/gates/`. Pipeline is `for gate in gates: ctx = gate.run(ctx) or break`.
 - **(b)** Keep `_on_frame` monolithic but extract each numbered block into a private function in the same file with a `GateContext` dataclass for the shared inputs.
 - **(c)** Leave as-is.
 
@@ -242,7 +242,7 @@ Strengths to call out first (so this reads as analytical, not a complaint sheet)
 
 ### 5.2 Single shared model + missing inference knobs
 
-**Observed.** [core/detection.py:1140–1147](../../road_safety/core/detection.py):
+**Observed.** [core/detection.py:1140–1147](../../backend/core/detection.py):
 
 ```python
 results = model.track(
@@ -274,7 +274,7 @@ results = model.track(
 
 ### 5.3 Config has no schema
 
-**Observed.** [road_safety/config.py](../../road_safety/config.py) is 598 lines of `os.getenv("ROAD_X", default)` calls — ~70 env vars read at import time. No validation. A typo in `ROAD_TARGET_FPS` silently keeps the default.
+**Observed.** [backend/config.py](../../backend/config.py) is 598 lines of `os.getenv("ROAD_X", default)` calls — ~70 env vars read at import time. No validation. A typo in `ROAD_TARGET_FPS` silently keeps the default.
 
 **Why it matters.** Production misconfigurations are the silent kind: `ROAD_TARGET_FBS=4` boots happily.
 
@@ -294,7 +294,7 @@ results = model.track(
 **Why it matters.** Cannot unit-test a route without booting the perception state. Cannot swap perception for a fixture in API tests.
 
 **Options.**
-- **(a)** Move `LiveState` to `road_safety/runtime/state.py`; routes get it via FastAPI dependency injection (`Depends(get_state)`); tests inject a fake.
+- **(a)** Move `LiveState` to `backend/runtime/state.py`; routes get it via FastAPI dependency injection (`Depends(get_state)`); tests inject a fake.
 - **(b)** Leave the global; add a snapshot method (item 4.2 (b)).
 
 **Recommendation.** **(b)** as a stepping stone; **(a)** in Plan B.

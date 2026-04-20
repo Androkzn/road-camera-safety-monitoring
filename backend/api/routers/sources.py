@@ -7,17 +7,17 @@ import time
 
 from fastapi import APIRouter, HTTPException, Request
 
-from road_safety.compliance import audit
-from road_safety.logging import get_logger
-from road_safety.perception.slot_control import (
+from backend.compliance import audit
+from backend.logging import get_logger
+from backend.perception.slot_control import (
     pause_slot,
     resume_slot,
     start_slot,
     stop_slot,
 )
-from road_safety.security.auth import require_admin_if_flagged
-from road_safety.security.ssrf import validate_public_url
-from road_safety.state import StreamSlot, state
+from backend.security.auth import require_admin_if_flagged
+from backend.security.ssrf import validate_public_url
+from backend.state import StreamSlot, state
 
 log = get_logger(__name__)
 

@@ -1,4 +1,4 @@
-"""Tests for road_safety.services — vehicle registry, drift, LLM obs, redact, digest."""
+"""Tests for backend.services — vehicle registry, drift, LLM obs, redact, digest."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from road_safety.core.detection import Detection
-from road_safety.services.registry import RoadRegistry, VehicleState, MAX_SCORE
+from backend.core.detection import Detection
+from backend.services.registry import RoadRegistry, VehicleState, MAX_SCORE
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -126,35 +126,35 @@ class TestVehicleState:
 
 class TestLLMObserver:
     def test_record_basic(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         rec = obs.record("narration", "haiku", input_tokens=100, output_tokens=50, latency_ms=200)
         assert rec.call_type == "narration"
         assert rec.success is True
 
     def test_record_error(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         obs.record("chat", "haiku", success=False, error="rate_limited")
         s = obs.stats()
         assert s["total_errors_all_time"] == 1
 
     def test_record_skip(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         obs.record_skip("narration", "haiku", reason="no_api_key")
         s = obs.stats()
         assert s["total_skips_all_time"] == 1
 
     def test_stats_empty(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         s = obs.stats()
         assert s["window_calls"] == 0
         assert s["cost_usd"] == 0.0
 
     def test_stats_with_data(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         for i in range(5):
             obs.record("narration", "haiku", input_tokens=100, output_tokens=50, latency_ms=100 + i * 50)
@@ -164,14 +164,14 @@ class TestLLMObserver:
         assert s["latency_p50_ms"] > 0
 
     def test_stats_window_filter(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         obs.record("chat", "haiku", input_tokens=50, output_tokens=25, latency_ms=100)
         s = obs.stats(window_sec=3600)
         assert s["window_calls"] == 1
 
     def test_recent(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         obs.record("chat", "haiku", input_tokens=50, output_tokens=25, latency_ms=100)
         recent = obs.recent(n=10)
@@ -179,14 +179,14 @@ class TestLLMObserver:
         assert recent[0]["call_type"] == "chat"
 
     def test_ring_buffer_cap(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver(max_records=5)
         for i in range(10):
             obs.record("chat", "haiku", input_tokens=i)
         assert len(obs.recent(n=100)) == 5
 
     def test_estimated_cost(self):
-        from road_safety.services.llm_obs import LLMRecord
+        from backend.services.llm_obs import LLMRecord
         rec = LLMRecord(
             call_type="chat", model="default",
             input_tokens=1000, output_tokens=500,
@@ -195,7 +195,7 @@ class TestLLMObserver:
         assert rec.estimated_cost_usd > 0
 
     def test_stats_include_top_errors(self):
-        from road_safety.services.llm_obs import LLMObserver
+        from backend.services.llm_obs import LLMObserver
         obs = LLMObserver()
         obs.record("chat", "haiku", success=False, error="429 Too Many Requests")
         obs.record("chat", "haiku", success=False, error="429 Too Many Requests")
@@ -221,14 +221,14 @@ class TestDriftMonitor:
         path.write_text(json.dumps(events))
 
     def test_compute_empty(self, _isolate_data_dir):
-        from road_safety.services.drift import DriftMonitor
+        from backend.services.drift import DriftMonitor
         dm = DriftMonitor(feedback_path=_isolate_data_dir / "feedback.jsonl")
         r = dm.compute()
         assert r.window_size == 0
         assert r.precision == 0.0
 
     def test_compute_all_tp(self, _isolate_data_dir):
-        from road_safety.services.drift import DriftMonitor
+        from backend.services.drift import DriftMonitor
         fb_path = _isolate_data_dir / "feedback.jsonl"
         ev_path = _isolate_data_dir / "events.json"
         self._write_feedback(fb_path, [
@@ -247,7 +247,7 @@ class TestDriftMonitor:
         assert r.alert_triggered is False
 
     def test_compute_low_precision_triggers_alert(self, _isolate_data_dir):
-        from road_safety.services.drift import DriftMonitor
+        from backend.services.drift import DriftMonitor
         fb_path = _isolate_data_dir / "feedback.jsonl"
         entries = [{"event_id": f"e{i}", "verdict": "fp", "operator_ts": f"2026-04-15T0{i}:00:00Z"} for i in range(4)]
         entries.append({"event_id": "eX", "verdict": "tp", "operator_ts": "2026-04-15T05:00:00Z"})
@@ -258,7 +258,7 @@ class TestDriftMonitor:
         assert r.alert_triggered is True
 
     def test_in_memory_event_source(self, _isolate_data_dir):
-        from road_safety.services.drift import DriftMonitor
+        from backend.services.drift import DriftMonitor
         fb_path = _isolate_data_dir / "feedback.jsonl"
         self._write_feedback(fb_path, [
             {"event_id": "live1", "verdict": "tp"}
@@ -272,7 +272,7 @@ class TestDriftMonitor:
 
 class TestDriftWarning:
     def test_none_when_no_alert(self):
-        from road_safety.services.drift import DriftReport, drift_warning_message
+        from backend.services.drift import DriftReport, drift_warning_message
         report = DriftReport(
             window_size=10, true_positives=8, false_positives=2,
             precision=0.8, by_risk_level={}, by_event_type={},
@@ -282,7 +282,7 @@ class TestDriftWarning:
         assert drift_warning_message(report) is None
 
     def test_message_when_alert(self):
-        from road_safety.services.drift import DriftReport, drift_warning_message
+        from backend.services.drift import DriftReport, drift_warning_message
         report = DriftReport(
             window_size=10, true_positives=3, false_positives=7,
             precision=0.3, by_risk_level={}, by_event_type={
@@ -303,13 +303,13 @@ class TestDriftWarning:
 
 class TestActiveLearningSampler:
     def test_maybe_sample_outside_boundary(self, _isolate_data_dir):
-        from road_safety.services.drift import ActiveLearningSampler
+        from backend.services.drift import ActiveLearningSampler
         als = ActiveLearningSampler(out_dir=_isolate_data_dir / "al")
         result = als.maybe_sample({"event_id": "e1", "confidence": 0.9})
         assert result is None
 
     def test_maybe_sample_inside_boundary(self, _isolate_data_dir):
-        from road_safety.services.drift import ActiveLearningSampler
+        from backend.services.drift import ActiveLearningSampler
         als = ActiveLearningSampler(out_dir=_isolate_data_dir / "al")
         als._rng.random = lambda: 0.0
         result = als.maybe_sample({"event_id": "e1", "confidence": 0.42})
@@ -317,7 +317,7 @@ class TestActiveLearningSampler:
         assert result.reason == "decision_boundary"
 
     def test_sample_disputed_always_creates(self, _isolate_data_dir):
-        from road_safety.services.drift import ActiveLearningSampler
+        from backend.services.drift import ActiveLearningSampler
         als = ActiveLearningSampler(out_dir=_isolate_data_dir / "al")
         result = als.sample_disputed({"event_id": "e2", "confidence": 0.9}, note="wrong")
         assert result is not None
@@ -326,12 +326,12 @@ class TestActiveLearningSampler:
         assert len(pending) == 1
 
     def test_export_batch_empty(self, _isolate_data_dir):
-        from road_safety.services.drift import ActiveLearningSampler
+        from backend.services.drift import ActiveLearningSampler
         als = ActiveLearningSampler(out_dir=_isolate_data_dir / "al")
         assert als.export_batch() is None
 
     def test_export_batch_with_pending(self, _isolate_data_dir):
-        from road_safety.services.drift import ActiveLearningSampler
+        from backend.services.drift import ActiveLearningSampler
         als = ActiveLearningSampler(out_dir=_isolate_data_dir / "al")
         als.sample_disputed({"event_id": "e3", "confidence": 0.8})
         zip_path = als.export_batch()
@@ -348,20 +348,20 @@ class TestActiveLearningSampler:
 
 class TestRedact:
     def test_hash_plate_deterministic(self):
-        from road_safety.services.redact import hash_plate
+        from backend.services.redact import hash_plate
         h1 = hash_plate("ABC123")
         h2 = hash_plate("ABC123")
         assert h1 == h2
         assert len(h1) > 8
 
     def test_hash_plate_different_plates(self):
-        from road_safety.services.redact import hash_plate
+        from backend.services.redact import hash_plate
         h1 = hash_plate("ABC123")
         h2 = hash_plate("XYZ789")
         assert h1 != h2
 
     def test_public_thumbnail_name(self):
-        from road_safety.services.redact import public_thumbnail_name
+        from backend.services.redact import public_thumbnail_name
         name = public_thumbnail_name("evt_1234")
         assert "public" in name
         assert "evt_1234" in name
@@ -373,7 +373,7 @@ class TestRedact:
 
 class TestWatchdog:
     def test_rule_checks_emit_actionable_fields(self):
-        from road_safety.services.watchdog import _rule_checks
+        from backend.services.watchdog import _rule_checks
 
         snapshot = {
             "_interval_sec": 60,
@@ -449,7 +449,7 @@ class TestWatchdog:
         assert "live-ingest incident" in stream_finding.suggestion
 
     def test_tail_normalizes_legacy_records(self, tmp_path, monkeypatch):
-        from road_safety.services import watchdog
+        from backend.services import watchdog
 
         path = tmp_path / "watchdog.jsonl"
         path.write_text(json.dumps({
@@ -470,7 +470,7 @@ class TestWatchdog:
         assert records[0]["debug_commands"]
 
     def test_stats_group_repeated_incidents(self, tmp_path, monkeypatch):
-        from road_safety.services import watchdog
+        from backend.services import watchdog
 
         path = tmp_path / "watchdog.jsonl"
         lines = [

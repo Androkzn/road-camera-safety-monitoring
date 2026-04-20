@@ -3,9 +3,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from road_safety.compliance import audit
-from road_safety.config import DSAR_TOKEN, THUMBS_DIR
-from road_safety.security.signing import valid_thumb_request
+from backend.compliance import audit
+from backend.config import DSAR_TOKEN, THUMBS_DIR
+from backend.security.signing import valid_thumb_request
 
 router = APIRouter()
 

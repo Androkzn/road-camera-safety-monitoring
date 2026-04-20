@@ -17,8 +17,8 @@ import time
 
 from fastapi import Request
 
-from road_safety.config import PUBLIC_THUMBS_REQUIRE_TOKEN, THUMB_SIGNING_SECRET
-from road_safety.security.auth import require_admin_if_flagged
+from backend.config import PUBLIC_THUMBS_REQUIRE_TOKEN, THUMB_SIGNING_SECRET
+from backend.security.auth import require_admin_if_flagged
 
 # ─── BE-D13: short-lived signed URLs for media/detection streams ────────────
 # The existing ``thumb_token`` primitive already HMAC-signs a name + expiry

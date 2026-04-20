@@ -57,10 +57,10 @@ from pathlib import Path
 
 import cv2
 
-from road_safety.config import PLATE_SALT
-from road_safety.core.detection import Detection, PEDESTRIAN_CLASSES, VEHICLE_CLASSES
+from backend.config import PLATE_SALT
+from backend.core.detection import Detection, PEDESTRIAN_CLASSES, VEHICLE_CLASSES
 
-# ``PLATE_SALT`` comes from env via ``road_safety.config``; per-deployment
+# ``PLATE_SALT`` comes from env via ``backend.config``; per-deployment
 # so hashes don't correlate across operators (you can't merge two
 # customers' plate-hash streams into an identifying dataset).
 _PLATE_SALT = PLATE_SALT
@@ -258,7 +258,7 @@ def write_thumbnails(
     internal_path, public_path : Path
         File paths to write. Parent directories must already exist.
     """
-    from road_safety.core.detection import draw_thumbnail
+    from backend.core.detection import draw_thumbnail
 
     # INTERNAL: full-fidelity, bboxes drawn by the detection module's own
     # annotator (which uses its own label format).

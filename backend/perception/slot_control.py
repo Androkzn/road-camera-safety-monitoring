@@ -8,12 +8,12 @@ perception hot path in :mod:`perception.on_frame`.
 Extracted from ``server.py`` (step 7).
 """
 
-from road_safety.config import TARGET_FPS
-from road_safety.core.stream import StreamReader, resolve_hls
-from road_safety.logging import get_logger
-from road_safety.perception.on_frame import make_on_frame
-from road_safety.settings_store import STORE as SETTINGS_STORE
-from road_safety.state import StreamSlot
+from backend.config import TARGET_FPS
+from backend.core.stream import StreamReader, resolve_hls
+from backend.logging import get_logger
+from backend.perception.on_frame import make_on_frame
+from backend.settings_store import STORE as SETTINGS_STORE
+from backend.state import StreamSlot
 
 log = get_logger(__name__)
 

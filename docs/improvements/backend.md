@@ -2,7 +2,7 @@
 
 **Scope.** The Python edge service: FastAPI HTTP surface, the perception loop (YOLOv8 + ByteTrack + OpenCV + ego-motion), the LLM layer (Anthropic / Azure OpenAI), the agent orchestration, the compliance/audit/retention plane, and the edge→cloud publisher.
 
-**Anchor files.** [road_safety/server.py](../../road_safety/server.py) (1,535 LOC) · [services/llm.py](../../road_safety/services/llm.py) · [services/llm_obs.py](../../road_safety/services/llm_obs.py) · [services/agents.py](../../road_safety/services/agents.py) · [services/drift.py](../../road_safety/services/drift.py) · [core/stream.py](../../road_safety/core/stream.py) · [core/detection.py](../../road_safety/core/detection.py) · [config.py](../../road_safety/config.py) · [integrations/edge_publisher.py](../../road_safety/integrations/edge_publisher.py) · [compliance/audit.py](../../road_safety/compliance/audit.py).
+**Anchor files.** [backend/server.py](../../backend/server.py) (1,535 LOC) · [services/llm.py](../../backend/services/llm.py) · [services/llm_obs.py](../../backend/services/llm_obs.py) · [services/agents.py](../../backend/services/agents.py) · [services/drift.py](../../backend/services/drift.py) · [core/stream.py](../../backend/core/stream.py) · [core/detection.py](../../backend/core/detection.py) · [config.py](../../backend/config.py) · [integrations/edge_publisher.py](../../backend/integrations/edge_publisher.py) · [compliance/audit.py](../../backend/compliance/audit.py).
 
 **Date.** 2026-04-18.
 
@@ -12,7 +12,7 @@
 
 1. **Adopt Anthropic prompt caching on `ENRICH_SYSTEM` and `NARRATION_SYSTEM`.** Already wired on the chat corpus but not on the dominant per-event input blocks. ~85% reduction on input-token cost on the busy path.
 2. **Audit the thread → asyncio bridge.** `_HAIKU_BUCKET._lock = asyncio.Lock()` is loop-bound; the perception thread must use `asyncio.run_coroutine_threadsafe` against a captured loop, not `asyncio.run` or `loop.call_soon_threadsafe`.
-3. **Decompose [server.py](../../road_safety/server.py) (1,535 LOC) into APIRouters with a `lifespan`-managed factory.** Currently routes, orchestration, identity resolution, and middleware all share one module.
+3. **Decompose [server.py](../../backend/server.py) (1,535 LOC) into APIRouters with a `lifespan`-managed factory.** Currently routes, orchestration, identity resolution, and middleware all share one module.
 4. **OpenTelemetry traces + Prometheus metrics.** Replace the ad-hoc in-memory `LLMObserver` ring with OTel spans + a `/metrics` exporter. EU AI Act traceability obligation aligns with this.
 5. **Pydantic-settings + fail-fast config.** Refuse to boot in `ENV=prod` without `THUMB_SIGNING_SECRET`, `ROAD_ADMIN_TOKEN`, etc. Today's silent defaults attribute events to `unidentified_vehicle_<host>`.
 6. **EU AI Act risk register and model card.** This system is borderline high-risk under Annex III §6(d); ship the docs before pilots.
@@ -24,7 +24,7 @@
 
 ### B2 `[H]` `_HAIKU_BUCKET._lock = asyncio.Lock()` is loop-bound
 
-[services/llm.py](../../road_safety/services/llm.py#L85) instantiates an `asyncio.Lock` at import time. Locks bind to the loop running when first awaited; on Python 3.10+ awaiting from a different loop raises `RuntimeError: ... bound to a different event loop`. The perception thread then schedules narration/enrichment against the lifespan loop — but if any path (`asyncio.run(narrate_event(...))`) opens a fresh loop, the bucket awakens broken.
+[services/llm.py](../../backend/services/llm.py#L85) instantiates an `asyncio.Lock` at import time. Locks bind to the loop running when first awaited; on Python 3.10+ awaiting from a different loop raises `RuntimeError: ... bound to a different event loop`. The perception thread then schedules narration/enrichment against the lifespan loop — but if any path (`asyncio.run(narrate_event(...))`) opens a fresh loop, the bucket awakens broken.
 
 **Fix.** Capture the loop in `lifespan`:
 ```python
@@ -48,13 +48,13 @@ Long-term: replace ad-hoc threading with `anyio.from_thread.start_blocking_porta
 
 ### B3 `[H]` `state.recent_events` mutated in perception thread without a lock
 
-[server.py:883-885](../../road_safety/server.py#L883):
+[server.py:883-885](../../backend/server.py#L883):
 ```python
 state.recent_events.append(event)
 if len(state.recent_events) > MAX_RECENT_EVENTS:
     state.recent_events.pop(0)
 ```
-runs in the perception thread. SSE handlers and `/api/live/events` concurrently iterate via `list(state.recent_events)` ([server.py:996, 1195](../../road_safety/server.py#L996)). Each individual op is GIL-protected, but the **read+slice composite** (`state.recent_events[-SSE_REPLAY_COUNT:]`) is not — a `pop(0)` racing a slice can produce torn data, and a slow consumer can hand back stale lengths.
+runs in the perception thread. SSE handlers and `/api/live/events` concurrently iterate via `list(state.recent_events)` ([server.py:996, 1195](../../backend/server.py#L996)). Each individual op is GIL-protected, but the **read+slice composite** (`state.recent_events[-SSE_REPLAY_COUNT:]`) is not — a `pop(0)` racing a slice can produce torn data, and a slow consumer can hand back stale lengths.
 
 **Fix.** Wrap mutations and reads with a single `threading.Lock` on `state.events_lock`, or replace the list with `collections.deque(maxlen=MAX_RECENT_EVENTS)` (deque ops are GIL-atomic for `append`/`popleft`, no manual cap needed). For SSE replay, snapshot under the lock:
 ```python
@@ -70,7 +70,7 @@ with state.events_lock:
 
 ### R1 `[H]` Anthropic prompt caching on `ENRICH_SYSTEM` and `NARRATION_SYSTEM`
 
-[services/llm.py:440](../../road_safety/services/llm.py#L440) already applies `cache_control: {"type": "ephemeral"}` to the `CORPUS_TEXT` block in `chat()`. The much larger `ENRICH_SYSTEM` (~700 tokens, sent on every detection — twice due to self-consistency) and `NARRATION_SYSTEM` are **not** cached.
+[services/llm.py:440](../../backend/services/llm.py#L440) already applies `cache_control: {"type": "ephemeral"}` to the `CORPUS_TEXT` block in `chat()`. The much larger `ENRICH_SYSTEM` (~700 tokens, sent on every detection — twice due to self-consistency) and `NARRATION_SYSTEM` are **not** cached.
 
 **Why this project.** At 2 fps with risk events firing in bursts, enrichment alone runs 20-50 calls/min on a busy intersection; each one re-pays the static instruction tokens. Cached input bills at 0.10× base (Haiku 4.5: $0.08/MTok cached vs $0.80/MTok base — 90% reduction). Cache writes cost 1.25× base; break-even is ~2 reads per write inside the 5-minute TTL. The bursty event pattern easily exceeds that.
 
@@ -84,7 +84,7 @@ system = [{
 ```
 For `chat()`, add a second cache breakpoint on `SYSTEM_INSTRUCTIONS` so corpus and instructions invalidate independently.
 
-**Telemetry.** Surface `usage.cache_creation_input_tokens` and `usage.cache_read_input_tokens` in `LLMRecord` ([services/llm_obs.py:46](../../road_safety/services/llm_obs.py#L46)). Without this you can't verify cache hits.
+**Telemetry.** Surface `usage.cache_creation_input_tokens` and `usage.cache_read_input_tokens` in `LLMRecord` ([services/llm_obs.py:46](../../backend/services/llm_obs.py#L46)). Without this you can't verify cache hits.
 
 **Trade-off.** Five-minute idle invalidates the cache; next event pays the 1.25× write penalty. Acceptable.
 
@@ -95,7 +95,7 @@ For `chat()`, add a second cache breakpoint on `SYSTEM_INSTRUCTIONS` so corpus a
 `server.py` is 1,535 lines mixing route handlers, perception orchestration, identity resolution, SSE state, and middleware. Gripes the audit caught: routes execute module-level setup at import time (`setup_logging()`, identity resolution, EdgePublisher start, drift loop, retention loop, watchdog start), making test startup expensive and order non-deterministic.
 
 **Adoption.**
-- Create `road_safety/api/{events.py, llm.py, watchdog.py, admin.py, sse.py, road.py, agents.py}`. Each defines `router = APIRouter(prefix="/api/...", tags=["..."])`.
+- Create `backend/api/{events.py, llm.py, watchdog.py, admin.py, sse.py, road.py, agents.py}`. Each defines `router = APIRouter(prefix="/api/...", tags=["..."])`.
 - Keep `server.py` as a thin assembly:
   ```python
   app = FastAPI(lifespan=lifespan)
@@ -112,7 +112,7 @@ For `chat()`, add a second cache breakpoint on `SYSTEM_INSTRUCTIONS` so corpus a
 
 ### R3 `[H]` OpenTelemetry traces + Prometheus metrics; replace `LLMObserver`
 
-[services/llm_obs.py](../../road_safety/services/llm_obs.py) is a clean in-process ring (2k records) but cannot answer "why did event X take 4s end-to-end across detect → enrich → narrate → SSE?" Without spans you have no causal trace. For an EU AI Act high-risk system (R10), traceability is a formal Article 12 obligation. Prometheus exposes the things you most want on edge: FPS, frame queue depth, circuit-breaker state, Haiku bucket level, watchdog incident rate.
+[services/llm_obs.py](../../backend/services/llm_obs.py) is a clean in-process ring (2k records) but cannot answer "why did event X take 4s end-to-end across detect → enrich → narrate → SSE?" Without spans you have no causal trace. For an EU AI Act high-risk system (R10), traceability is a formal Article 12 obligation. Prometheus exposes the things you most want on edge: FPS, frame queue depth, circuit-breaker state, Haiku bucket level, watchdog incident rate.
 
 **Adoption.**
 ```bash
@@ -132,9 +132,9 @@ Wrap perception stages with `tracer.start_as_current_span("detect"|"track"|"ttc"
 
 ### R4 `[H]` YOLOv8 accelerator selection + export + half precision for the deployment target
 
-`load_model()` in [core/detection.py](../../road_safety/core/detection.py) historically called `YOLO(path)` with no `.to(device)`, which silently pinned inference to **CPU on every host** — including dev Macs and any deployment without explicit cuda env. Combined with N concurrent stream slots (each running YOLO at `ROAD_TARGET_FPS`), this was the dominant cause of perceived UI lag during multi-source demos.
+`load_model()` in [core/detection.py](../../backend/core/detection.py) historically called `YOLO(path)` with no `.to(device)`, which silently pinned inference to **CPU on every host** — including dev Macs and any deployment without explicit cuda env. Combined with N concurrent stream slots (each running YOLO at `ROAD_TARGET_FPS`), this was the dominant cause of perceived UI lag during multi-source demos.
 
-**P0 perf incident (2026-04-19).** With `ROAD_STREAM_SOURCES` set to 6 YouTube live URLs and detection enabled on all, `uvicorn` saturated at **~205 % CPU** (≈ two full M-series cores), starving the asyncio event loop and making SSE / MJPEG / page navigation feel laggy. Root cause: 6 streams × 2 fps × `yolov8s.pt` on CPU = 12 inferences/sec single-process. **Fix that landed:** auto-select the best available accelerator in `load_model()` (CUDA → MPS → CPU) with a `ROAD_YOLO_DEVICE` override and a defensive fallback. Post-fix: same 6 streams, same model — uvicorn drops to **~54 % CPU** (≈ 4× faster) on Apple Silicon via MPS. See `road_safety/core/detection.py::load_model`.
+**P0 perf incident (2026-04-19).** With `ROAD_STREAM_SOURCES` set to 6 YouTube live URLs and detection enabled on all, `uvicorn` saturated at **~205 % CPU** (≈ two full M-series cores), starving the asyncio event loop and making SSE / MJPEG / page navigation feel laggy. Root cause: 6 streams × 2 fps × `yolov8s.pt` on CPU = 12 inferences/sec single-process. **Fix that landed:** auto-select the best available accelerator in `load_model()` (CUDA → MPS → CPU) with a `ROAD_YOLO_DEVICE` override and a defensive fallback. Post-fix: same 6 streams, same model — uvicorn drops to **~54 % CPU** (≈ 4× faster) on Apple Silicon via MPS. See `backend/core/detection.py::load_model`.
 
 **Why this still matters even with auto-device.** At 2 fps a Jetson Orin Nano runs `yolov8s` PyTorch FP32 at ~25-30 ms/frame; TensorRT FP16 brings it under 10 ms, freeing CPU/GPU headroom for the Farneback ego-motion pass and reducing the chance of a queued frame backlog when Anthropic is slow. MPS / CUDA in PyTorch eager mode is a floor, not a ceiling.
 
@@ -151,7 +151,7 @@ Wrap perception stages with `tracer.start_as_current_span("detect"|"track"|"ttc"
 
 ### R-PERF `[H]` Multi-source load governance: per-slot detection toggle + runtime CPU guard
 
-The same incident exposed a structural gap: the multi-source slot manager ([core/stream.py](../../road_safety/core/stream.py) + the `StreamSlot` lifecycle in [server.py](../../road_safety/server.py)) had no operator-controlled way to keep watching a camera *without* paying YOLO cost on it, and no runtime brake when N slots × FPS × per-frame cost exceeded available compute. The system would just degrade everything (UI included) until the operator manually paused tiles.
+The same incident exposed a structural gap: the multi-source slot manager ([core/stream.py](../../backend/core/stream.py) + the `StreamSlot` lifecycle in [server.py](../../backend/server.py)) had no operator-controlled way to keep watching a camera *without* paying YOLO cost on it, and no runtime brake when N slots × FPS × per-frame cost exceeded available compute. The system would just degrade everything (UI included) until the operator manually paused tiles.
 
 **What landed.** A per-slot `detection_enabled: bool` flag on `StreamSlot` plus `POST /api/live/sources/{id}/detection?enabled=...`. When false, `_on_frame` still encodes the raw JPEG into the MJPEG buffer (preview keeps working) but short-circuits before YOLO / quality / scene / episode logic. Frontend gets a per-tile checkbox and bulk Select/Clear-all controls (`MultiSourceGrid.tsx`). This is the operator-facing escape valve.
 
@@ -162,7 +162,7 @@ The same incident exposed a structural gap: the multi-source slot manager ([core
 3. **MJPEG fan-out cost.** Each tile in the browser opens its own `/admin/video_feed/{id}` MJPEG connection; six concurrent multipart streams pin the renderer process too (we saw Cursor's renderer at ~76 % during the incident). Add a server-side **shared encoder** per slot (encode the JPEG once, broadcast bytes to all subscribers via an `asyncio.Queue` per consumer) and downscale + drop-to-keyframe for the minimized tiles. The new "focused vs minimized" tile state from the frontend (`tileMini` class) is the right hint: minimized tiles can be served at e.g. 160 px wide / 1 fps with no perception cost.
 4. **Watchdog rule.** Add a finding category `perf.cpu_saturated` triggered when uvicorn CPU > 90 % for > 60 s, surfacing the offending slot list and quoting the auto-shed action (or the manual one if shedding is disabled).
 
-**Why this project.** Multi-source perception is now first-class (see `ROAD_STREAM_SOURCES` parsing in [config.py](../../road_safety/config.py) and the `StreamSlot` registry in `server.py`), so "operator added a sixth stream and the box melted" is a foreseeable failure mode, not an exotic one. The detection toggle is the manual fix; (1)–(4) above keep the system useful when the operator forgets.
+**Why this project.** Multi-source perception is now first-class (see `ROAD_STREAM_SOURCES` parsing in [config.py](../../backend/config.py) and the `StreamSlot` registry in `server.py`), so "operator added a sixth stream and the box melted" is a foreseeable failure mode, not an exotic one. The detection toggle is the manual fix; (1)–(4) above keep the system useful when the operator forgets.
 
 **Effort.** ~1 day for auto-shed + cap + watchdog rule. Shared MJPEG encoder is ~2 days but pays back as soon as more than 4 slots are configured.
 
@@ -172,9 +172,9 @@ The same incident exposed a structural gap: the multi-source slot manager ([core
 
 ### R5 `[H]` `pydantic-settings` + fail-fast config
 
-Replace raw `os.getenv` reads in [config.py](../../road_safety/config.py) with `pydantic_settings.BaseSettings`. Refuse to boot in non-dev when required vars are missing.
+Replace raw `os.getenv` reads in [config.py](../../backend/config.py) with `pydantic_settings.BaseSettings`. Refuse to boot in non-dev when required vars are missing.
 
-**Why this project.** [server.py:98 `_resolve_identity()`](../../road_safety/server.py#L98) demonstrates the failure mode of silent defaults — events get attributed to "unidentified_vehicle_<host>". The same pattern likely exists for `THUMB_SIGNING_SECRET` (a hardcoded default would void HMAC integrity), Anthropic key, Azure creds, admin tokens.
+**Why this project.** [server.py:98 `_resolve_identity()`](../../backend/server.py#L98) demonstrates the failure mode of silent defaults — events get attributed to "unidentified_vehicle_<host>". The same pattern likely exists for `THUMB_SIGNING_SECRET` (a hardcoded default would void HMAC integrity), Anthropic key, Azure creds, admin tokens.
 
 **Adoption.**
 ```python
@@ -222,9 +222,9 @@ Author `docs/security/owasp-llm-mapping.md` with one row per LLM0x → control �
 
 ### R7 `[M]` Structured logging — `structlog` and replace `print()`
 
-[Python rules](../../.claude/rules/python.md) mandate `logging.getLogger(__name__)` but [services/llm.py](../../road_safety/services/llm.py) and [core/stream.py](../../road_safety/core/stream.py) still contain `print(...)`. Once you have structured logs, the OTel log exporter (R3) ships them to Loki / Datadog with span-correlation IDs.
+[Python rules](../../.claude/rules/python.md) mandate `logging.getLogger(__name__)` but [services/llm.py](../../backend/services/llm.py) and [core/stream.py](../../backend/core/stream.py) still contain `print(...)`. Once you have structured logs, the OTel log exporter (R3) ships them to Loki / Datadog with span-correlation IDs.
 
-**Adoption.** Extend [road_safety/logging.py](../../road_safety/logging.py) to configure `structlog` with a JSON renderer in prod and a console renderer in dev. Lint rule (after R15): forbid `print` outside `start.py` / `tools/`.
+**Adoption.** Extend [backend/logging.py](../../backend/logging.py) to configure `structlog` with a JSON renderer in prod and a console renderer in dev. Lint rule (after R15): forbid `print` outside `start.py` / `tools/`.
 
 **Citation.** https://www.structlog.org/en/stable/.
 
@@ -244,7 +244,7 @@ At 2 fps single-camera, **stay in-process**. Triton / BentoML / Ray Serve / KSer
 
 ### R9 `[M]` Agent maturation — evals, `tool_choice`, parallel tools
 
-Two short-term wins on [services/agents.py](../../road_safety/services/agents.py) before considering a framework migration:
+Two short-term wins on [services/agents.py](../../backend/services/agents.py) before considering a framework migration:
 
 - **Tool-call correctness eval set.** YAML of `(transcript, expected_tool_calls)` scored by `pytest`. Without this you cannot ship agent changes safely.
 - **`tool_choice` forcing.** For the investigation agent, force the first tool with `tool_choice={"type":"tool","name":"query_events"}` so it can't short-circuit to a hallucinated answer on turn 1.
@@ -267,7 +267,7 @@ This project is **borderline high-risk** under the EU AI Act. Annex III §6(d) c
 - **Art. 10 — Data governance.** Datasheet for the YOLOv8 model (COCO + any fine-tune set). The shipped `yolov8s.pt` has no datasheet — author one.
 - **Art. 11 + 12 — Technical docs + logging.** Audit trail exists; add a model card per deployed model (R11) and ensure logs are tamper-evident (HMAC-chained JSONL or append-only S3 Object Lock when off-edge).
 - **Art. 13 — Transparency.** Mark narration text as AI-generated to operators. Add `source: "claude-haiku-4-5"` on every narrated SSE event.
-- **Art. 14 — Human oversight.** Already partially designed (operator copilot, feedback loop). Document the override path: operators flag any event as false-positive ([api/feedback.py](../../road_safety/api/feedback.py)).
+- **Art. 14 — Human oversight.** Already partially designed (operator copilot, feedback loop). Document the override path: operators flag any event as false-positive ([api/feedback.py](../../backend/api/feedback.py)).
 - **Art. 15 — Accuracy / robustness / cybersecurity.** Drift monitor (R11) is the metric. Publish a "minimum acceptable mAP@0.5 = X" gate that pages an operator when violated.
 - **Art. 72 — Post-market monitoring.** Drift + AL + retraining loop closure (R11).
 
@@ -277,7 +277,7 @@ This project is **borderline high-risk** under the EU AI Act. Annex III §6(d) c
 
 ### R11 `[M]` Model registry + drift A/B + retraining loop closure
 
-[services/drift.py](../../road_safety/services/drift.py) (547 LOC) computes drift signals and an active-learning sampler — but the export currently goes nowhere ([README](../../README.md) mentions it; [challenges.md §5](../challenges.md) acknowledges the loop is not closed). Without registry + retraining trigger this is observability theatre.
+[services/drift.py](../../backend/services/drift.py) (547 LOC) computes drift signals and an active-learning sampler — but the export currently goes nowhere ([README](../../README.md) mentions it; [challenges.md §5](../challenges.md) acknowledges the loop is not closed). Without registry + retraining trigger this is observability theatre.
 
 **Adoption.**
 - **MLflow** for the registry (open-source, single-binary, SQLite-backed — fits the edge ethos). `models:/yolo-fleet/Production` URI handles deploy hand-off.
@@ -300,7 +300,7 @@ This project is **borderline high-risk** under the EU AI Act. Annex III §6(d) c
 | Files API | **Yes — for chat corpus** | Replace inline corpus block with a server-side file reference; survives sessions, prunes prompt size |
 | Streaming with cache hits | Selective | Enable for `chat()` only; narration is too short to benefit |
 | Computer use | N/A | Out of scope |
-| Vision | Already used | Confirm `media_type` matches actual JPEG quality from [services/redact.py](../../road_safety/services/redact.py) |
+| Vision | Already used | Confirm `media_type` matches actual JPEG quality from [services/redact.py](../../backend/services/redact.py) |
 
 **Citations.** Extended thinking — https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking · Batch processing — https://docs.anthropic.com/en/docs/build-with-claude/batch-processing · Files — https://docs.anthropic.com/en/docs/build-with-claude/files.
 
@@ -310,7 +310,7 @@ The event dict shape is implicit, defined by `core/detection.build_event_summary
 
 **Why this project.** Pydantic models give you `response_model=SafetyEvent` on the SSE endpoint, OpenAPI export consumed by the cloud receiver, and contract tests against `/openapi.json` ([integration.md R3.1](./integration.md#r31-h-schemathesis-against-the-live-fastapi-app)).
 
-**Adoption.** Define `road_safety/models.py` with `SafetyEvent`, `EnrichedEvent`, `NarratedEvent` (composition not inheritance). Migrate one site at a time; keep the dict path until the cloud receiver consumes the new schema.
+**Adoption.** Define `backend/models.py` with `SafetyEvent`, `EnrichedEvent`, `NarratedEvent` (composition not inheritance). Migrate one site at a time; keep the dict path until the cloud receiver consumes the new schema.
 
 **Trade-off.** Pydantic v2 validation costs ~50 µs per event; negligible at 2 fps.
 
@@ -331,7 +331,7 @@ The [Python rules](../../.claude/rules/python.md) say "make lint only does py_co
 
 ### R15 `[M]` Constant-time HMAC + replay-protected batch delivery
 
-Verify [edge_publisher.py](../../road_safety/integrations/edge_publisher.py) and [cloud/receiver.py](../../cloud/receiver.py) use `hmac.compare_digest`, not `==`. (Spot-checked: receiver looks correct via `secrets.compare_digest`; verify edge side.) Then add nonce tracking + canonicalized signing — see [integration.md §8](./integration.md#8--hmac-hardening) for the full plan.
+Verify [edge_publisher.py](../../backend/integrations/edge_publisher.py) and [cloud/receiver.py](../../cloud/receiver.py) use `hmac.compare_digest`, not `==`. (Spot-checked: receiver looks correct via `secrets.compare_digest`; verify edge side.) Then add nonce tracking + canonicalized signing — see [integration.md §8](./integration.md#8--hmac-hardening) for the full plan.
 
 **Citation.** https://docs.python.org/3/library/hmac.html#hmac.compare_digest.
 
@@ -344,7 +344,7 @@ Verify [edge_publisher.py](../../road_safety/integrations/edge_publisher.py) and
 - **Contract test against `/openapi.json`** — see [integration.md R3.1](./integration.md#r31-h-schemathesis-against-the-live-fastapi-app).
 - **Golden-frame fixtures.** Three labeled JPEGs in `tests/fixtures/frames/` covering: (a) two converging vehicles, (b) pedestrian near-miss, (c) clean scene. `tests/test_core.py::test_detect_golden_frames` runs the perception pipeline end-to-end with `enrich`/`narrate` mocked. Catches detection-gate regressions immediately.
 - **Hypothesis property tests** for `core/detection.estimate_ttc_sec` — pure arithmetic; property tests over `(relative_velocity, distance)` ranges catch divide-by-zero and sign-flip bugs the operator-gathered cases miss.
-- **Mutation testing.** `mutmut run --paths-to-mutate=road_safety/core/detection.py`. Mutation score < 60% means weak detection tests. Run quarterly, not in CI.
+- **Mutation testing.** `mutmut run --paths-to-mutate=backend/core/detection.py`. Mutation score < 60% means weak detection tests. Run quarterly, not in CI.
 - **`httpx.AsyncClient` for endpoint tests.** Required for SSE testing; `TestClient` is sync.
 
 **Citations.** Hypothesis — https://hypothesis.readthedocs.io/ · mutmut — https://mutmut.readthedocs.io/ · httpx async — https://www.python-httpx.org/async/.
@@ -372,7 +372,7 @@ See [integration.md R12.1](./integration.md#r121-h-split-healthz-liveness-from-r
 
 ### R20 `[L]` Slack / PagerDuty for watchdog escalation
 
-[services/watchdog.py](../../road_safety/services/watchdog.py) is mature (1,068 LOC). Confirm escalation: WARN → log only, ERROR → Slack ([integrations/slack.py](../../road_safety/integrations/slack.py)), CRITICAL → PagerDuty (add `integrations/pagerduty.py`). Tag every page with `event_id` + trace_id (from R3) so on-call jumps to the OTel trace.
+[services/watchdog.py](../../backend/services/watchdog.py) is mature (1,068 LOC). Confirm escalation: WARN → log only, ERROR → Slack ([integrations/slack.py](../../backend/integrations/slack.py)), CRITICAL → PagerDuty (add `integrations/pagerduty.py`). Tag every page with `event_id` + trace_id (from R3) so on-call jumps to the OTel trace.
 
 ---
 
@@ -421,20 +421,20 @@ See [integration.md R12.1](./integration.md#r121-h-split-healthz-liveness-from-r
 
 | File | Recommendations |
 |------|-----------------|
-| [server.py](../../road_safety/server.py) | B3 · R2 · R3 · R-PERF (auto-shed, slot cap, watchdog rule, shared MJPEG) |
-| [services/llm.py](../../road_safety/services/llm.py) | B2 · R1 · R6 · R7 · R12 |
-| [services/llm_obs.py](../../road_safety/services/llm_obs.py) | R1 (cache token telemetry) · R3 |
-| [services/agents.py](../../road_safety/services/agents.py) | R9 · R12 |
-| [services/drift.py](../../road_safety/services/drift.py) | R10 (Art. 15) · R11 |
-| [services/registry.py](../../road_safety/services/registry.py) | R11 (MLflow integration) |
-| [core/stream.py](../../road_safety/core/stream.py) | B2 · R7 · R-PERF |
-| [core/detection.py](../../road_safety/core/detection.py) | R4 (auto-device shipped; export work pending) · R16 (golden frames, hypothesis) |
-| [config.py](../../road_safety/config.py) | R5 · R-PERF (`ROAD_YOLO_DEVICE`, `ROAD_MAX_DETECTING_SLOTS`, `ROAD_AUTOSHED`) |
-| [integrations/edge_publisher.py](../../road_safety/integrations/edge_publisher.py) | R15 (and see [integration.md §8](./integration.md#8--hmac-hardening)) |
+| [server.py](../../backend/server.py) | B3 · R2 · R3 · R-PERF (auto-shed, slot cap, watchdog rule, shared MJPEG) |
+| [services/llm.py](../../backend/services/llm.py) | B2 · R1 · R6 · R7 · R12 |
+| [services/llm_obs.py](../../backend/services/llm_obs.py) | R1 (cache token telemetry) · R3 |
+| [services/agents.py](../../backend/services/agents.py) | R9 · R12 |
+| [services/drift.py](../../backend/services/drift.py) | R10 (Art. 15) · R11 |
+| [services/registry.py](../../backend/services/registry.py) | R11 (MLflow integration) |
+| [core/stream.py](../../backend/core/stream.py) | B2 · R7 · R-PERF |
+| [core/detection.py](../../backend/core/detection.py) | R4 (auto-device shipped; export work pending) · R16 (golden frames, hypothesis) |
+| [config.py](../../backend/config.py) | R5 · R-PERF (`ROAD_YOLO_DEVICE`, `ROAD_MAX_DETECTING_SLOTS`, `ROAD_AUTOSHED`) |
+| [integrations/edge_publisher.py](../../backend/integrations/edge_publisher.py) | R15 (and see [integration.md §8](./integration.md#8--hmac-hardening)) |
 | [Dockerfile](../../Dockerfile) | R19 |
 | [pyproject.toml](../../pyproject.toml) | R14 (ruff + pyright deps) |
 | [tests/](../../tests/) | R16 (contract, golden, hypothesis, mutmut) |
-| (new) `road_safety/models.py` | R13 |
+| (new) `backend/models.py` | R13 |
 | (new) `docs/aia/` | R10 |
 | (new) `docs/adr/0001-model-serving.md` | R8 |
 | (new) `docs/security/owasp-llm-mapping.md` | R6 |

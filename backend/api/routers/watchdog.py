@@ -2,16 +2,16 @@
 
 from fastapi import APIRouter, HTTPException, Request
 
-from road_safety.config import ADMIN_TOKEN
-from road_safety.logging import get_logger
-from road_safety.security import require_bearer_token
-from road_safety.security.auth import require_admin_if_flagged
-from road_safety.services.watchdog import (
+from backend.config import ADMIN_TOKEN
+from backend.logging import get_logger
+from backend.security import require_bearer_token
+from backend.security.auth import require_admin_if_flagged
+from backend.services.watchdog import (
     delete_findings as watchdog_delete,
     delete_findings_by_id as watchdog_delete_by_id,
     tail as watchdog_tail,
 )
-from road_safety.state import state
+from backend.state import state
 
 log = get_logger(__name__)
 

@@ -15,7 +15,7 @@ Or via the unified launcher::
 
 Responsibility (narrow by design):
     1. Accept ``POST /ingest/events`` batches from
-       ``road_safety.integrations.edge_publisher.EdgePublisher``.
+       ``backend.integrations.edge_publisher.EdgePublisher``.
     2. Reject anything whose HMAC signature doesn't validate.
     3. Idempotently persist accepted events into a SQLite file
        (``data/cloud.db``) keyed by ``event_id``.
@@ -62,7 +62,7 @@ Python concepts used here (quick glossary):
       msg, hashlib.sha256).hexdigest()`` computes a signature that proves
       the message wasn't modified by anyone who doesn't hold ``key``.
     * ``hmac.compare_digest`` — constant-time comparison; see the matching
-      comment in ``road_safety/security.py``.
+      comment in ``backend/security.py``.
     * ``try: ... except X: ... finally: ...`` — Python's exception handling.
       ``finally`` always runs (useful for cleanup). We mostly use narrow
       ``except`` clauses here because each failure mode maps to a specific
@@ -87,9 +87,9 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 
 # We deliberately share the bearer-token helper with the edge node so both
-# apps enforce auth identically. See ``road_safety/security.py`` for why
+# apps enforce auth identically. See ``backend/security.py`` for why
 # the comparison is constant-time and how "fail closed" is implemented.
-from road_safety.security import require_bearer_token
+from backend.security import require_bearer_token
 
 # Per-module logger. All log lines carry ``logger="cloud_receiver"`` in
 # the JSON output, making them filterable in log aggregators.
@@ -99,7 +99,7 @@ logger = logging.getLogger("cloud_receiver")
 # The cloud receiver technically lives in its own package (``cloud/``) but
 # shares the root with the edge node for convenience in this monorepo.
 # In a real deployment this receiver would be in its own repo/container and
-# not reach sideways into ``road_safety.*`` at all.
+# not reach sideways into ``backend.*`` at all.
 ROOT = Path(__file__).resolve().parent.parent
 # DB location, env-overridable for test fixtures and alternate mount points.
 DB_PATH = Path(os.getenv("ROAD_CLOUD_DB", ROOT / "data" / "cloud.db"))
@@ -233,7 +233,7 @@ def _require_read_access(request: Request) -> None:
     """Guard read-only dashboard endpoints with ``ROAD_CLOUD_READ_TOKEN``.
 
     Thin wrapper so every read route uses the identical error messages
-    and realm label. See :func:`road_safety.security.require_bearer_token`.
+    and realm label. See :func:`backend.security.require_bearer_token`.
     """
     require_bearer_token(
         request,

@@ -1,4 +1,4 @@
-"""Tests for road_safety.api — feedback routes (unit-level, no live server)."""
+"""Tests for backend.api — feedback routes (unit-level, no live server)."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ def feedback_app(_isolate_data_dir):
     """Build a minimal FastAPI app with feedback routes mounted."""
     app = FastAPI()
 
-    with patch("road_safety.api.feedback._DATA_DIR", _isolate_data_dir), \
-         patch("road_safety.api.feedback._FEEDBACK_PATH", _isolate_data_dir / "feedback.jsonl"), \
-         patch("road_safety.api.feedback._EVENTS_PATH", _isolate_data_dir / "events.json"):
-        from road_safety.api.feedback import mount
+    with patch("backend.api.feedback._DATA_DIR", _isolate_data_dir), \
+         patch("backend.api.feedback._FEEDBACK_PATH", _isolate_data_dir / "feedback.jsonl"), \
+         patch("backend.api.feedback._EVENTS_PATH", _isolate_data_dir / "events.json"):
+        from backend.api.feedback import mount
         mount(app)
         yield TestClient(app), _isolate_data_dir
 

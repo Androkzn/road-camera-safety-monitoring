@@ -1,14 +1,14 @@
 # Backend Audit - 2026-04-20
 
-**Scope:** `road_safety/` + `cloud/`  
-**Code size:** 23,403 LOC (Python in `road_safety` + `cloud`)  
+**Scope:** `backend/` + `cloud/`  
+**Code size:** 23,403 LOC (Python in `backend` + `cloud`)  
 **Runtime shape:** FastAPI edge server + multi-source stream readers + YOLO/ByteTrack + LLM enrichment + cloud receiver
 
 ## 1. Executive Summary
 
 The backend has strong domain logic and many good operational patterns, but maintainability and scale are constrained by a very large `server.py` and a few high-impact performance/correctness gaps in multi-source mode.
 
-**Auth-boundary addendum (post-review):** An earlier version of this audit under-weighted the auth surface. Multiple **control** and **media** endpoints carry explicit `AUTH: public` docstrings ([server.py:3373](road_safety/server.py#L3373), [:3592](road_safety/server.py#L3592), [:3619](road_safety/server.py#L3619), [:3680](road_safety/server.py#L3680), [:3801](road_safety/server.py#L3801), [:3899](road_safety/server.py#L3899), [:3947](road_safety/server.py#L3947)). The project relies on "network-gated operator UI" as its security model - that is a deployment assumption, not a code property. If the perimeter is weak, an attacker can start/stop sources, add arbitrary stream URLs (SSRF vector), toggle the validator, trigger test runs, and stream live camera feeds. See BE-D12 - BE-D15 below for details. **Treat these as pre-production blockers, not refactor items.**
+**Auth-boundary addendum (post-review):** An earlier version of this audit under-weighted the auth surface. Multiple **control** and **media** endpoints carry explicit `AUTH: public` docstrings ([server.py:3373](backend/server.py#L3373), [:3592](backend/server.py#L3592), [:3619](backend/server.py#L3619), [:3680](backend/server.py#L3680), [:3801](backend/server.py#L3801), [:3899](backend/server.py#L3899), [:3947](backend/server.py#L3947)). The project relies on "network-gated operator UI" as its security model - that is a deployment assumption, not a code property. If the perimeter is weak, an attacker can start/stop sources, add arbitrary stream URLs (SSRF vector), toggle the validator, trigger test runs, and stream live camera feeds. See BE-D12 - BE-D15 below for details. **Treat these as pre-production blockers, not refactor items.**
 
 Top priorities:
 
@@ -40,13 +40,13 @@ Top priorities:
 Strengths:
 
 - Many modules are well-typed (`core/detection.py`, `services/watchdog.py`, `services/llm.py`, `api/settings.py`, `cloud/receiver.py`).
-- Settings subsystem has a strong typed/validated store (`road_safety/settings_store.py`, `road_safety/settings_spec.py`).
+- Settings subsystem has a strong typed/validated store (`backend/settings_store.py`, `backend/settings_spec.py`).
 
 Gaps:
 
 - `server.py` still relies heavily on untyped dict payloads for event and response surfaces.
 - Core routes return raw dicts without `response_model`, reducing contract clarity and generated-client quality.
-- `/chat` accepts `body: dict` directly (`road_safety/server.py:2754-2771`) instead of a typed request model.
+- `/chat` accepts `body: dict` directly (`backend/server.py:2754-2771`) instead of a typed request model.
 
 Recommendations:
 
@@ -62,7 +62,7 @@ Strengths:
 
 Gaps:
 
-- `road_safety/server.py` is 3,972 LOC and contains too many responsibilities: app wiring, lifecycle, per-frame pipeline, event emission, admin/public APIs, and multi-source orchestration.
+- `backend/server.py` is 3,972 LOC and contains too many responsibilities: app wiring, lifecycle, per-frame pipeline, event emission, admin/public APIs, and multi-source orchestration.
 - `server.py` currently defines 53 HTTP endpoints (`rg` count of `@app.get/post/delete/...`).
 
 Recommendations:
@@ -76,25 +76,25 @@ Largest backend files:
 
 | File | LOC | Action |
 |---|---:|---|
-| `road_safety/server.py` | 3,972 | Must split by domain and runtime layer |
-| `road_safety/services/watchdog.py` | 1,804 | Keep cohesive; optimize I/O paths |
-| `road_safety/core/detection.py` | 1,375 | Keep cohesive; improve perf instrumentation |
-| `road_safety/services/llm.py` | 1,063 | Keep cohesive; tighten observability and client lifecycle |
-| `road_safety/services/drift.py` | 1,009 | Consider smaller policy/metrics modules |
-| `road_safety/services/agents.py` | 885 | Split tool definitions from orchestration |
-| `road_safety/core/validator.py` | 785 | Keep but segment comparison/reporting blocks |
-| `road_safety/integrations/edge_publisher.py` | 722 | Optimize queue read/write and HTTP client reuse |
-| `road_safety/integrations/slack.py` | 675 | Reuse HTTP client and bound in-memory buffers |
-| `road_safety/api/settings.py` | 669 | Mostly cohesive |
+| `backend/server.py` | 3,972 | Must split by domain and runtime layer |
+| `backend/services/watchdog.py` | 1,804 | Keep cohesive; optimize I/O paths |
+| `backend/core/detection.py` | 1,375 | Keep cohesive; improve perf instrumentation |
+| `backend/services/llm.py` | 1,063 | Keep cohesive; tighten observability and client lifecycle |
+| `backend/services/drift.py` | 1,009 | Consider smaller policy/metrics modules |
+| `backend/services/agents.py` | 885 | Split tool definitions from orchestration |
+| `backend/core/validator.py` | 785 | Keep but segment comparison/reporting blocks |
+| `backend/integrations/edge_publisher.py` | 722 | Optimize queue read/write and HTTP client reuse |
+| `backend/integrations/slack.py` | 675 | Reuse HTTP client and bound in-memory buffers |
+| `backend/api/settings.py` | 669 | Mostly cohesive |
 
 ### D) Network Performance (redundant/unnecessary calls)
 
 Key findings:
 
-- `watchdog.tail()` reads the entire watchdog file, then slices tail records (`road_safety/services/watchdog.py:799-833`), and `stats()` calls `tail(500)` (`:917-934`). This scales poorly with file growth.
-- `edge_publisher.flush_once()` reads full queue file via `read_text().splitlines()` (`road_safety/integrations/edge_publisher.py:541-547`) and rewrites full file (`:580`, `:648`, `:669`) on flush paths.
-- `edge_publisher.flush_once()` creates a new `httpx.AsyncClient` per flush (`road_safety/integrations/edge_publisher.py:612-615`).
-- Slack sends and digest sends each create a new `httpx.AsyncClient` (`road_safety/integrations/slack.py:403`, `:526`).
+- `watchdog.tail()` reads the entire watchdog file, then slices tail records (`backend/services/watchdog.py:799-833`), and `stats()` calls `tail(500)` (`:917-934`). This scales poorly with file growth.
+- `edge_publisher.flush_once()` reads full queue file via `read_text().splitlines()` (`backend/integrations/edge_publisher.py:541-547`) and rewrites full file (`:580`, `:648`, `:669`) on flush paths.
+- `edge_publisher.flush_once()` creates a new `httpx.AsyncClient` per flush (`backend/integrations/edge_publisher.py:612-615`).
+- Slack sends and digest sends each create a new `httpx.AsyncClient` (`backend/integrations/slack.py:403`, `:526`).
 - Frontend bulk stream controls currently amplify backend traffic by sending many per-source mutations and refreshes (backend impact from FE behavior).
 
 Recommendations:
@@ -107,9 +107,9 @@ Recommendations:
 
 Current behavior:
 
-- Model loaded once at startup (`road_safety/server.py:2214-2216`) and used on each frame in `_on_frame` (`road_safety/server.py:1396-1483`).
-- Inference call is synchronous `detect_frame(state.model, frame)` in each stream callback (`road_safety/server.py:1482`, callback at `:1381-1392`).
-- Detection uses `model.track(..., persist=True)` (`road_safety/core/detection.py:1123-1154`), which is good for track continuity.
+- Model loaded once at startup (`backend/server.py:2214-2216`) and used on each frame in `_on_frame` (`backend/server.py:1396-1483`).
+- Inference call is synchronous `detect_frame(state.model, frame)` in each stream callback (`backend/server.py:1482`, callback at `:1381-1392`).
+- Detection uses `model.track(..., persist=True)` (`backend/core/detection.py:1123-1154`), which is good for track continuity.
 
 Risks:
 
@@ -131,9 +131,9 @@ Most important issue:
 
 Evidence:
 
-- `LiveState` explicitly keeps legacy primary proxies (`road_safety/server.py:625-746`).
-- `_emit_event` enrichment skip and perception state use `state.quality` (`road_safety/server.py:2094-2098`), not the event slot.
-- Public/admin status endpoints use primary proxy fields (`road_safety/server.py:2777-2815`, `3279-3338`).
+- `LiveState` explicitly keeps legacy primary proxies (`backend/server.py:625-746`).
+- `_emit_event` enrichment skip and perception state use `state.quality` (`backend/server.py:2094-2098`), not the event slot.
+- Public/admin status endpoints use primary proxy fields (`backend/server.py:2777-2815`, `3279-3338`).
 
 Impact:
 
@@ -160,7 +160,7 @@ Recommendation:
 | BE-7 | Medium | Privacy primitive `_hash_and_strip_plate` lives in `services/llm.py`, not `compliance/` | `services/llm.py:732` |
 | BE-8 | High | Routes read perception-thread state without acquiring `state.lock` | `server.py:2777,3279,2937,3964` |
 | BE-9 | Medium | ByteTrack `persist=True` + single shared model → cross-camera track-ID collision risk; no warmup; `imgsz`/`half`/`device` unset | `core/detection.py:1140-1147` |
-| BE-10 | Medium | `config.py` has no schema — 70 env vars read with no validation | `road_safety/config.py` (598 LOC) |
+| BE-10 | Medium | `config.py` has no schema — 70 env vars read with no validation | `backend/config.py` (598 LOC) |
 | BE-11 | Medium | `/api/live/status` and `/api/admin/health` overlap; Settings mounts both | `server.py:2777,3279` |
 
 ## 5. Showcase Framing (What This Demonstrates)
@@ -185,7 +185,7 @@ Each decision follows the same shape: **Observation** (what the code shows), **W
 
 ### BE-D1 - Primary-slot leakage under multi-source (BE-1, High)
 
-**Observation.** [server.py:625-746](road_safety/server.py#L625) defines `LiveState` with legacy primary-slot proxies (`state.quality`, `state.reader`, `state.last_scene_ctx`) that co-exist with the newer `state.slots` map. The event-emission path still reads `state.quality` at [server.py:2094-2098](road_safety/server.py#L2094); `/api/live/status`, `/api/live/perception`, `/api/live/scene`, and `/api/admin/health` ([server.py:2777-2815](road_safety/server.py#L2777), [:3279-3338](road_safety/server.py#L3279)) return primary-slot data even when multiple slots are active.
+**Observation.** [server.py:625-746](backend/server.py#L625) defines `LiveState` with legacy primary-slot proxies (`state.quality`, `state.reader`, `state.last_scene_ctx`) that co-exist with the newer `state.slots` map. The event-emission path still reads `state.quality` at [server.py:2094-2098](backend/server.py#L2094); `/api/live/status`, `/api/live/perception`, `/api/live/scene`, and `/api/admin/health` ([server.py:2777-2815](backend/server.py#L2777), [:3279-3338](backend/server.py#L3279)) return primary-slot data even when multiple slots are active.
 
 **Why it matters.** In a 4-camera vehicle, an event from the rear camera can be annotated with the front camera's quality metrics. This is a correctness bug with real operational impact (wrong incident attribution, wrong health dashboards), not a perf issue.
 
@@ -214,9 +214,9 @@ Each decision follows the same shape: **Observation** (what the code shows), **W
 
 ### BE-D2 - `server.py` monolith and sibling oversized modules (BE-2, High)
 
-**Observation.** [server.py](road_safety/server.py) is 3,972 LOC with 53 HTTP endpoints and six distinct responsibilities: FastAPI wiring, lifecycle, per-frame perception pipeline (`_on_frame` alone is ~434 LOC), event emission (`_flush_episode` + `_emit_event` at [:2094-2098](road_safety/server.py#L2094)), multi-source state (`Episode`, `StreamSlot`, `LiveState`), and both public + admin routes.
+**Observation.** [server.py](backend/server.py) is 3,972 LOC with 53 HTTP endpoints and six distinct responsibilities: FastAPI wiring, lifecycle, per-frame perception pipeline (`_on_frame` alone is ~434 LOC), event emission (`_flush_episode` + `_emit_event` at [:2094-2098](backend/server.py#L2094)), multi-source state (`Episode`, `StreamSlot`, `LiveState`), and both public + admin routes.
 
-**Important framing:** the team has **already started** the extraction. Two of the 53 routes live in [road_safety/api/settings.py](road_safety/api/settings.py) (669 LOC) and [road_safety/api/feedback.py](road_safety/api/feedback.py). The other 51 are still inline in `server.py`. The pattern exists; it just wasn't finished. That makes "finish what's started" a better framing than "propose decomposition from scratch."
+**Important framing:** the team has **already started** the extraction. Two of the 53 routes live in [backend/api/settings.py](backend/api/settings.py) (669 LOC) and [backend/api/feedback.py](backend/api/feedback.py). The other 51 are still inline in `server.py`. The pattern exists; it just wasn't finished. That makes "finish what's started" a better framing than "propose decomposition from scratch."
 
 Three sibling modules also qualify for pure relocation with no behaviour change:
 - **`services/watchdog.py` (1,804 LOC)** mixes rule checks, AI analyzer, storage, grouping, and the orchestrator. Split into `watchdog/{rules.py, ai.py, storage.py, fingerprint.py, orchestrator.py}`.
@@ -232,13 +232,13 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 | A - Router-only extraction first: one `APIRouter` per feature (`api/live.py`, `api/admin.py`, `api/road.py`, `api/agents.py`, `api/watchdog.py`, `api/retention.py`, `api/llm.py`, `api/tests.py`, `api/streams.py`). `server.py` becomes the composition root. **No behaviour change**, ~2,400 LOC mechanically relocated. | 1-2 weeks. Near-zero risk to perception. Biggest readability win per hour spent. Finishes the pattern the team already started. |
 | B - Do A, then extract `Episode` -> `core/episode.py` and `_flush_episode`/`_emit_event` -> `services/event_emission.py` | +1 week. Closes the emission testability gap - emission can be unit-tested without FastAPI. |
 | C - Do A + B + the three sibling splits (watchdog, detection, llm) | +1 week. All pure relocations with re-exports. Risk is "wrong import path causes ImportError at boot," caught by `python start.py` + pytest in <30s. |
-| D - Full decomposition including `LiveState` / `StreamSlot` into `road_safety/runtime/` and a `Gate` pipeline for `_on_frame` | 4-6 weeks. Best long-term outcome. Touches shared mutable state and the hot path. Needs the pipeline-gate regression tests pinned first. |
+| D - Full decomposition including `LiveState` / `StreamSlot` into `backend/runtime/` and a `Gate` pipeline for `_on_frame` | 4-6 weeks. Best long-term outcome. Touches shared mutable state and the hot path. Needs the pipeline-gate regression tests pinned first. |
 | E - Leave monolith; add `max-lines` lint | Free. Stops growth. Doesn't reduce risk. |
 
 **Recommended: A in Plan A; B + C together in a second Plan A sprint; D only with dedicated Plan B budget.** A is the unlock - every subsequent improvement becomes localized. Commit to D only when C has landed and unit tests exist for each gate; **partial D is worse than no D** because it leaves two half-migrated layouts co-existing.
 
 **Acceptance criteria.**
-- After A: `server.py` ≤ 2,000 LOC; no route handler lives outside `road_safety/api/*.py`.
+- After A: `server.py` ≤ 2,000 LOC; no route handler lives outside `backend/api/*.py`.
 - After B: `Episode`, `_flush_episode`, `_emit_event` importable without booting FastAPI; at least one unit test per emission branch (privacy scrub, cloud publish enqueue, SSE broadcast).
 - After C: `watchdog.py`, `core/detection.py`, `services/llm.py` each ≤ 600 LOC. Sub-module `__init__.py` re-exports preserve every current public name (verified by import smoke test).
 
@@ -252,8 +252,8 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 ### BE-D3 - Watchdog + queue full-file I/O (BE-3, Medium)
 
 **Observation.**
-- [watchdog.py:799-833](road_safety/services/watchdog.py#L799) `tail()` reads the entire watchdog file then slices the tail. `stats()` at [:917-934](road_safety/services/watchdog.py#L917) calls `tail(500)`.
-- [edge_publisher.py:541-547](road_safety/integrations/edge_publisher.py#L541) `flush_once()` reads the full queue via `read_text().splitlines()` and rewrites the whole file on success/failure paths ([:580](road_safety/integrations/edge_publisher.py#L580), [:648](road_safety/integrations/edge_publisher.py#L648), [:669](road_safety/integrations/edge_publisher.py#L669)).
+- [watchdog.py:799-833](backend/services/watchdog.py#L799) `tail()` reads the entire watchdog file then slices the tail. `stats()` at [:917-934](backend/services/watchdog.py#L917) calls `tail(500)`.
+- [edge_publisher.py:541-547](backend/integrations/edge_publisher.py#L541) `flush_once()` reads the full queue via `read_text().splitlines()` and rewrites the whole file on success/failure paths ([:580](backend/integrations/edge_publisher.py#L580), [:648](backend/integrations/edge_publisher.py#L648), [:669](backend/integrations/edge_publisher.py#L669)).
 
 **Why it matters.** Both files are append-only and grow unbounded between retention sweeps. At 10k rows each read is the whole history; at 100k, retention and stats become visible in admin latency. This is the classic "works in dev, pages ops at scale" pattern.
 
@@ -271,7 +271,7 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 
 ### BE-D4 - HTTP client reuse (BE-4, Medium)
 
-**Observation.** `httpx.AsyncClient()` constructed per-call at [slack.py:403](road_safety/integrations/slack.py#L403), [slack.py:526](road_safety/integrations/slack.py#L526), and [edge_publisher.py:612-615](road_safety/integrations/edge_publisher.py#L612). Each call pays a fresh TCP + TLS handshake.
+**Observation.** `httpx.AsyncClient()` constructed per-call at [slack.py:403](backend/integrations/slack.py#L403), [slack.py:526](backend/integrations/slack.py#L526), and [edge_publisher.py:612-615](backend/integrations/edge_publisher.py#L612). Each call pays a fresh TCP + TLS handshake.
 
 **Why it matters.** At normal load this is ~10-20 handshakes/min. At burst - which happens exactly during an incident storm when Slack notifications and cloud egress peak together - it amplifies under the conditions where you want fastest egress.
 
@@ -289,7 +289,7 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 
 ### BE-D5 - Inference scheduling under multi-stream (BE-5, Medium)
 
-**Observation.** Four StreamReader threads call `detect_frame(state.model, frame)` against a single model instance ([server.py:1482](road_safety/server.py#L1482), callbacks at [:1381-1392](road_safety/server.py#L1381)). At 2 fps * 4 sources = 8 inferences/sec against one GPU slot with ~100ms compute. There's no queue, no priority, no backpressure signal, and no per-stage timing.
+**Observation.** Four StreamReader threads call `detect_frame(state.model, frame)` against a single model instance ([server.py:1482](backend/server.py#L1482), callbacks at [:1381-1392](backend/server.py#L1381)). At 2 fps * 4 sources = 8 inferences/sec against one GPU slot with ~100ms compute. There's no queue, no priority, no backpressure signal, and no per-stage timing.
 
 **Why it matters.** As source count grows, frames queue invisibly. A slow source silently starves faster ones. There's no observability to know whether you're in that regime.
 
@@ -308,7 +308,7 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 
 ### BE-D6 - Typed API contracts (BE-6, Medium)
 
-**Observation.** Zero `response_model=` declarations on any FastAPI route. [server.py:2754-2771](road_safety/server.py#L2754) `/chat` accepts `body: dict` instead of a validated model. The event dict flows untyped through `_flush_episode` -> `_emit_event` -> SSE -> cloud publish - shape is implicit in docstrings and manual care.
+**Observation.** Zero `response_model=` declarations on any FastAPI route. [server.py:2754-2771](backend/server.py#L2754) `/chat` accepts `body: dict` instead of a validated model. The event dict flows untyped through `_flush_episode` -> `_emit_event` -> SSE -> cloud publish - shape is implicit in docstrings and manual care.
 
 **Why it matters.** The FE re-types everything the BE returns (see FE audit D7). A field rename on BE ships silently to production. Privacy-sensitive fields (`plate_text`) are scrubbed by convention, not by a schema that would fail loudly if a new path re-introduced them.
 
@@ -339,7 +339,7 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 
 ### BE-D7 - Privacy primitive lives in the wrong package
 
-**Observation.** `_hash_and_strip_plate` is defined in [services/llm.py:732](road_safety/services/llm.py#L732). The `compliance/` package exists precisely for this class of invariant ([compliance/audit.py](road_safety/compliance/audit.py), [compliance/retention.py](road_safety/compliance/retention.py)), but the plate scrub is not there. `_emit_event` also re-pops `plate_text`/`plate_state` as defence in depth at [server.py:2117-2125](road_safety/server.py#L2117).
+**Observation.** `_hash_and_strip_plate` is defined in [services/llm.py:732](backend/services/llm.py#L732). The `compliance/` package exists precisely for this class of invariant ([compliance/audit.py](backend/compliance/audit.py), [compliance/retention.py](backend/compliance/retention.py)), but the plate scrub is not there. `_emit_event` also re-pops `plate_text`/`plate_state` as defence in depth at [server.py:2117-2125](backend/server.py#L2117).
 
 **Why it matters.** The privacy invariant ("no raw plate text in any buffer") is the **most important** invariant in the system per [CLAUDE.md](CLAUDE.md). Hiding it inside `services/llm.py` means a future contributor adding a non-LLM enrichment path could miss it. Package names should signal what they enforce.
 
@@ -356,7 +356,7 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 
 ### BE-D8 - Routes read perception-thread state without the lock
 
-**Observation.** [server.py:2777](road_safety/server.py#L2777) `live_status()` is a `def` (synchronous, runs on FastAPI's thread pool) and reads `state.reader.frames_read`, `state.reader.frames_processed`, `state.episodes`, `state.recent_events`. The hot-path `_on_frame` mutates these same fields from the perception thread. Same pattern in `admin_health()` ([:3279](road_safety/server.py#L3279)), `events()` ([:2937](road_safety/server.py#L2937)), `summary()` ([:3964](road_safety/server.py#L3964)).
+**Observation.** [server.py:2777](backend/server.py#L2777) `live_status()` is a `def` (synchronous, runs on FastAPI's thread pool) and reads `state.reader.frames_read`, `state.reader.frames_processed`, `state.episodes`, `state.recent_events`. The hot-path `_on_frame` mutates these same fields from the perception thread. Same pattern in `admin_health()` ([:3279](backend/server.py#L3279)), `events()` ([:2937](backend/server.py#L2937)), `summary()` ([:3964](backend/server.py#L3964)).
 
 **Why it matters.** Torn reads under load - uptime can briefly see a `None` reader during a slot restart, or inconsistent frame counts. Today it works because the GIL happens to serialize pointer reads; that's an **implementation accident, not a contract**. First bad day in production, this bites.
 
@@ -385,7 +385,7 @@ Three sibling modules also qualify for pure relocation with no behaviour change:
 
 ### BE-D9 - ByteTrack state is shared across all camera slots
 
-**Observation.** [core/detection.py:1140-1147](road_safety/core/detection.py#L1140):
+**Observation.** [core/detection.py:1140-1147](backend/core/detection.py#L1140):
 
 ```python
 results = model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)[0]
@@ -413,7 +413,7 @@ results = model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)[0
 
 ### BE-D11 - `/api/live/status` and `/api/admin/health` overlap
 
-**Observation.** [server.py:2777](road_safety/server.py#L2777) `/api/live/status` returns ~13 fields (source, running, frame counts, uptime, perception flags). [server.py:3279](road_safety/server.py#L3279) `/api/admin/health` returns nested `server`/`pipeline`/`integrations`/`perception`/`scene`/`ego` - most of the live/status fields again, plus more. FE `useLiveStatus` polls the first every 5s; `useAdminHealth` polls the second every 4s. Settings mounts **both** - see FE audit D2.
+**Observation.** [server.py:2777](backend/server.py#L2777) `/api/live/status` returns ~13 fields (source, running, frame counts, uptime, perception flags). [server.py:3279](backend/server.py#L3279) `/api/admin/health` returns nested `server`/`pipeline`/`integrations`/`perception`/`scene`/`ego` - most of the live/status fields again, plus more. FE `useLiveStatus` polls the first every 5s; `useAdminHealth` polls the second every 4s. Settings mounts **both** - see FE audit D2.
 
 **Why it matters.** The FE's single-biggest wasteful-traffic pattern is rooted here. Two overlapping endpoints invite consumers to poll both for completeness.
 
@@ -464,13 +464,13 @@ results = model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)[0
 ### BE-D12 - Control endpoints unauthenticated (BE-12, **Critical**)
 
 **Observation.** Multiple endpoints that **mutate system state or operator configuration** carry explicit `AUTH: public` docstrings:
-- [server.py:3373](road_safety/server.py#L3373) `POST /api/validator/toggle` - "public (read-only toggle of a background observability job; does not affect live alerts)" - but it *does* mutate the validator worker's accept state.
-- [server.py:3680](road_safety/server.py#L3680) `POST /api/live/sources/{id}/start` - "public (operator network)".
-- [server.py:3801](road_safety/server.py#L3801) `POST /api/live/sources` - registers a new perception source from a user-pasted URL (also see BE-D15 for SSRF).
-- [server.py:3947](road_safety/server.py#L3947) `POST /api/tests/run` - triggers a full pytest run (CPU-heavy; easy to script-abuse).
+- [server.py:3373](backend/server.py#L3373) `POST /api/validator/toggle` - "public (read-only toggle of a background observability job; does not affect live alerts)" - but it *does* mutate the validator worker's accept state.
+- [server.py:3680](backend/server.py#L3680) `POST /api/live/sources/{id}/start` - "public (operator network)".
+- [server.py:3801](backend/server.py#L3801) `POST /api/live/sources` - registers a new perception source from a user-pasted URL (also see BE-D15 for SSRF).
+- [server.py:3947](backend/server.py#L3947) `POST /api/tests/run` - triggers a full pytest run (CPU-heavy; easy to script-abuse).
 - Implied: the whole `/api/live/sources/{id}/{start,pause,stop,detection}` family.
 
-**Why it matters.** "Network-gated operator UI" is a **deployment assumption**, not a property of the code. Any misconfigured reverse proxy, VPN split-tunnel, LAN-exposed edge host, or curl-from-inside-the-office scenario turns these into unauthenticated remote control. The project already has `require_bearer_token()` in [road_safety/security.py](road_safety/security.py) used by `/api/audit`, `/api/llm/*`, `/api/road/*`, `/api/agents/*`, `/api/retention/*` - the infrastructure is in place; these endpoints just don't use it.
+**Why it matters.** "Network-gated operator UI" is a **deployment assumption**, not a property of the code. Any misconfigured reverse proxy, VPN split-tunnel, LAN-exposed edge host, or curl-from-inside-the-office scenario turns these into unauthenticated remote control. The project already has `require_bearer_token()` in [backend/security.py](backend/security.py) used by `/api/audit`, `/api/llm/*`, `/api/road/*`, `/api/agents/*`, `/api/retention/*` - the infrastructure is in place; these endpoints just don't use it.
 
 **Options**
 
@@ -499,11 +499,11 @@ results = model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)[0
 
 ### BE-D13 - Live media/detection streams unauthenticated (BE-13, **Critical**)
 
-**Observation.** [server.py:3592](road_safety/server.py#L3592) `GET /admin/video_feed` and [:3606](road_safety/server.py#L3606) `/admin/video_feed/{source_id}` return **MJPEG live camera streams** with `AUTH: public (network-gated operator UI)`. [:3619](road_safety/server.py#L3619) `GET /admin/frame/{source_id}` returns a single-shot JPEG. [:3899](road_safety/server.py#L3899) `GET /admin/detections` is an SSE stream of per-frame bounding boxes.
+**Observation.** [server.py:3592](backend/server.py#L3592) `GET /admin/video_feed` and [:3606](backend/server.py#L3606) `/admin/video_feed/{source_id}` return **MJPEG live camera streams** with `AUTH: public (network-gated operator UI)`. [:3619](backend/server.py#L3619) `GET /admin/frame/{source_id}` returns a single-shot JPEG. [:3899](backend/server.py#L3899) `GET /admin/detections` is an SSE stream of per-frame bounding boxes.
 
 **Why it matters.** These are the **live camera feeds**. If the perimeter is weak, anyone on the network observes the annotated video stream of every source the edge is processing. The detection SSE also leaks object positions / track IDs, which is useful reconnaissance on its own. Unlike the public safety-event SSE (`/stream/events`), these endpoints expose **continuous frame-level** data with no redaction.
 
-Paired failure: [server.py:818-874](road_safety/server.py#L818) already has thumbnail-token signing infrastructure (HMAC-signed timed URLs for public thumbnails). That primitive is the right fit for per-tile live feeds too, but is currently only used for safety-event thumbnails.
+Paired failure: [server.py:818-874](backend/server.py#L818) already has thumbnail-token signing infrastructure (HMAC-signed timed URLs for public thumbnails). That primitive is the right fit for per-tile live feeds too, but is currently only used for safety-event thumbnails.
 
 **Options**
 
@@ -532,7 +532,7 @@ Paired failure: [server.py:818-874](road_safety/server.py#L818) already has thum
 
 ### BE-D14 - Clip endpoint is a public DoS vector (BE-14, High)
 
-**Observation.** [server.py:2974](road_safety/server.py#L2974) `GET /api/events/{event_id}/clip?before=3&after=3&annotated=1` is `AUTH: public`. On cache miss with `annotated=1`, [:3043](road_safety/server.py#L3043) calls `_render_annotated_event_clip()`, which runs a **full YOLO inference pass** over every frame in the ±N-second window before writing the MP4 to disk.
+**Observation.** [server.py:2974](backend/server.py#L2974) `GET /api/events/{event_id}/clip?before=3&after=3&annotated=1` is `AUTH: public`. On cache miss with `annotated=1`, [:3043](backend/server.py#L3043) calls `_render_annotated_event_clip()`, which runs a **full YOLO inference pass** over every frame in the ±N-second window before writing the MP4 to disk.
 
 Parameters are loosely bounded: `before` and `after` are clamped to `[0, 30]` (line 3030), so a single request can render up to **60 seconds of YOLO-annotated video**. Cache key is `{event_id}_{before}_{after}_annotated.mp4` - so an attacker can vary `before=2.5` vs `before=2.6` vs `before=2.7` and **force cache misses indefinitely** against the same event, each one a full YOLO pass + ffmpeg encode.
 
@@ -560,9 +560,9 @@ Parameters are loosely bounded: `before` and `after` are clamped to `[0, 30]` (l
 
 ### BE-D15 - SSRF-style risk on `/api/live/sources` (BE-15, High)
 
-**Observation.** [server.py:3801-3827](road_safety/server.py#L3801) accepts a JSON body with a user-controlled `url` field. Validation is one prefix check at [:3827](road_safety/server.py#L3827): `if not (url.startswith("http://") or url.startswith("https://")): raise 400`. No host allowlist. No blocklist for RFC1918 / loopback / link-local. No check against the cloud-metadata service address (`169.254.169.254`).
+**Observation.** [server.py:3801-3827](backend/server.py#L3801) accepts a JSON body with a user-controlled `url` field. Validation is one prefix check at [:3827](backend/server.py#L3827): `if not (url.startswith("http://") or url.startswith("https://")): raise 400`. No host allowlist. No blocklist for RFC1918 / loopback / link-local. No check against the cloud-metadata service address (`169.254.169.254`).
 
-That URL is then passed through [:1313](road_safety/server.py#L1313) into the stream reader. For `youtube.com` inputs, [stream.py:154](road_safety/core/stream.py#L154) `resolve_hls()` invokes **`yt-dlp`** as a subprocess to resolve the URL. For other inputs, OpenCV / ffmpeg opens the URL directly.
+That URL is then passed through [:1313](backend/server.py#L1313) into the stream reader. For `youtube.com` inputs, [stream.py:154](backend/core/stream.py#L154) `resolve_hls()` invokes **`yt-dlp`** as a subprocess to resolve the URL. For other inputs, OpenCV / ffmpeg opens the URL directly.
 
 **Why it matters.** Two classes of abuse on top of the BE-D12 control-boundary issue:
 1. **SSRF.** An attacker pastes `http://169.254.169.254/latest/meta-data/iam/security-credentials/` (AWS cloud metadata) or `http://127.0.0.1:8500/v1/kv/` (local Consul, etc.). The edge host fetches it. Depending on the error path, response bodies may leak through slot status fields or logs.
@@ -591,7 +591,7 @@ That URL is then passed through [:1313](road_safety/server.py#L1313) into the st
 
 ### BE-D10 - `config.py` has no schema
 
-**Observation.** [road_safety/config.py](road_safety/config.py) is 598 LOC of `os.getenv("ROAD_X", default)` calls - roughly 70 env vars read at import time. No validation. A typo in `ROAD_TARGET_FPS` silently keeps the default. `ROAD_TARGET_FBS=4` boots happily with the wrong value.
+**Observation.** [backend/config.py](backend/config.py) is 598 LOC of `os.getenv("ROAD_X", default)` calls - roughly 70 env vars read at import time. No validation. A typo in `ROAD_TARGET_FPS` silently keeps the default. `ROAD_TARGET_FBS=4` boots happily with the wrong value.
 
 **Why it matters.** Production misconfigurations are the silent kind. The edge fleet deploys via env vars; a typo in a deploy script is a failure mode that won't surface until someone notices the wrong behaviour in the field.
 
@@ -646,7 +646,7 @@ BE-D2.C (watchdog + detection + llm sub-splits - all pure relocations) -> BE-D9.
 Sprint 0 is the cost of admission:
 
 1. **Repair backend test tooling.** Rebuild `.venv` (`python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`); verify `pytest tests/ -v` green on `main`.
-2. **Wire `make lint` to add `ruff check` + `ruff format --check` + `mypy road_safety/core road_safety/services road_safety/integrations`.** Permissive mode on `server.py` until BE-D2.B.
+2. **Wire `make lint` to add `ruff check` + `ruff format --check` + `mypy backend/core backend/services backend/integrations`.** Permissive mode on `server.py` until BE-D2.B.
 3. **Smoke scenarios (scriptable fallbacks if pytest isn't green yet).** Minimum bar every refactor PR must pass before merge:
    - `python start.py --skip-tests --no-browser` boots; `/api/live/status` returns 200 within 30s.
    - `curl /stream/events` receives at least one keepalive within 20s.

@@ -36,7 +36,7 @@ Design constraints
   jobs are dropped silently (logged as skip records on the LLM observer
   so operators can see the drop rate).
 * No new persistence store. Findings go through
-  :func:`road_safety.services.watchdog._write_finding`.
+  :func:`backend.services.watchdog._write_finding`.
 """
 
 import asyncio
@@ -46,7 +46,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from road_safety.config import (
+from backend.config import (
     CameraCalibration,
     VALIDATOR_BACKEND,
     VALIDATOR_DEVICE,
@@ -55,7 +55,7 @@ from road_safety.config import (
     VALIDATOR_QUEUE_MAX,
     VALIDATOR_SAMPLE_SEC,
 )
-from road_safety.core.detection import (
+from backend.core.detection import (
     PEDESTRIAN_CLASSES,
     VEHICLE_CLASSES,
     VEHICLE_INTER_DISTANCE_GATE_M,

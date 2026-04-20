@@ -2,7 +2,7 @@
 
 This package groups FastAPI *sub-routers* — groups of related HTTP
 endpoints that are registered onto the main FastAPI app inside
-``road_safety/server.py`` at startup.
+``backend/server.py`` at startup.
 
 Python primer for this package
 ------------------------------
@@ -22,7 +22,7 @@ Modules living here
   verdicts on individual safety events (true-positive vs false-positive)
   and exposes a coaching queue of medium-risk events awaiting review.
 
-Most server routes still live directly in ``road_safety/server.py``; only
+Most server routes still live directly in ``backend/server.py``; only
 self-contained, operator-facing feature slices (like feedback) get lifted
 out here.
 """

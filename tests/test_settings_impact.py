@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from road_safety.services import settings_db
-from road_safety.services.impact import (
+from backend.services import settings_db
+from backend.services.impact import (
     ImpactMonitor,
     MIN_AFTER_EVENTS,
     MIN_BASELINE_EVENTS,

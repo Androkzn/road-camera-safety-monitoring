@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "road-safety"
+name = "backend"
 version = "1.0.0"
 description = "Live dashcam safety review system — YOLO detection, LLM narration, road analytics"
 readme = "README.md"
@@ -37,7 +37,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["road_safety*"]
+include = ["backend*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

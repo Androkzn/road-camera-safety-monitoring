@@ -49,9 +49,9 @@ Every recommendation follows the same template:
 
 | ID | Doc | File | Issue |
 |----|-----|------|-------|
-| **B1** | [integration.md](./integration.md#p0-bugs-found-during-review) | [server.py:1609,1618](../../road_safety/server.py#L1609) | Watchdog DELETE / POST-delete are unauthenticated — anyone reachable on the listening port can wipe operator state |
-| **B2** | [backend.md](./backend.md#p0-bugs-found-during-review) | [services/llm.py](../../road_safety/services/llm.py) | `_HAIKU_BUCKET._lock = asyncio.Lock()` is bound to whichever loop happens to instantiate first; awaiting the bucket from the perception thread risks `RuntimeError: ... bound to a different event loop` on contended frames |
-| **B3** | [backend.md](./backend.md#p0-bugs-found-during-review) | [server.py:883-885](../../road_safety/server.py#L883) | `state.recent_events.append/pop(0)` runs in the perception thread; SSE handlers concurrently iterate via `list(state.recent_events)`. Single ops are GIL-safe; the read+slice composite is not |
+| **B1** | [integration.md](./integration.md#p0-bugs-found-during-review) | [server.py:1609,1618](../../backend/server.py#L1609) | Watchdog DELETE / POST-delete are unauthenticated — anyone reachable on the listening port can wipe operator state |
+| **B2** | [backend.md](./backend.md#p0-bugs-found-during-review) | [services/llm.py](../../backend/services/llm.py) | `_HAIKU_BUCKET._lock = asyncio.Lock()` is bound to whichever loop happens to instantiate first; awaiting the bucket from the perception thread risks `RuntimeError: ... bound to a different event loop` on contended frames |
+| **B3** | [backend.md](./backend.md#p0-bugs-found-during-review) | [server.py:883-885](../../backend/server.py#L883) | `state.recent_events.append/pop(0)` runs in the perception thread; SSE handlers concurrently iterate via `list(state.recent_events)`. Single ops are GIL-safe; the read+slice composite is not |
 
 These are independent of the strategic improvements and should be fixed before any of the larger refactors land.
 
@@ -59,8 +59,8 @@ These are independent of the strategic improvements and should be fixed before a
 
 | Change | File | Effect |
 |--------|------|--------|
-| Auto-select YOLO accelerator (CUDA → MPS → CPU) with `ROAD_YOLO_DEVICE` override | [core/detection.py](../../road_safety/core/detection.py) `load_model()` | Multi-source demo on Apple Silicon: uvicorn CPU **205 % → 54 %** with 6 streams + detection (yolov8s, 2 fps). Closes the silent-CPU-fallback footgun for Mac dev / demo hosts. |
-| Per-slot `detection_enabled` toggle + `POST /api/live/sources/{id}/detection` | [server.py](../../road_safety/server.py) (`StreamSlot`, `_on_frame`) | Operator can keep watching N cameras while running YOLO on a subset. Manual escape valve for compute saturation. |
+| Auto-select YOLO accelerator (CUDA → MPS → CPU) with `ROAD_YOLO_DEVICE` override | [core/detection.py](../../backend/core/detection.py) `load_model()` | Multi-source demo on Apple Silicon: uvicorn CPU **205 % → 54 %** with 6 streams + detection (yolov8s, 2 fps). Closes the silent-CPU-fallback footgun for Mac dev / demo hosts. |
+| Per-slot `detection_enabled` toggle + `POST /api/live/sources/{id}/detection` | [server.py](../../backend/server.py) (`StreamSlot`, `_on_frame`) | Operator can keep watching N cameras while running YOLO on a subset. Manual escape valve for compute saturation. |
 | Focus-aware Admin grid (tap-to-maximize, mini strip, `SelectedStreamHeader`) | `frontend/src/components/admin/{MultiSourceGrid,SelectedStreamHeader}.tsx` | Single source of truth for `focusedId`; `useLiveSources` polled once at the page level. Foundation for the auto-shed priority signal in R-PERF. |
 
 See [backend.md §R4 + R-PERF](./backend.md#r4--h-yolov8-accelerator-selection--export--half-precision-for-the-deployment-target) for the remaining work (auto-shedding, detecting-slot cap, shared MJPEG fan-out, `perf.cpu_saturated` watchdog rule, device surfacing in `/api/admin/health`).

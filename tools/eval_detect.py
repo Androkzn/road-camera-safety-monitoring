@@ -46,7 +46,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from road_safety.config import DATA_DIR, PROJECT_ROOT
+from backend.config import DATA_DIR, PROJECT_ROOT
 
 ROOT = PROJECT_ROOT
 DEFAULT_TOLERANCE_SEC = 1.5

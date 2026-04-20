@@ -16,7 +16,7 @@ Role:
     Collects every deployment-tunable knob (paths, network ports, privacy
     tokens, camera calibration, LLM settings, ...) into one module that runs
     exactly once at import time. Values are captured into plain module-level
-    constants so callers can ``from road_safety.config import TARGET_FPS``
+    constants so callers can ``from backend.config import TARGET_FPS``
     and get a stable value.
 
 Import-time behaviour:
@@ -53,10 +53,10 @@ from dotenv import load_dotenv
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: PROJECT ROOT AND DIRECTORY LAYOUT
 # ─────────────────────────────────────────────────────────────────────────────
-# Project root is the parent of the ``road_safety/`` package directory.
+# Project root is the parent of the ``backend/`` package directory.
 # ``Path(__file__)``        → absolute path to this config.py
 # ``.resolve()``            → canonicalise (follow symlinks, make absolute)
-# ``.parent``               → the ``road_safety/`` directory
+# ``.parent``               → the ``backend/`` directory
 # ``.parent`` (again)       → the project root (where ``pyproject.toml`` lives)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -108,7 +108,7 @@ YOLO_IMGSZ = int(os.getenv("ROAD_YOLO_IMGSZ", "640"))
 # FP16 is only safe on CUDA (CPU + Apple MPS either ignore it or misbehave).
 # We cannot auto-upgrade to ``True`` here because ``config.py`` must not
 # import ``torch`` (it sits at the bottom of the dependency graph and runs
-# at ``from road_safety.config import *`` time, before torch is guaranteed
+# at ``from backend.config import *`` time, before torch is guaranteed
 # importable). ``core/detection.py`` owns the actual device detection and
 # logs a hint when the selected device is CUDA but this flag is off.
 YOLO_HALF = os.getenv("ROAD_YOLO_HALF", "0").lower() not in ("0", "false", "no", "")
@@ -262,7 +262,7 @@ EPISODE_IDLE_FLUSH_SEC = 1.5
 DSAR_TOKEN = os.getenv("ROAD_DSAR_TOKEN")
 # Admin bearer token for operational endpoints (``/api/audit``,
 # ``/api/llm/*``, ``/api/retention/*``, ...). Unset → those routes 503.
-# See ``road_safety/security.py`` for the enforcement helper.
+# See ``backend/security.py`` for the enforcement helper.
 ADMIN_TOKEN = os.getenv("ROAD_ADMIN_TOKEN")
 # ``ROAD_REQUIRE_AUTH`` — hard-cutover flag for the Sprint 0 auth-boundary
 # hardening (BE-D12..D15 in the 2026-04-20 backend audit).

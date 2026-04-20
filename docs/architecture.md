@@ -165,7 +165,7 @@ image relay is opt-in via `SLACK_ENABLE_IMAGE_RELAY=1`.
   is required before any internal thumbnail is sent to a third-party vision model.
 - **Client-side rate budget:** a token-bucket limiter (3 req/min) refuses LLM
   calls *before* they 429, cheaper than absorbing failures.
-- **Cost observability:** `road_safety/services/llm_obs.py` tracks per-call token counts, latency
+- **Cost observability:** `backend/services/llm_obs.py` tracks per-call token counts, latency
   percentiles, and estimated USD cost. Exposed via `/api/llm/stats`
   behind `ROAD_ADMIN_TOKEN`.
 
@@ -184,9 +184,9 @@ Max iteration cap (5 steps) prevents runaway loops.
 
 ## Data Retention & Compliance
 
-- **`road_safety/compliance/retention.py`** runs hourly sweeps: thumbnails (30d), feedback (90d),
+- **`backend/compliance/retention.py`** runs hourly sweeps: thumbnails (30d), feedback (90d),
   active-learning samples (60d), outbound queue (7d). All configurable via env.
-- **`road_safety/compliance/audit.py`** logs every access to sensitive resources (unredacted thumbnails,
+- **`backend/compliance/audit.py`** logs every access to sensitive resources (unredacted thumbnails,
   feedback submissions, AL exports, agent invocations, chat queries) with
   timestamp, actor, action, resource, and outcome.
 - **DSAR workflow:** unredacted thumbnails require `X-DSAR-Token` header; denied
@@ -200,7 +200,7 @@ Max iteration cap (5 steps) prevents runaway loops.
 ## Multi-Vehicle Road Model
 
 - Each event carries `vehicle_id`, `road_id`, `driver_id` from env config.
-- `road_safety/services/registry.py` maintains an in-memory registry with per-vehicle event counts,
+- `backend/services/registry.py` maintains an in-memory registry with per-vehicle event counts,
   safety scores (decaying penalty model), and driver leaderboard.
 - `server.py` runs scheduled score recovery (`road_registry.decay_scores()`)
   controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (set `0` to disable).

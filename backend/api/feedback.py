@@ -28,7 +28,7 @@ Files read / written
 
 Environment variables
 ---------------------
-None directly. Indirectly: ``DATA_DIR`` resolves from ``road_safety.config``
+None directly. Indirectly: ``DATA_DIR`` resolves from ``backend.config``
 which reads ``ROAD_DATA_DIR``.
 """
 
@@ -53,8 +53,8 @@ from pydantic import BaseModel, Field
 
 # Local: single source of truth for filesystem paths. Never compute
 # ``Path(__file__).parent`` in modules — always import from config.
-from road_safety.config import DATA_DIR
-from road_safety.integrations import slack as slack_notify
+from backend.config import DATA_DIR
+from backend.integrations import slack as slack_notify
 
 # Type alias for the optional post-write hook. Reads as "a callable that
 # takes (record: dict, matched: Optional[dict]) and returns an Awaitable

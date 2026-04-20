@@ -33,7 +33,7 @@ Supported sources
 Target FPS
 ----------
 Native feeds are 25-60 fps, but the perception stack runs at ``TARGET_FPS``
-(default 2 fps, see ``road_safety/config.py``). We subsample by computing
+(default 2 fps, see ``backend/config.py``). We subsample by computing
 ``step = native_fps / target_fps`` and only invoking ``on_frame`` every
 ``step``-th frame — cheaper than decoding at full rate and throwing most
 frames away downstream.
@@ -58,7 +58,7 @@ import numpy as np  # Used to wrap raw ffmpeg bytes into an (H, W, 3) array.
 
 # ``# noqa: E402`` silences the "import not at top of file" lint rule — we're
 # importing *after* the ``__future__`` block, which is required to come first.
-from road_safety.config import YT_DLP_PATH as YT_DLP  # noqa: E402
+from backend.config import YT_DLP_PATH as YT_DLP  # noqa: E402
 
 
 def _find_bin(name: str) -> str | None:
@@ -243,7 +243,7 @@ class StreamReader:
         ...                           # my_callback is invoked ~2x per second
         reader.stop()                 # signals + joins the thread
 
-    Called by ``road_safety/server.py::_run_loop`` which owns a single
+    Called by ``backend/server.py::_run_loop`` which owns a single
     ``StreamReader`` instance per active stream.
     """
 

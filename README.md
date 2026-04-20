@@ -97,7 +97,7 @@ Road cameras capture faces, license plates, and location — all classified as p
 |---|---|
 | **Dual thumbnails** | Every event produces internal (unredacted, local-only) and public (faces + plates blurred) versions. Shared event channels use only the public version; optional external enrichment is a separately governed processor path. |
 | **Optional signed public-thumbnail access** | If `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`, `_public` thumbnails require valid `exp`/`token` query params (HMAC-signed, short-lived) and access attempts are audit-logged. |
-| **Structural plate hashing at LLM boundary** | `enrich_event()` in `road_safety/services/llm.py` hashes the plate and strips `plate_text`/`plate_state` from the returned dict before it reaches any in-memory event buffer. `server.py` retains an egress `pop()` as defence in depth — but the primary invariant (no raw plate in any buffer) is enforced at ingest, not at egress. A caller that forgets to scrub at egress cannot leak because the raw plate was never there. |
+| **Structural plate hashing at LLM boundary** | `enrich_event()` in `backend/services/llm.py` hashes the plate and strips `plate_text`/`plate_state` from the returned dict before it reaches any in-memory event buffer. `server.py` retains an egress `pop()` as defence in depth — but the primary invariant (no raw plate in any buffer) is enforced at ingest, not at egress. A caller that forgets to scrub at egress cannot leak because the raw plate was never there. |
 | **DSAR-gated access** | Unredacted thumbnails require an `X-DSAR-Token` header. Denied attempts are audit-logged. |
 | **Audit trail** | Every sensitive access is logged: timestamp, actor, action, resource, outcome, IP. GDPR Art. 30 / SOC 2 ready. |
 | **Automated retention** | Hourly sweeps delete data past configurable windows: thumbnails 30d, feedback 90d, active-learning 60d. GDPR Art. 5(1)(e) — data kept only as long as necessary. |
@@ -154,7 +154,7 @@ A complete commercial fleet-safety product does more than this. Calling that out
 | Area | Why fleets care | Extension path |
 |---|---|---|
 | **In-cab Driver Monitoring (DMS)** — drowsiness, distraction, phone, seatbelt | Single biggest crash-prevention lever in vendor marketing; 80% distracted-driving reductions are attributed to DMS | Add a driver-facing camera path with face/gaze landmarks + phone-object overlap + **Driver Privacy Mode** (BIPA consent) |
-| **Insurance / FNOL** — MP4 clip evidence, carrier transport | Claim-handling cost is the commercial driver for most fleet camera purchases | `road_safety/integrations/fnol.py` shapes the payload. Still needed: rolling pre/post-roll MP4 buffer, carrier endpoint adapters |
+| **Insurance / FNOL** — MP4 clip evidence, carrier transport | Claim-handling cost is the commercial driver for most fleet camera purchases | `backend/integrations/fnol.py` shapes the payload. Still needed: rolling pre/post-roll MP4 buffer, carrier endpoint adapters |
 | **Telematics fusion** — GPS, IMU, CAN-bus, harsh-brake | Most commercial signals come from IMU + GPS, not vision. Ego-speed here is an optical-flow *proxy* | Ingest NMEA + accelerometer via USB GPS / OBD-II; set `speed_source="gps"` on events |
 | **ELD / DVIR / HOS** | FMCSA-mandated for trucking | Adapters for Motive/Samsara/Geotab ELD APIs |
 | **Driver coaching UX + consent lifecycle** | Real coaching is in-cab / on-phone, not a web dashboard | In-cab app, enrollment flow, off-duty mute |

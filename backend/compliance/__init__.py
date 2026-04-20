@@ -4,7 +4,7 @@ Python note (for newcomers)
 ---------------------------
 Any directory that contains an ``__init__.py`` file is treated by Python as a
 "package" — a folder you can import from using dotted paths like
-``from road_safety.compliance import audit``. The file can be empty; its mere
+``from backend.compliance import audit``. The file can be empty; its mere
 presence is what makes the folder a package. A module-level docstring (the
 triple-quoted string you are reading) is the conventional place to describe
 what the package does.

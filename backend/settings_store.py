@@ -5,7 +5,7 @@ Hot-path code reads it via ``STORE.snapshot()`` (returns a frozen
 ``MappingProxyType`` view, lock-free for readers) and writes go through
 ``STORE.apply_diff(...)`` which:
 
-1. Validates the merged snapshot against :mod:`road_safety.settings_spec`.
+1. Validates the merged snapshot against :mod:`backend.settings_spec`.
 2. Honours the ``If-Match`` lost-update protection
    (``expected_revision_hash``).
 3. Builds a new immutable snapshot and atomically rebinds it under a short
@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping
 
-from road_safety import settings_spec
+from backend import settings_spec
 
 
 # ---------------------------------------------------------------------------
@@ -396,5 +396,5 @@ class SettingsStore:
 # ---------------------------------------------------------------------------
 STORE = SettingsStore()
 """Process-wide :class:`SettingsStore` singleton. Import as
-``from road_safety.settings_store import STORE`` and call
+``from backend.settings_store import STORE`` and call
 ``STORE.snapshot()`` in any hot path."""

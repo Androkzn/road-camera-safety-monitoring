@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from road_safety.config import (
+from backend.config import (
     ALPR_MODE,
     DSAR_TOKEN,
     LOCATION,
@@ -12,9 +12,9 @@ from road_safety.config import (
     PUBLIC_THUMBS_REQUIRE_TOKEN,
     TARGET_FPS,
 )
-from road_safety.integrations.slack import slack_configured
-from road_safety.services.llm import llm_configured
-from road_safety.state import state
+from backend.integrations.slack import slack_configured
+from backend.services.llm import llm_configured
+from backend.state import state
 
 router = APIRouter()
 

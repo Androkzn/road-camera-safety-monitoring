@@ -13,11 +13,11 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from road_safety.compliance import audit
-from road_safety.config import SSE_REPLAY_COUNT
-from road_safety.security.signing import require_media_auth
-from road_safety.services.llm import chat as llm_chat
-from road_safety.state import state
+from backend.compliance import audit
+from backend.config import SSE_REPLAY_COUNT
+from backend.security.signing import require_media_auth
+from backend.services.llm import chat as llm_chat
+from backend.state import state
 
 router = APIRouter()
 

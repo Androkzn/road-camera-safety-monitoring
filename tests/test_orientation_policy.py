@@ -1,4 +1,4 @@
-"""Tests for road_safety.core.orientation_policy — per-camera-orientation gates.
+"""Tests for backend.core.orientation_policy — per-camera-orientation gates.
 
 Exercises the helpers (`is_reversing`, `in_blind_zone`, `blind_zone_dwell_sec`)
 and the main `classify_event` dispatcher across forward / rear / side cam
@@ -10,10 +10,10 @@ from collections import namedtuple
 
 import pytest
 
-from road_safety.config import CameraCalibration
-from road_safety.core.detection import Detection, TrackHistory, TrackSample
-from road_safety.core.egomotion import EgoFlow
-from road_safety.core.orientation_policy import (
+from backend.config import CameraCalibration
+from backend.core.detection import Detection, TrackHistory, TrackSample
+from backend.core.egomotion import EgoFlow
+from backend.core.orientation_policy import (
     BSW_DWELL_SEC,
     EGO_DIRECTION_MIN_CONFIDENCE,
     PolicyDecision,

@@ -1,4 +1,4 @@
-"""Tests for ``road_safety.settings_store.SettingsStore``.
+"""Tests for ``backend.settings_store.SettingsStore``.
 
 Covers: snapshot/apply atomicity, validation, cross-field rules, subscriber
 isolation, ``If-Match`` revision conflicts, privacy-confirm gate, rollback,
@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from road_safety import settings_spec
-from road_safety.settings_store import (
+from backend import settings_spec
+from backend.settings_store import (
     PrivacyConfirmRequired,
     RevisionConflict,
     SettingsStore,
@@ -130,18 +130,18 @@ def test_track_history_warm_reload_resizes_deque() -> None:
     """TrackHistory must rebuild per-track deques on TRACK_HISTORY_LEN change."""
     from collections import deque
 
-    from road_safety.core.detection import TrackHistory
+    from backend.core.detection import TrackHistory
 
     th = TrackHistory(maxlen=12)
     # Stuff one track with 12 samples.
     for i in range(12):
-        from road_safety.core.detection import TrackSample
+        from backend.core.detection import TrackSample
         th._tracks[1] = th._tracks.get(1, deque(maxlen=12))
         th._tracks[1].append(TrackSample(t=float(i), height=10, bottom=20))
     assert len(th._tracks[1]) == 12
 
     # Trigger the warm reload via the singleton store.
-    from road_safety.settings_store import STORE
+    from backend.settings_store import STORE
     STORE.apply_diff({"TRACK_HISTORY_LEN": 6})
     assert th._maxlen == 6
     assert len(th._tracks[1]) == 6

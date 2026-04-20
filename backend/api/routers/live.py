@@ -10,8 +10,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from road_safety.compliance import audit
-from road_safety.config import (
+from backend.compliance import audit
+from backend.config import (
     ALPR_MODE,
     DATA_DIR,
     DSAR_TOKEN,
@@ -19,13 +19,13 @@ from road_safety.config import (
     PUBLIC_THUMBS_REQUIRE_TOKEN,
     TARGET_FPS,
 )
-from road_safety.integrations.slack import slack_configured
-from road_safety.logging import get_logger
-from road_safety.rendering.clip import render_annotated_event_clip
-from road_safety.security.auth import require_admin, require_admin_if_flagged
-from road_safety.security.rate_limit import clip_rate_limit_check
-from road_safety.services.llm import llm_configured
-from road_safety.state import state
+from backend.integrations.slack import slack_configured
+from backend.logging import get_logger
+from backend.rendering.clip import render_annotated_event_clip
+from backend.security.auth import require_admin, require_admin_if_flagged
+from backend.security.rate_limit import clip_rate_limit_check
+from backend.services.llm import llm_configured
+from backend.state import state
 
 log = get_logger(__name__)
 

@@ -59,7 +59,7 @@ def hash_and_strip_plate(enrichment: dict) -> dict:
         The same dict with ``plate_text`` and ``plate_state`` removed and
         ``plate_hash`` inserted (when a non-null plate was present).
     """
-    from road_safety.services.redact import hash_plate
+    from backend.services.redact import hash_plate
 
     # ``dict.pop(key, default)`` removes and returns the value, or returns
     # the default if absent. We intentionally discard plate_state entirely -

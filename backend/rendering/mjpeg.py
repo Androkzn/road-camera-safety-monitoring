@@ -11,8 +11,8 @@ import time
 
 from fastapi.responses import StreamingResponse
 
-from road_safety.rendering.frame import WARMING_UP_JPEG
-from road_safety.state import StreamSlot
+from backend.rendering.frame import WARMING_UP_JPEG
+from backend.state import StreamSlot
 
 
 def mjpeg_response(slot: StreamSlot) -> StreamingResponse:

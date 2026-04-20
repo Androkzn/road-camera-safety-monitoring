@@ -1,5 +1,5 @@
 """Detection and event logic — used by both batch (tools/analyze.py) and the
-live server (road_safety/server.py).
+live server (backend/server.py).
 
 Role in the pipeline
 --------------------
@@ -128,13 +128,13 @@ MIN_BBOX_AREA = 1200          # default (vehicles) — a small distant car is ~4
 PERSON_CONF_THRESHOLD = 0.25
 PERSON_MIN_BBOX_AREA = 400
 
-# ----- CAMERA CALIBRATION (SOURCE OF TRUTH: road_safety/config.py) -----
+# ----- CAMERA CALIBRATION (SOURCE OF TRUTH: backend/config.py) -----
 
-# All path and env-var values flow through ``road_safety/config.py`` — never
+# All path and env-var values flow through ``backend/config.py`` — never
 # compute paths with ``Path(__file__).parent`` in a module (project rule).
 # The ``as _CFG_CAMERA_HEIGHT_M`` / ``noqa: E402`` dance is just to rename
 # and silence a lint rule about imports not being at the file top.
-from road_safety.config import (  # noqa: E402
+from backend.config import (  # noqa: E402
     CAMERA_FOCAL_PX,
     CAMERA_HEIGHT_M as _CFG_CAMERA_HEIGHT_M,
     CAMERA_HORIZON_FRAC,
@@ -149,7 +149,7 @@ from road_safety.config import (  # noqa: E402
 # operator changes something. Each gate function below reads ``STORE.snapshot()``
 # once and caches it for the duration of the call so all comparisons in one
 # frame see the same config.
-from road_safety.settings_store import STORE as _SETTINGS_STORE  # noqa: E402
+from backend.settings_store import STORE as _SETTINGS_STORE  # noqa: E402
 # Tracker config filename — ByteTrack parameters (Kalman filter, IoU thresholds,
 # track lost/retain timeouts). Ultralytics ships this file; we don't override it.
 TRACKER_CFG = "bytetrack.yaml"
@@ -784,7 +784,7 @@ def estimate_distances_batch(
     Batching matters because the neural model runs once per FRAME, not
     once per detection — a 16-detection frame pays one inference, not 16.
     """
-    from road_safety.config import DEPTH_MODEL
+    from backend.config import DEPTH_MODEL
     if DEPTH_MODEL == "off":
         return [None] * len(detections)
 
@@ -824,7 +824,7 @@ def estimate_distances_batch(
 
     # Defer the import so projects that never enable neural depth don't
     # pay its import cost (torch.hub, numpy allocations, etc).
-    from road_safety.core.depth_neural import (
+    from backend.core.depth_neural import (
         bbox_depth,
         estimate_relative_depth,
     )

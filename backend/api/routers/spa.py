@@ -10,7 +10,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from road_safety.config import DATA_DIR, STATIC_DIR
+from backend.config import DATA_DIR, STATIC_DIR
 
 router = APIRouter()
 

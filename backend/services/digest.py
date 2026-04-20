@@ -47,7 +47,7 @@ import asyncio
 import os
 import traceback
 
-from road_safety.integrations import slack as slack_notify
+from backend.integrations import slack as slack_notify
 
 # ---------------------------------------------------------------------------
 # Interval configuration (env-overridable)

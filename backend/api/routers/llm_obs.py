@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Request
 
-from road_safety.security.auth import require_admin
-from road_safety.services.llm_obs import observer as llm_observer
+from backend.security.auth import require_admin
+from backend.services.llm_obs import observer as llm_observer
 
 router = APIRouter()
 

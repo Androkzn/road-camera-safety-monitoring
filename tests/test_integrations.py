@@ -1,4 +1,4 @@
-"""Tests for road_safety.integrations — Slack notifier and edge publisher."""
+"""Tests for backend.integrations — Slack notifier and edge publisher."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from road_safety.integrations import slack
+from backend.integrations import slack
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -61,7 +61,7 @@ class TestSlackNotify:
         with patch.object(slack, "_WEBHOOK", "https://hooks.slack.com/test"), \
              patch.object(slack, "_IMAGE_RELAY_ENABLED", False), \
              patch.object(slack, "_upload_public_image", upload_mock), \
-             patch("road_safety.integrations.slack.httpx.AsyncClient", return_value=client):
+             patch("backend.integrations.slack.httpx.AsyncClient", return_value=client):
             await slack.notify_high(sample_event, thumb_path)
 
         upload_mock.assert_not_awaited()
@@ -76,18 +76,18 @@ class TestSlackNotify:
 
 class TestEdgePublisher:
     def test_init(self, _isolate_data_dir):
-        from road_safety.integrations.edge_publisher import EdgePublisher
+        from backend.integrations.edge_publisher import EdgePublisher
         pub = EdgePublisher(queue_path=_isolate_data_dir / "outbound.jsonl")
         assert pub is not None
 
     def test_not_enabled_without_secret(self, _isolate_data_dir):
-        from road_safety.integrations.edge_publisher import EdgePublisher
+        from backend.integrations.edge_publisher import EdgePublisher
         pub = EdgePublisher(queue_path=_isolate_data_dir / "outbound.jsonl")
         assert pub.enabled() is False
 
     @pytest.mark.asyncio
     async def test_enqueue_event_writes_to_disk(self, _isolate_data_dir):
-        from road_safety.integrations.edge_publisher import EdgePublisher
+        from backend.integrations.edge_publisher import EdgePublisher
         out_path = _isolate_data_dir / "outbound.jsonl"
         pub = EdgePublisher(queue_path=out_path)
         await pub.enqueue({"event_id": "e1", "event_type": "test"})
@@ -96,7 +96,7 @@ class TestEdgePublisher:
         assert len(lines) >= 1
 
     def test_prepare_outbound_omits_thumb_url_without_edge_base(self, _isolate_data_dir):
-        from road_safety.integrations.edge_publisher import EdgePublisher
+        from backend.integrations.edge_publisher import EdgePublisher
 
         thumb = _isolate_data_dir / "thumb_public.jpg"
         thumb.write_bytes(b"fake-jpeg")

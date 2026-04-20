@@ -1,4 +1,4 @@
-"""Tests for road_safety.services.video_metadata.
+"""Tests for backend.services.video_metadata.
 
 We avoid invoking the real ffprobe subprocess by monkeypatching
 ``subprocess.run``. The cache tests use a tmp_path file so the mtime is
@@ -9,7 +9,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from road_safety.services import video_metadata
+from backend.services import video_metadata
 
 
 def _fake_probe_output(

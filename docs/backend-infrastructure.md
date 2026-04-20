@@ -8,14 +8,14 @@ This document describes the **Python** side of the fleet safety demo: processes,
 
 | Process | Module | Typical port | Role |
 |---------|--------|--------------|------|
-| **Edge / main app** | `road_safety.server:app` | 8000 | FastAPI: REST + SSE + static UI; runs vision loop in a background thread. |
+| **Edge / main app** | `backend.server:app` | 8000 | FastAPI: REST + SSE + static UI; runs vision loop in a background thread. |
 | **Cloud receiver** (optional) | `cloud.receiver:app` | 8001 | Separate FastAPI app: ingests **HMAC-signed** batches from the edge; stores in SQLite. |
 
 They are **different programs** on purpose (different trust boundary and scaling). See `docs/architecture.md` for the edge/cloud diagram; this file focuses on the **edge** server.
 
 ```mermaid
 flowchart TB
-  subgraph edge["Edge process uvicorn road_safety.server:app"]
+  subgraph edge["Edge process uvicorn backend.server:app"]
     API[FastAPI routes]
     BG[Background: stream thread + asyncio tasks]
     API --- BG
@@ -31,7 +31,7 @@ flowchart TB
 ## 2. How Python runs the server
 
 1. **Uvicorn** is an ASGI server: it runs the FastAPI `app` object and handles HTTP/WebSockets/SSE.
-2. **`lifespan`** (in `road_safety/server.py`) runs **once at startup** and **once at shutdown**:
+2. **`lifespan`** (in `backend/server.py`) runs **once at startup** and **once at shutdown**:
    - Loads the YOLO model.
    - Resolves the video source (HLS, file, webcam, YouTube via `yt-dlp`).
    - Starts `StreamReader` with a callback for each frame.
@@ -60,7 +60,7 @@ sequenceDiagram
 
 ## 3. Configuration: single source of truth
 
-**`road_safety/config.py`** defines:
+**`backend/config.py`** defines:
 
 - **Paths** — `PROJECT_ROOT`, `DATA_DIR`, `THUMBS_DIR`, `STATIC_DIR` (prefers `frontend/dist`, else `static/`).
 - **Env-driven settings** — model path, FPS, tokens, fleet IDs, camera calibration, ports, watchdog, etc.
@@ -69,7 +69,7 @@ sequenceDiagram
 
 ---
 
-## 4. Package layout (`road_safety/`)
+## 4. Package layout (`backend/`)
 
 | Area | Responsibility |
 |------|----------------|
@@ -85,14 +85,14 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-  subgraph core["road_safety/core"]
+  subgraph core["backend/core"]
     stream[stream.py StreamReader]
     det[detection.py YOLO ByteTrack]
     ego[egomotion.py]
     ctx[context.py scene]
     qual[quality.py]
   end
-  subgraph services["road_safety/services"]
+  subgraph services["backend/services"]
     llm[llm.py enrich narrate]
     red[redact.py thumbnails]
     agents[agents.py]
@@ -100,7 +100,7 @@ flowchart TB
     drift[drift.py]
     wd[watchdog.py]
   end
-  subgraph integ["road_safety/integrations"]
+  subgraph integ["backend/integrations"]
     edge[edge_publisher.py]
     slack[slack.py]
   end

@@ -38,14 +38,14 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from road_safety import settings_spec
-from road_safety.compliance import audit
-from road_safety.config import ADMIN_TOKEN
-from road_safety.security import require_bearer_token
-from road_safety.services import settings_db
-from road_safety.services import templates as template_svc
-from road_safety.services.impact import ImpactMonitor
-from road_safety.settings_store import (
+from backend import settings_spec
+from backend.compliance import audit
+from backend.config import ADMIN_TOKEN
+from backend.security import require_bearer_token
+from backend.services import settings_db
+from backend.services import templates as template_svc
+from backend.services.impact import ImpactMonitor
+from backend.settings_store import (
     STORE,
     AppliedResult,
     PrivacyConfirmRequired,

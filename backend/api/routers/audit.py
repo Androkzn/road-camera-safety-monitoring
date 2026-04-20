@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Request
 
-from road_safety.compliance import audit
-from road_safety.security.auth import require_admin
+from backend.compliance import audit
+from backend.security.auth import require_admin
 
 router = APIRouter()
 

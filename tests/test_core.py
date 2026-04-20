@@ -1,4 +1,4 @@
-"""Tests for road_safety.core — detection pipeline, context, quality."""
+"""Tests for backend.core — detection pipeline, context, quality."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from road_safety.core.detection import (
+from backend.core.detection import (
     Detection,
     TrackHistory,
     TrackSample,
@@ -95,7 +95,7 @@ class TestEstimateDistance:
         side = estimate_distance_m(det, frame_h=600, skip_ground_plane=True)
         # When ground-plane is skipped and the only candidate is the
         # known-height prior, the result must equal that prior exactly.
-        from road_safety.core.detection import FOCAL_PX, TYPICAL_HEIGHT_M
+        from backend.core.detection import FOCAL_PX, TYPICAL_HEIGHT_M
         expected = round(FOCAL_PX * TYPICAL_HEIGHT_M["car"] / det.height, 2)
         assert side == pytest.approx(expected, abs=0.01)
 
@@ -306,13 +306,13 @@ class TestBuildEventSummary:
 
 class TestSceneContext:
     def test_classify_returns_result(self):
-        from road_safety.core.context import SceneContextClassifier
+        from backend.core.context import SceneContextClassifier
         sc = SceneContextClassifier()
         ctx = sc.classify()
         assert ctx.label in ("urban", "highway", "parking", "unknown")
 
     def test_observe_then_classify(self):
-        from road_safety.core.context import SceneContextClassifier
+        from backend.core.context import SceneContextClassifier
         sc = SceneContextClassifier()
         dets = [
             Detection(cls="person", conf=0.9, x1=0, y1=0, x2=30, y2=80, track_id=i)
@@ -329,7 +329,7 @@ class TestSceneContext:
         assert ctx.confidence >= 0
 
     def test_adaptive_thresholds(self):
-        from road_safety.core.context import SceneContextClassifier
+        from backend.core.context import SceneContextClassifier
         sc = SceneContextClassifier()
         ctx = sc.classify()
         thr = sc.adaptive_thresholds(ctx)
@@ -343,7 +343,7 @@ class TestSceneContext:
 
 class TestQualityMonitor:
     def test_initial_state_nominal(self):
-        from road_safety.core.quality import QualityMonitor
+        from backend.core.quality import QualityMonitor
         qm = QualityMonitor()
         s = qm.state()
         assert s["state"] == "nominal"
@@ -351,7 +351,7 @@ class TestQualityMonitor:
         assert "samples" in s
 
     def test_risk_adjustment_shape(self):
-        from road_safety.core.quality import QualityMonitor
+        from backend.core.quality import QualityMonitor
         qm = QualityMonitor()
         adj = qm.risk_adjustment()
         assert "ttc_multiplier" in adj

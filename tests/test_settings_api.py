@@ -14,32 +14,32 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from road_safety.api.settings import (
+from backend.api.settings import (
     MIN_CHANGE_INTERVAL_SEC,
     _last_apply_at,
     mount as mount_settings_routes,
 )
-from road_safety.services import settings_db
-from road_safety.services.impact import ImpactMonitor
-from road_safety.settings_store import SettingsStore
+from backend.services import settings_db
+from backend.services.impact import ImpactMonitor
+from backend.settings_store import SettingsStore
 
 
 @pytest.fixture()
 def fresh_store(monkeypatch):
     """Replace the module-level STORE singleton with a fresh instance."""
     new_store = SettingsStore()
-    import road_safety.api.settings as api_mod
+    import backend.api.settings as api_mod
 
     monkeypatch.setattr(api_mod, "STORE", new_store)
-    monkeypatch.setattr("road_safety.settings_store.STORE", new_store)
+    monkeypatch.setattr("backend.settings_store.STORE", new_store)
     yield new_store
 
 
 @pytest.fixture()
 def admin_token(monkeypatch):
     token = "test-admin-token"
-    monkeypatch.setattr("road_safety.config.ADMIN_TOKEN", token)
-    monkeypatch.setattr("road_safety.api.settings.ADMIN_TOKEN", token)
+    monkeypatch.setattr("backend.config.ADMIN_TOKEN", token)
+    monkeypatch.setattr("backend.api.settings.ADMIN_TOKEN", token)
     return token
 
 
@@ -79,7 +79,7 @@ def test_wrong_token_returns_403(settings_client):
 
 def test_unset_token_returns_503(settings_client, monkeypatch):
     # Re-patch ADMIN_TOKEN to None and re-mount on a fresh app.
-    monkeypatch.setattr("road_safety.api.settings.ADMIN_TOKEN", None)
+    monkeypatch.setattr("backend.api.settings.ADMIN_TOKEN", None)
     app = FastAPI()
     mon = ImpactMonitor(events_source=lambda: [])
     mount_settings_routes(app, impact_monitor=mon, impact_subscribers=[])
@@ -386,7 +386,7 @@ def test_stream_ticket_issue_and_consume(settings_client):
     # avoid keeping the SSE connection open in the test client.
     import asyncio
 
-    from road_safety.api.settings import _consume_ticket
+    from backend.api.settings import _consume_ticket
 
     actor1 = asyncio.run(_consume_ticket(ticket))
     assert actor1 == "tester"

@@ -5,7 +5,7 @@ these. Extracted from ``server.py`` (step 7) so ``on_frame`` /
 ``episode_emit`` don't drag in the whole server module to reach them.
 """
 
-from road_safety.core.detection import LOW_SPEED_FLOOR_MPS
+from backend.core.detection import LOW_SPEED_FLOOR_MPS
 
 
 async def _none_coro():

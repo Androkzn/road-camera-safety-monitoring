@@ -10,7 +10,7 @@ schema. It defines:
 * :class:`SettingSpec` — metadata describing one tunable knob.
 * :data:`SETTINGS_SPEC` — the curated list of tunables shipped in v1.
 * :func:`defaults` — `{key: default_value}` dict used to seed
-  :class:`road_safety.settings_store.SettingsStore`.
+  :class:`backend.settings_store.SettingsStore`.
 * :func:`validate` — full validation pass: type, range, enum, and the
   cross-field invariants that operators must not be able to break.
 
@@ -23,7 +23,7 @@ Design notes
   / ``read_only``) are explicit so the API can return
   ``{applied_now: [...], pending_restart: [...]}`` after every apply
   without guessing.
-* Defaults are sourced from ``road_safety.config`` and the per-module
+* Defaults are sourced from ``backend.config`` and the per-module
   literals so a fresh boot with the store enabled keeps the *exact* current
   behaviour. This means the v1 rollout is a no-op until the operator
   changes something.
@@ -37,7 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
-from road_safety.config import (
+from backend.config import (
     ALPR_MODE,
     MAX_RECENT_EVENTS,
     PAIR_COOLDOWN_SEC,

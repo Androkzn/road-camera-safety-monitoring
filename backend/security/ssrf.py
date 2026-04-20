@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-from road_safety.logging import get_logger
+from backend.logging import get_logger
 
 log = get_logger(__name__)
 

@@ -11,13 +11,13 @@ import asyncio
 import time
 from datetime import datetime, timezone
 
-from road_safety.config import DEFAULT_STREAM_SOURCE as DEFAULT_SOURCE, THUMBS_DIR
-from road_safety.core.detection import build_event_summary
-from road_safety.core.stream import display_video_id
-from road_safety.core.validator import ValidatorJob
-from road_safety.perception.emit import emit_event
-from road_safety.services.redact import public_thumbnail_name, write_thumbnails
-from road_safety.state import (
+from backend.config import DEFAULT_STREAM_SOURCE as DEFAULT_SOURCE, THUMBS_DIR
+from backend.core.detection import build_event_summary
+from backend.core.stream import display_video_id
+from backend.core.validator import ValidatorJob
+from backend.perception.emit import emit_event
+from backend.services.redact import public_thumbnail_name, write_thumbnails
+from backend.state import (
     RESOLVED_DRIVER_ID,
     RESOLVED_ROAD_ID,
     RESOLVED_VEHICLE_ID,

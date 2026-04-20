@@ -20,22 +20,22 @@ def _isolate_data_dir(tmp_path, monkeypatch):
     (data / "corpus").mkdir()
     (data / "active_learning" / "pending").mkdir(parents=True)
 
-    monkeypatch.setattr("road_safety.config.DATA_DIR", data)
-    monkeypatch.setattr("road_safety.config.THUMBS_DIR", data / "thumbnails")
-    monkeypatch.setattr("road_safety.config.CORPUS_DIR", data / "corpus")
+    monkeypatch.setattr("backend.config.DATA_DIR", data)
+    monkeypatch.setattr("backend.config.THUMBS_DIR", data / "thumbnails")
+    monkeypatch.setattr("backend.config.CORPUS_DIR", data / "corpus")
     yield data
 
 
 @pytest.fixture()
 def sample_detection():
     """A minimal Detection object for unit tests."""
-    from road_safety.core.detection import Detection
+    from backend.core.detection import Detection
     return Detection(cls="person", conf=0.85, x1=100, y1=200, x2=160, y2=400, track_id=7)
 
 
 @pytest.fixture()
 def sample_vehicle():
-    from road_safety.core.detection import Detection
+    from backend.core.detection import Detection
     return Detection(cls="car", conf=0.92, x1=300, y1=250, x2=500, y2=450, track_id=12)
 
 

@@ -10,7 +10,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir .
 
-COPY road_safety/ road_safety/
+COPY backend/ backend/
 COPY cloud/ cloud/
 COPY static/ static/
 COPY data/corpus/ data/corpus/
@@ -23,5 +23,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/admin/health')" || exit 1
 
-CMD ["python", "-m", "uvicorn", "road_safety.server:app", \
+CMD ["python", "-m", "uvicorn", "backend.server:app", \
      "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]

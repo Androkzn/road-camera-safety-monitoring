@@ -153,7 +153,7 @@ Bundles four small wins into one PR because they touch the same files and ship t
 
 ## A5. Pydantic models + TS codegen for the top 5 payloads
 
-**Observed.** [frontend/src/shared/types/common.ts](../../frontend/src/shared/types/common.ts) is 340 lines hand-mirroring `road_safety/server.py` dict shapes (`SafetyEvent`, `LiveStatus`, `HealthData`, `LiveSourceStatus`, `DetectionSnapshot`).
+**Observed.** [frontend/src/shared/types/common.ts](../../frontend/src/shared/types/common.ts) is 340 lines hand-mirroring `backend/server.py` dict shapes (`SafetyEvent`, `LiveStatus`, `HealthData`, `LiveSourceStatus`, `DetectionSnapshot`).
 
 **Why it matters.** Backend rename = silent FE break. The strict tsconfig can't help when the types don't reflect reality.
 
@@ -167,8 +167,8 @@ Bundles four small wins into one PR because they touch the same files and ship t
 **Effort.** M (3–4 days, including the build-step wiring). **Risk.** medium (FE consumers must switch imports; do it in one PR per payload to keep diffs reviewable).
 
 **Files touched.**
-- New: `road_safety/domain/event.py`, `live_status.py`, `health.py`, `live_source.py`, `detection.py`.
-- Modified: `road_safety/server.py` handlers for the 5 payloads use `response_model=`.
+- New: `backend/domain/event.py`, `live_status.py`, `health.py`, `live_source.py`, `detection.py`.
+- Modified: `backend/server.py` handlers for the 5 payloads use `response_model=`.
 - New: `frontend/src/shared/types/generated.ts` (committed) + a `frontend/scripts/codegen.sh`.
 - Modified: `frontend/src/shared/types/common.ts` re-exports the generated types where possible; legacy shapes stay until the FE migrates piecemeal.
 
@@ -178,13 +178,13 @@ Bundles four small wins into one PR because they touch the same files and ship t
 
 ## A6. Extract API routers from `server.py`
 
-**Observed.** [road_safety/server.py](../../road_safety/server.py) is 3,972 lines with 53 inline routes. Two of them have already been moved to [road_safety/api/settings.py](../../road_safety/api/settings.py) and [road_safety/api/feedback.py](../../road_safety/api/feedback.py); the remaining 51 are stranded.
+**Observed.** [backend/server.py](../../backend/server.py) is 3,972 lines with 53 inline routes. Two of them have already been moved to [backend/api/settings.py](../../backend/api/settings.py) and [backend/api/feedback.py](../../backend/api/feedback.py); the remaining 51 are stranded.
 
 **Why it matters.** Every backend change requires reading 4,000 lines of context. Test isolation is impossible.
 
 **Options.**
 - **(a)** Mechanical extraction only: one `APIRouter` per feature (`api/live.py`, `api/admin.py`, `api/road.py`, `api/agents.py`, `api/watchdog.py`, `api/retention.py`, `api/llm.py`, `api/tests.py`, `api/streams.py`); `server.py` mounts them.
-- **(b)** Also move `LiveState` / `StreamSlot` / `Episode` to `road_safety/runtime/`.
+- **(b)** Also move `LiveState` / `StreamSlot` / `Episode` to `backend/runtime/`.
 - **(c)** Full pipeline split (Plan B B1).
 
 **Trade-offs.** (a) mechanical, near-zero risk to the perception loop, biggest readability win per hour. (b) starts touching shared mutable state — `_on_frame` reads/writes `state.X` constantly. (c) multi-week, needs tests first.
@@ -194,8 +194,8 @@ Bundles four small wins into one PR because they touch the same files and ship t
 **Effort.** L (1–2 weeks). **Risk.** low (mechanical) but scope is large — do it in 9 small PRs (one per router file) to keep blast radius bounded.
 
 **Files touched.**
-- New: 9 files under `road_safety/api/`.
-- Modified: `road_safety/server.py` shrinks to lifespan + perception state + `_on_frame` + helpers + router registration.
+- New: 9 files under `backend/api/`.
+- Modified: `backend/server.py` shrinks to lifespan + perception state + `_on_frame` + helpers + router registration.
 
 **Depends on.** None. Recommended to land **before** A5's per-handler `response_model=` work to avoid reformatting the same routes twice.
 
@@ -205,7 +205,7 @@ Bundles four small wins into one PR because they touch the same files and ship t
 
 **Observed.** Three problems compound:
 
-- **(7.1)** [/api/live/status](../../road_safety/server.py) (line 2777) and [/api/admin/health](../../road_safety/server.py) (line 3279) overlap. FE polls both — Settings page polls *both* every 4–5 s primarily for the TopBar uptime pill.
+- **(7.1)** [/api/live/status](../../backend/server.py) (line 2777) and [/api/admin/health](../../backend/server.py) (line 3279) overlap. FE polls both — Settings page polls *both* every 4–5 s primarily for the TopBar uptime pill.
 - **(7.2)** Routes touch `state.X` without `state.lock` — works today by GIL accident; one bad day from a torn read.
 - **(7.3)** `StreamImage` polls `/admin/frame/{id}` every 400 ms with no `ETag` / `If-None-Match`.
 
@@ -226,7 +226,7 @@ Bundles four small wins into one PR because they touch the same files and ship t
 
 **Files touched.**
 - Frontend: `shared/hooks/useLiveStatus.ts`, `features/admin/hooks/useAdminHealth.ts`, `features/settings/SettingsPage.tsx`, `features/admin/components/StreamImage.tsx`.
-- Backend: `road_safety/runtime/state.py` (new — for the `snapshot()` method), `road_safety/server.py` `live_status` + `admin_health` consume the snapshot, `admin_frame_for` returns `ETag`.
+- Backend: `backend/runtime/state.py` (new — for the `snapshot()` method), `backend/server.py` `live_status` + `admin_health` consume the snapshot, `admin_frame_for` returns `ETag`.
 
 **Depends on.** A6 (router extraction) makes the backend touches cleaner but is not strictly required.
 
@@ -255,7 +255,7 @@ Bundles four small wins into one PR because they touch the same files and ship t
 
 ## A9. Model perf: warmup + explicit knobs
 
-**Observed.** [core/detection.py:1140–1147](../../road_safety/core/detection.py) calls `model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)` without `imgsz=`, `half=`, or `device=`. Validator (RT-DETR-L) and MiDaS depth weights load lazily on first sample.
+**Observed.** [core/detection.py:1140–1147](../../backend/core/detection.py) calls `model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)` without `imgsz=`, `half=`, or `device=`. Validator (RT-DETR-L) and MiDaS depth weights load lazily on first sample.
 
 **Why it matters.** First real frame after boot pays JIT/MPS compile cost; first validator sample after boot blocks.
 
@@ -270,7 +270,7 @@ Bundles four small wins into one PR because they touch the same files and ship t
 
 **Effort.** S (1–2 days). **Risk.** low.
 
-**Files touched.** `road_safety/core/detection.py`, `road_safety/core/validator.py`, `road_safety/core/depth_neural.py`, `road_safety/server.py` (lifespan).
+**Files touched.** `backend/core/detection.py`, `backend/core/validator.py`, `backend/core/depth_neural.py`, `backend/server.py` (lifespan).
 
 **Depends on.** None.
 
@@ -283,7 +283,7 @@ Bundles four small wins into one PR because they touch the same files and ship t
 **Why it matters.** The 22,000-line backend has no static guard rails.
 
 **Options.**
-- **(a)** `mypy --strict` allow-list: `road_safety/api/`, `road_safety/services/llm.py`, `road_safety/services/redact.py`. Grow over time.
+- **(a)** `mypy --strict` allow-list: `backend/api/`, `backend/services/llm.py`, `backend/services/redact.py`. Grow over time.
 - **(b)** `pyright` workspace-wide in `basic` mode.
 - **(c)** Skip.
 

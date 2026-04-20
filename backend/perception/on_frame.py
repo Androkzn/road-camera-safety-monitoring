@@ -16,8 +16,8 @@ import time
 
 import cv2
 
-from road_safety.config import EPISODE_IDLE_FLUSH_SEC, PAIR_COOLDOWN_SEC
-from road_safety.core.detection import (
+from backend.config import EPISODE_IDLE_FLUSH_SEC, PAIR_COOLDOWN_SEC
+from backend.core.detection import (
     VEHICLE_CLASSES,
     VEHICLE_INTER_DISTANCE_GATE_M,
     detect_frame,
@@ -29,17 +29,17 @@ from road_safety.core.detection import (
     find_interactions,
     tracks_converging,
 )
-from road_safety.core.orientation_policy import classify_event as _orientation_classify
-from road_safety.core.validator import ValidatorJob
-from road_safety.logging import get_logger
-from road_safety.perception.broadcast import (
+from backend.core.orientation_policy import classify_event as _orientation_classify
+from backend.core.validator import ValidatorJob
+from backend.logging import get_logger
+from backend.perception.broadcast import (
     broadcast_admin_detections,
     broadcast_perception,
 )
-from road_safety.perception.episode_emit import flush_episode
-from road_safety.perception.risk import classify_with_scene, pair_key
-from road_safety.rendering.frame import render_annotated_frame
-from road_safety.state import Episode, StreamSlot, state
+from backend.perception.episode_emit import flush_episode
+from backend.perception.risk import classify_with_scene, pair_key
+from backend.rendering.frame import render_annotated_frame
+from backend.state import Episode, StreamSlot, state
 
 log = get_logger(__name__)
 

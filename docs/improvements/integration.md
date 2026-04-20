@@ -2,7 +2,7 @@
 
 **Scope.** The seam between the React SPA, the FastAPI edge backend, and the optional HMAC-signed cloud receiver. Transports, auth tiers, contracts, observability of the integration plane.
 
-**Anchor files.** [server.py](../../road_safety/server.py) · [security.py](../../road_safety/security.py) · [edge_publisher.py](../../road_safety/integrations/edge_publisher.py) · [cloud/receiver.py](../../cloud/receiver.py) · [frontend/src/hooks/useSSE.ts](../../frontend/src/hooks/useSSE.ts) · [frontend/src/lib/api.ts](../../frontend/src/lib/api.ts) · [frontend/src/types.ts](../../frontend/src/types.ts).
+**Anchor files.** [server.py](../../backend/server.py) · [security.py](../../backend/security.py) · [edge_publisher.py](../../backend/integrations/edge_publisher.py) · [cloud/receiver.py](../../cloud/receiver.py) · [frontend/src/hooks/useSSE.ts](../../frontend/src/hooks/useSSE.ts) · [frontend/src/lib/api.ts](../../frontend/src/lib/api.ts) · [frontend/src/types.ts](../../frontend/src/types.ts).
 
 **Date.** 2026-04-18.
 
@@ -23,7 +23,7 @@
 
 ### B1 `[H]` Watchdog DELETE / POST-delete are unauthenticated
 
-[server.py:1609](../../road_safety/server.py#L1609) and [server.py:1618](../../road_safety/server.py#L1618):
+[server.py:1609](../../backend/server.py#L1609) and [server.py:1618](../../backend/server.py#L1618):
 
 ```python
 @app.delete("/api/watchdog/findings")
@@ -40,7 +40,7 @@ async def watchdog_delete_selected(request: Request):
     ...
 ```
 
-No `_require_admin` call. Compare with [server.py:1426](../../road_safety/server.py#L1426) (`/api/road/vehicle/{vehicle_id}`) which correctly gates with `_require_admin(request, "road vehicle detail")`.
+No `_require_admin` call. Compare with [server.py:1426](../../backend/server.py#L1426) (`/api/road/vehicle/{vehicle_id}`) which correctly gates with `_require_admin(request, "road vehicle detail")`.
 
 **Impact.** Any unauthenticated origin reachable on the listening port — including any browser tab on a localhost demo, or any host on the LAN in a fleet pilot — can wipe operator state with a single request. The CSRF analysis below assumes header-bearer auth; with no auth at all, even a `<form action="/api/watchdog/findings?clear_all=true" method="POST">` (after the small change to add a POST alias) would work cross-origin.
 
@@ -67,7 +67,7 @@ async def watchdog_delete_selected(request: Request):
 
 ### R1.1 `[H]` Implement Last-Event-ID resumption
 
-The HTML5 SSE spec requires the user agent to send `Last-Event-ID` on reconnect when the prior stream emitted `id:` lines, and the server SHOULD resume from there. [useSSE.ts](../../frontend/src/hooks/useSSE.ts) constructs `new EventSource(url)` correctly (the browser auto-attaches the header), but [server.py:1061](../../road_safety/server.py#L1061) never emits `id:`. Result: every disconnect (Wi-Fi flap, tab background, nginx idle close, Cloudflare ~100s timeout) drops up to `SSE_REPLAY_COUNT` of context, and the client can sometimes show duplicates because dedup is in-memory by `event_id` rather than by stream cursor.
+The HTML5 SSE spec requires the user agent to send `Last-Event-ID` on reconnect when the prior stream emitted `id:` lines, and the server SHOULD resume from there. [useSSE.ts](../../frontend/src/hooks/useSSE.ts) constructs `new EventSource(url)` correctly (the browser auto-attaches the header), but [server.py:1061](../../backend/server.py#L1061) never emits `id:`. Result: every disconnect (Wi-Fi flap, tab background, nginx idle close, Cloudflare ~100s timeout) drops up to `SSE_REPLAY_COUNT` of context, and the client can sometimes show duplicates because dedup is in-memory by `event_id` rather than by stream cursor.
 
 **Adoption.**
 - Maintain a monotonic `state.event_seq` (already implicit in `recent_events` ordering — formalize it).
@@ -113,7 +113,7 @@ For this app traffic is server→client only with server-side termination logic 
 
 ### R1.4 `[M]` Proxy buffering hardening
 
-[server.py:1084](../../road_safety/server.py#L1084) sets `X-Accel-Buffering: no` — correct for nginx. For Cloudflare-fronted deployments add a Configuration Rule "Cache: bypass; Disable Buffering: on" on the SSE paths, or use a Workers route. Also pin `retry: 3000\n\n` in the keepalive — Safari ignores `retry:` shorter than 1000ms in older versions.
+[server.py:1084](../../backend/server.py#L1084) sets `X-Accel-Buffering: no` — correct for nginx. For Cloudflare-fronted deployments add a Configuration Rule "Cache: bypass; Disable Buffering: on" on the SSE paths, or use a Workers route. Also pin `retry: 3000\n\n` in the keepalive — Safari ignores `retry:` shorter than 1000ms in older versions.
 
 **Citations.** nginx `X-Accel-Buffering` — https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering · Cloudflare configuration rules — https://developers.cloudflare.com/rules/configuration-rules/.
 
@@ -211,7 +211,7 @@ Pact shines with multiple consumers of the same provider. Schemathesis + snapsho
 
 ### R4.1 `[H]` Move admin auth to short-lived JWT + refresh, asymmetric signing
 
-Today `ROAD_ADMIN_TOKEN` is a static shared secret in env. [security.py:36](../../road_safety/security.py) uses `secrets.compare_digest` (timing-safe — good). Drawbacks: no audit attribution (every admin action is "the admin"), no rotation without a redeploy, no per-user revocation. The audit log loses all forensic value the moment two operators share the token (which they will).
+Today `ROAD_ADMIN_TOKEN` is a static shared secret in env. [security.py:36](../../backend/security.py) uses `secrets.compare_digest` (timing-safe — good). Drawbacks: no audit attribution (every admin action is "the admin"), no rotation without a redeploy, no per-user revocation. The audit log loses all forensic value the moment two operators share the token (which they will).
 
 **Adoption.**
 1. `pip install pyjwt[crypto]`. Sign with EdDSA (RFC 8032), 15-min access tokens, 7-day single-use refresh.
@@ -260,7 +260,7 @@ Bearer in `Authorization` header is **not** auto-attached by the browser; cross-
 
 ### R6.1 `[H]` slowapi — per-token + per-IP buckets, tight `/chat` budget
 
-[server.py:1088](../../road_safety/server.py#L1088) `/chat` is unauthenticated and hits the LLM. A scraper burns the Anthropic quota in minutes. [services/agents.py](../../road_safety/services/agents.py) endpoints have no per-endpoint limit beyond the token bucket inside `services/llm.py`.
+[server.py:1088](../../backend/server.py#L1088) `/chat` is unauthenticated and hits the LLM. A scraper burns the Anthropic quota in minutes. [services/agents.py](../../backend/services/agents.py) endpoints have no per-endpoint limit beyond the token bucket inside `services/llm.py`.
 
 ```python
 from slowapi import Limiter
@@ -302,7 +302,7 @@ Public deployments should not expose uvicorn directly. Cloudflare's free plan co
 Without traces you cannot answer "why did `event_id=X` take 9 seconds end-to-end?" Adopt:
 
 - **FE.** `@opentelemetry/sdk-trace-web` + `@opentelemetry/instrumentation-fetch`. `propagators: [new W3CTraceContextPropagator()]` so every `fetch` and the `EventSource` URL carry `traceparent`.
-- **BE.** `opentelemetry-instrumentation-fastapi` auto-injects per-request spans; `opentelemetry-instrumentation-httpx` propagates outbound (the [edge_publisher.py](../../road_safety/integrations/edge_publisher.py) `httpx.AsyncClient`).
+- **BE.** `opentelemetry-instrumentation-fastapi` auto-injects per-request spans; `opentelemetry-instrumentation-httpx` propagates outbound (the [edge_publisher.py](../../backend/integrations/edge_publisher.py) `httpx.AsyncClient`).
 - **Cloud receiver.** Same FastAPI instrumentation; the `traceparent` header threads through.
 - **LLM.** OpenInference Anthropic instrumentation — gives spans with token counts, model, cache-read/write, cost. https://github.com/Arize-ai/openinference
 
@@ -339,7 +339,7 @@ CREATE TABLE IF NOT EXISTS seen_nonces (
 
 Insert-or-fail; sweep older than 600 s. Reject duplicates with 401.
 
-If [edge_publisher.py](../../road_safety/integrations/edge_publisher.py) doesn't already include a nonce field, add one (`uuid4().hex`) to the signed payload.
+If [edge_publisher.py](../../backend/integrations/edge_publisher.py) doesn't already include a nonce field, add one (`uuid4().hex`) to the signed payload.
 
 **Citation.** OWASP API4:2023 — https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/.
 
@@ -361,7 +361,7 @@ When the cloud is your own service (not a webhook target), mTLS with per-vehicle
 
 ### R8.5 `[L]` Tighten thumbnail token entropy
 
-[edge_publisher.py:47](../../road_safety/integrations/edge_publisher.py#L47): `mac.hexdigest()[:32]` truncates a 256-bit HMAC to 128 bits. NIST FIPS 198-1 allows truncation down to 128 bits, so this is **acceptable**, not a bug — but for a 60-second TTL link the cost of returning the full 64-char hex is zero. Drop the slice.
+[edge_publisher.py:47](../../backend/integrations/edge_publisher.py#L47): `mac.hexdigest()[:32]` truncates a 256-bit HMAC to 128 bits. NIST FIPS 198-1 allows truncation down to 128 bits, so this is **acceptable**, not a bug — but for a 60-second TTL link the cost of returning the full 64-char hex is zero. Drop the slice.
 
 ---
 
@@ -378,7 +378,7 @@ The JSONL queue + HMAC + cloud `INSERT OR IGNORE` is a textbook **transactional 
 
 ### R9.2 `[M]` Bound the queue and shed load explicitly
 
-[edge_publisher.py](../../road_safety/integrations/edge_publisher.py) appends without a hard cap. A 24-hour cloud outage on a busy vehicle blows disk. Add a max bytes/lines cap; on overflow, drop oldest with a counter (`dropped_oldest_total`) or compress + rotate.
+[edge_publisher.py](../../backend/integrations/edge_publisher.py) appends without a hard cap. A 24-hour cloud outage on a busy vehicle blows disk. Add a max bytes/lines cap; on overflow, drop oldest with a counter (`dropped_oldest_total`) or compress + rotate.
 
 **Citation.** Google SRE Book ch. 21 "Handling Overload" — https://sre.google/sre-book/handling-overload/.
 
@@ -484,7 +484,7 @@ Above the FastAPI defaults, add:
 - `road_outbox_depth` — Gauge over the queue length.
 - `road_outbox_dropped_total{reason}` — Counter.
 - `road_cloud_ingest_dedup_total` — Counter (cloud `INSERT OR IGNORE` ratio).
-- `road_llm_token_cost_usd_total{model}` — Counter from [services/llm_obs.py](../../road_safety/services/llm_obs.py).
+- `road_llm_token_cost_usd_total{model}` — Counter from [services/llm_obs.py](../../backend/services/llm_obs.py).
 - `road_event_e2e_seconds` — Histogram of `cloud.received_at - edge.event.wall_time` (requires synced clocks).
 
 ### R13.2 `[M]` Grafana dashboard JSON checked into `ops/`
@@ -505,7 +505,7 @@ Once R4.1 ships, every privileged read logs the verified `sub` (not the static "
 
 ### R14.2 `[H]` Lower thumbnail signing TTL and bind to `sub`
 
-[edge_publisher.py:42](../../road_safety/integrations/edge_publisher.py#L42) `_THUMB_TTL_SEC = 15 * 60` is long. Cut to 60 s and add `sub` into the signing input so a leaked link can't be replayed by a different identity:
+[edge_publisher.py:42](../../backend/integrations/edge_publisher.py#L42) `_THUMB_TTL_SEC = 15 * 60` is long. Cut to 60 s and add `sub` into the signing input so a leaked link can't be replayed by a different identity:
 
 ```python
 mac = hmac.new(secret, f"{name}.{expiry}.{sub}".encode(), hashlib.sha256)
@@ -616,10 +616,10 @@ Surface `Retention-Period: P30D` (Internet-Draft `draft-ietf-httpapi-data-retent
 
 | File | Recommendations |
 |------|------------------|
-| [server.py](../../road_safety/server.py) | B1 (auth gap) · R1.1 (SSE id:) · R1.4 (X-Accel) · R6.1 (slowapi) · R7.1 (OTel) · R12.1 (readyz) · R16.1 (audit→OTel) |
-| [security.py](../../road_safety/security.py) | R4.1 (JWT) |
-| [services/llm.py](../../road_safety/services/llm.py) | R7.1 (OpenInference) · R6.1 (per-endpoint limits) |
-| [edge_publisher.py](../../road_safety/integrations/edge_publisher.py) | R8.1 (nonce) · R8.2 (RFC 9421) · R8.3 (HKDF) · R8.5 (token entropy) · R9.1 (outbox seq) · R14.2 (TTL+sub) |
+| [server.py](../../backend/server.py) | B1 (auth gap) · R1.1 (SSE id:) · R1.4 (X-Accel) · R6.1 (slowapi) · R7.1 (OTel) · R12.1 (readyz) · R16.1 (audit→OTel) |
+| [security.py](../../backend/security.py) | R4.1 (JWT) |
+| [services/llm.py](../../backend/services/llm.py) | R7.1 (OpenInference) · R6.1 (per-endpoint limits) |
+| [edge_publisher.py](../../backend/integrations/edge_publisher.py) | R8.1 (nonce) · R8.2 (RFC 9421) · R8.3 (HKDF) · R8.5 (token entropy) · R9.1 (outbox seq) · R14.2 (TTL+sub) |
 | [cloud/receiver.py](../../cloud/receiver.py) | R8.1 (replay cache) · R9.1 (watermark) · R12.1 (readyz) · R15.2 (Postgres) |
 | [useSSE.ts](../../frontend/src/hooks/useSSE.ts) | R1.2 (heartbeat) · R2.2 (Valibot) · R10.2 (visibility) · R10.3 (retry) |
 | [lib/api.ts](../../frontend/src/lib/api.ts) | R2.1 (openapi-fetch) |

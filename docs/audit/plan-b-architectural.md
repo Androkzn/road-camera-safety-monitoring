@@ -22,12 +22,12 @@ Each work item carries:
 
 ## B1. Pipeline / Gate split of `_on_frame`
 
-**Observed.** [road_safety/server.py:1396–1832](../../road_safety/server.py) — `_on_frame` is a 430-line function executing 16 numbered gates inline (YOLO → quality → ego → scene → track-history update → interactions → depth gate → convergence gate → ego-relative motion → pair TTC → approach scrub → quality-adjusted classify → per-type floors → cooldown → episode open/update → idle-flush). Comments warn `do not short-circuit these gates — each one exists to kill a specific class of false positive`.
+**Observed.** [backend/server.py:1396–1832](../../backend/server.py) — `_on_frame` is a 430-line function executing 16 numbered gates inline (YOLO → quality → ego → scene → track-history update → interactions → depth gate → convergence gate → ego-relative motion → pair TTC → approach scrub → quality-adjusted classify → per-type floors → cooldown → episode open/update → idle-flush). Comments warn `do not short-circuit these gates — each one exists to kill a specific class of false positive`.
 
 **Why it matters.** The system's correctness lives in this function. Gate 11 cannot be tested independently of gates 1–10. Any change has to run end-to-end through `tests/test_core.py`. Adding a 17th gate means editing the same function.
 
 **Options.**
-- **(a)** Define a `Gate` protocol (`run(ctx: GateContext) -> GateContext | None`); one file per gate under `road_safety/pipeline/gates/`. Pipeline iterates: `for gate in gates: ctx = gate.run(ctx) or break`.
+- **(a)** Define a `Gate` protocol (`run(ctx: GateContext) -> GateContext | None`); one file per gate under `backend/pipeline/gates/`. Pipeline iterates: `for gate in gates: ctx = gate.run(ctx) or break`.
 - **(b)** Keep `_on_frame` monolithic but extract each numbered block into a private function in the same file with a `GateContext` dataclass for shared inputs.
 - **(c)** Leave.
 
@@ -41,8 +41,8 @@ Each work item carries:
 **Effort.** L (3–4 weeks for the (b) → (a) sequence). **Risk.** medium — the pipeline IS the product.
 
 **Files touched.**
-- (b): `road_safety/server.py` `_on_frame` becomes a thin orchestrator; new helpers in same file or `road_safety/core/pipeline.py`.
-- (a): new package `road_safety/pipeline/` with `gates/quality.py`, `gates/ego.py`, `gates/scene.py`, `gates/depth.py`, `gates/convergence.py`, `gates/motion.py`, `gates/ttc.py`, `gates/quality_adjust.py`, `gates/cooldown.py`, `gates/episode.py`. `Pipeline` class in `pipeline/__init__.py`.
+- (b): `backend/server.py` `_on_frame` becomes a thin orchestrator; new helpers in same file or `backend/core/pipeline.py`.
+- (a): new package `backend/pipeline/` with `gates/quality.py`, `gates/ego.py`, `gates/scene.py`, `gates/depth.py`, `gates/convergence.py`, `gates/motion.py`, `gates/ttc.py`, `gates/quality_adjust.py`, `gates/cooldown.py`, `gates/episode.py`. `Pipeline` class in `pipeline/__init__.py`.
 
 **Depends on.** **Plan A item A6** (router extraction — `_on_frame` is easier to refactor when `server.py` is no longer 4,000 lines). **Plan B item B6** (Vitest? no — this is backend; the equivalent is `tests/test_core.py` regression coverage per gate, written *before* the (a) split lands).
 
@@ -50,7 +50,7 @@ Each work item carries:
 
 ## B2. `pydantic-settings` for config
 
-**Observed.** [road_safety/config.py](../../road_safety/config.py) is 598 lines of `os.getenv("ROAD_X", default)` — ~70 env vars read at import time. Zero validation. Typo in `ROAD_TARGET_FPS` silently keeps the default.
+**Observed.** [backend/config.py](../../backend/config.py) is 598 lines of `os.getenv("ROAD_X", default)` — ~70 env vars read at import time. Zero validation. Typo in `ROAD_TARGET_FPS` silently keeps the default.
 
 **Why it matters.** Production misconfigurations are the silent kind: `ROAD_TARGET_FBS=4` boots happily and runs at the default 2 FPS forever.
 
@@ -65,7 +65,7 @@ Each work item carries:
 
 **Effort.** M (1 week for the migration + a release-note "no behaviour change" callout). **Risk.** medium — anyone running with a typo'd env var today silently uses the default; after this, they get a startup error. That is the *point* but it needs to be communicated.
 
-**Files touched.** `road_safety/config.py` (rewrite as a `Settings` class), every module that imports constants from it (~30 files — all single-line import changes; tests catch wiring issues).
+**Files touched.** `backend/config.py` (rewrite as a `Settings` class), every module that imports constants from it (~30 files — all single-line import changes; tests catch wiring issues).
 
 **Depends on.** None.
 
@@ -99,7 +99,7 @@ Each work item carries:
 
 ## B4. Multi-source perception throughput
 
-**Observed.** [road_safety/server.py](../../road_safety/server.py) holds one `state.model` shared across `StreamSlot`s; each slot calls `model.track(frame, persist=True, ...)` per frame at `TARGET_FPS=2`. ByteTrack IDs share a namespace through `persist=True` across cameras (potential ID collision); no batching.
+**Observed.** [backend/server.py](../../backend/server.py) holds one `state.model` shared across `StreamSlot`s; each slot calls `model.track(frame, persist=True, ...)` per frame at `TARGET_FPS=2`. ByteTrack IDs share a namespace through `persist=True` across cameras (potential ID collision); no batching.
 
 **Why it matters.** Multi-camera deployments are the common case; current shape doesn't batch. Track-ID collisions across cameras are a latent correctness bug.
 
@@ -115,7 +115,7 @@ Each work item carries:
 
 **Effort.** L (2 weeks for (a); +1 week for (c) including the benchmark harness). **Risk.** medium for (a); medium for (c).
 
-**Files touched.** `road_safety/core/detection.py`, `road_safety/server.py` (`_on_frame` becomes a tick-batched dispatcher; needs B1 (b) at minimum). New: `road_safety/core/tracker.py` (per-slot tracker factory), `tools/bench_yolo.py` (benchmark harness).
+**Files touched.** `backend/core/detection.py`, `backend/server.py` (`_on_frame` becomes a tick-batched dispatcher; needs B1 (b) at minimum). New: `backend/core/tracker.py` (per-slot tracker factory), `tools/bench_yolo.py` (benchmark harness).
 
 **Depends on.** **B1 (b) at minimum** so `_on_frame` is structured enough to batch across slots.
 
@@ -203,7 +203,7 @@ Plan B is the second half of a year of work, sequenced after Plan A.
 3. **B1 (b)** (2 weeks). Extract `_on_frame` into named gate-functions in the same file. Land regression tests per gate while doing this.
 4. **B5** (3 days). Pair with the FE test harness from B6.
 5. **B3** (2–3 weeks). OpenAPI codegen — biggest FE win after Plan A.
-6. **B1 (a)** (2 weeks). With per-gate tests now in place from step 3, lift each gate into its own file under `road_safety/pipeline/gates/`.
+6. **B1 (a)** (2 weeks). With per-gate tests now in place from step 3, lift each gate into its own file under `backend/pipeline/gates/`.
 7. **B4 (a)** (2 weeks). Batched `model.track([...])`; per-slot tracker.
 8. **B7** (1 week). Turn on CI gates (warn-only for one month).
 9. **B4 (c)** (1 week, optional). ONNX export behind `ROAD_YOLO_BACKEND=onnx`, gated on benchmark results.

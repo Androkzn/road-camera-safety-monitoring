@@ -1,7 +1,7 @@
 """Shared request-auth helpers for sensitive operational endpoints.
 
 This module centralises the authentication primitives used across both the
-edge server (``road_safety.server``) and the cloud receiver (``cloud.receiver``).
+edge server (``backend.server``) and the cloud receiver (``cloud.receiver``).
 Keeping the check in one place means every sensitive endpoint verifies the
 token the same way — with constant-time comparison, the same error codes,
 and the same "fail closed" behaviour when a token is not configured.
@@ -21,7 +21,7 @@ Token model — two distinct tiers:
    intentionally a separate tier from the admin token because legal / DPO
    teams should be able to fulfil DSARs without also getting operator
    superpowers. Validation for the DSAR tier is performed inline in
-   ``road_safety/server.py`` (audit-logged on denial) because it uses a
+   ``backend/server.py`` (audit-logged on denial) because it uses a
    different header name; this module focuses on the bearer flow.
 
 Both tiers "fail closed": if the corresponding environment variable is unset

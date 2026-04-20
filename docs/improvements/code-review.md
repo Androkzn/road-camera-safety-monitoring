@@ -1,6 +1,6 @@
 # Code Review — Type Safety & Code Quality
 
-Scope: Python backend (`road_safety/`) and frontend TypeScript (`frontend/`).
+Scope: Python backend (`backend/`) and frontend TypeScript (`frontend/`).
 Date: 2026-04-18.
 
 ---
@@ -18,15 +18,15 @@ Date: 2026-04-18.
 | # | Severity | Issue | Evidence |
 |---|----------|-------|----------|
 | 1 | Critical | No project-level type checker config | [pyproject.toml](../../pyproject.toml), [Makefile](../../Makefile) |
-| 2 | Critical | Event/template dicts lack schemas; `dict[str, Any]` is pervasive | [llm.py:771](../../road_safety/services/llm.py#L771), [settings_db.py:193](../../road_safety/services/settings_db.py#L193) |
-| 3 | High | Numpy frames passed without types on hot path | [detection.py:927](../../road_safety/core/detection.py#L927), [redact.py:80](../../road_safety/services/redact.py#L80) |
-| 4 | High | Bare `except Exception` in LLM failover masks SDK bugs | [llm.py](../../road_safety/services/llm.py) |
-| 5 | High | In-place frame mutation is undocumented | [redact.py:151](../../road_safety/services/redact.py#L151) |
+| 2 | Critical | Event/template dicts lack schemas; `dict[str, Any]` is pervasive | [llm.py:771](../../backend/services/llm.py#L771), [settings_db.py:193](../../backend/services/settings_db.py#L193) |
+| 3 | High | Numpy frames passed without types on hot path | [detection.py:927](../../backend/core/detection.py#L927), [redact.py:80](../../backend/services/redact.py#L80) |
+| 4 | High | Bare `except Exception` in LLM failover masks SDK bugs | [llm.py](../../backend/services/llm.py) |
+| 5 | High | In-place frame mutation is undocumented | [redact.py:151](../../backend/services/redact.py#L151) |
 | 6 | High | No async/concurrency tests despite heavy asyncio use | [tests/](../../tests/) |
-| 7 | Medium | Event dict mutates through 5+ stages without validation | [server.py](../../road_safety/server.py), [llm.py](../../road_safety/services/llm.py) |
-| 8 | Medium | `server.py` is 3,206 lines; tight coupling to 15+ modules | [server.py](../../road_safety/server.py) |
-| 9 | Medium | `_blur_roi()` does not clamp bbox coords | [redact.py:80](../../road_safety/services/redact.py#L80) |
-| 10 | Low | Plate salt falls back to per-process ephemeral value | [llm.py](../../road_safety/services/llm.py) |
+| 7 | Medium | Event dict mutates through 5+ stages without validation | [server.py](../../backend/server.py), [llm.py](../../backend/services/llm.py) |
+| 8 | Medium | `server.py` is 3,206 lines; tight coupling to 15+ modules | [server.py](../../backend/server.py) |
+| 9 | Medium | `_blur_roi()` does not clamp bbox coords | [redact.py:80](../../backend/services/redact.py#L80) |
+| 10 | Low | Plate salt falls back to per-process ephemeral value | [llm.py](../../backend/services/llm.py) |
 
 ---
 
@@ -50,23 +50,23 @@ detect → qualify → narrate → enrich → redact → emit
 Each stage reads fields, adds fields, and sometimes strips fields (plate scrubbing in `enrich_event()`). None of it is typed. A renamed field fails silently downstream.
 
 **Service boundaries return `dict[str, Any]`:**
-- [services/impact.py:95](../../road_safety/services/impact.py#L95) — `to_dict()` → `dict[str, Any]`
-- [services/settings_db.py:193,241,325](../../road_safety/services/settings_db.py#L193) — all template getters return `dict[str, Any] | None`
-- [services/registry.py:351](../../road_safety/services/registry.py#L351) — `road_summary()` returns untyped dict
-- [services/llm.py:476,771](../../road_safety/services/llm.py#L476) — `narrate_event(event: dict)` and `enrich_event(event: dict, ...)` accept any dict shape
+- [services/impact.py:95](../../backend/services/impact.py#L95) — `to_dict()` → `dict[str, Any]`
+- [services/settings_db.py:193,241,325](../../backend/services/settings_db.py#L193) — all template getters return `dict[str, Any] | None`
+- [services/registry.py:351](../../backend/services/registry.py#L351) — `road_summary()` returns untyped dict
+- [services/llm.py:476,771](../../backend/services/llm.py#L476) — `narrate_event(event: dict)` and `enrich_event(event: dict, ...)` accept any dict shape
 
 **Hot-path numpy arrays are untyped:**
-- [core/detection.py:927](../../road_safety/core/detection.py#L927) — `detect_frame(model, frame, ...)` — `frame` should be `NDArray[np.uint8]`
-- [core/detection.py:1073](../../road_safety/core/detection.py#L1073) — `draw_thumbnail(frame, ...)`
-- [services/redact.py:80](../../road_safety/services/redact.py#L80) — `_blur_roi(frame, ...)`
-- [services/redact.py:151](../../road_safety/services/redact.py#L151) — `redact_for_egress(frame, detections)`
+- [core/detection.py:927](../../backend/core/detection.py#L927) — `detect_frame(model, frame, ...)` — `frame` should be `NDArray[np.uint8]`
+- [core/detection.py:1073](../../backend/core/detection.py#L1073) — `draw_thumbnail(frame, ...)`
+- [services/redact.py:80](../../backend/services/redact.py#L80) — `_blur_roi(frame, ...)`
+- [services/redact.py:151](../../backend/services/redact.py#L151) — `redact_for_egress(frame, detections)`
 
 ### Proposed plan (in order)
 
 1. **Introduce a typed event schema first.** This is where the payoff is largest because every stage of the pipeline touches it.
 
    ```python
-   # road_safety/schemas.py
+   # backend/schemas.py
    from typing import TypedDict, NotRequired
    from datetime import datetime
 
@@ -98,11 +98,11 @@ Each stage reads fields, adds fields, and sometimes strips fields (plate scrubbi
    disallow_untyped_defs = false
 
    [[tool.mypy.overrides]]
-   module = "road_safety.schemas"
+   module = "backend.schemas"
    disallow_untyped_defs = true
    strict = true
    ```
-   Add `make typecheck` → `mypy road_safety/`. Wire into CI and pre-commit.
+   Add `make typecheck` → `mypy backend/`. Wire into CI and pre-commit.
 
 3. **Type the boundaries next** — public functions in `services/`, route handlers, and the perception hot path. Leave internal helpers for later.
 
@@ -119,9 +119,9 @@ Each stage reads fields, adds fields, and sometimes strips fields (plate scrubbi
 
 ## 2. Error handling at boundaries
 
-- [services/llm.py](../../road_safety/services/llm.py) — `_complete()` uses bare `except Exception` to failover between Anthropic and Azure. This masks `ImportError`, `AttributeError`, and any programming bug that should crash loudly.
-- [core/stream.py:22](../../road_safety/core/stream.py#L22) — background OS thread feeds frames into an asyncio queue with no timeout on `queue.put()` and no heartbeat. If the loop stalls, the thread blocks forever.
-- [services/redact.py:80](../../road_safety/services/redact.py#L80) — `_blur_roi()` does not clamp `x1/y1/x2/y2` to frame bounds. A negative or out-of-bounds bbox crashes the whole pipeline.
+- [services/llm.py](../../backend/services/llm.py) — `_complete()` uses bare `except Exception` to failover between Anthropic and Azure. This masks `ImportError`, `AttributeError`, and any programming bug that should crash loudly.
+- [core/stream.py:22](../../backend/core/stream.py#L22) — background OS thread feeds frames into an asyncio queue with no timeout on `queue.put()` and no heartbeat. If the loop stalls, the thread blocks forever.
+- [services/redact.py:80](../../backend/services/redact.py#L80) — `_blur_roi()` does not clamp `x1/y1/x2/y2` to frame bounds. A negative or out-of-bounds bbox crashes the whole pipeline.
 
 **Fix for `_blur_roi`:**
 ```python
@@ -136,8 +136,8 @@ y2 = max(y1, min(int(y2), h))
 
 ## 3. Implicit contracts / mutation
 
-- [services/redact.py:151](../../road_safety/services/redact.py#L151) — `redact_for_egress(frame, detections)` mutates `frame` in place. Callers that reuse the frame get the redacted version unexpectedly.
-- [services/llm.py](../../road_safety/services/llm.py) — `_hash_and_strip_plate()` mutates the event dict in place. The side effect is the point (privacy invariant), but the signature doesn't document it.
+- [services/redact.py:151](../../backend/services/redact.py#L151) — `redact_for_egress(frame, detections)` mutates `frame` in place. Callers that reuse the frame get the redacted version unexpectedly.
+- [services/llm.py](../../backend/services/llm.py) — `_hash_and_strip_plate()` mutates the event dict in place. The side effect is the point (privacy invariant), but the signature doesn't document it.
 
 **Rule of thumb:** if a function mutates its input, either (a) take the mutation out of the signature and return a new object, or (b) prefix the function with `_mutate_` and put a one-line docstring noting the side effect.
 
@@ -171,7 +171,7 @@ By the time an event reaches `_emit_event`, it has passed through 5 mutation sta
 
 ### Settings store callback pattern is loose
 
-[settings_store.py](../../road_safety/settings_store.py) registers subscribers by string name with no type-checked callback signature. Warm-reload of e.g. `TRACK_HISTORY_LEN` depends on the subscriber running; there's no guarantee of propagation.
+[settings_store.py](../../backend/settings_store.py) registers subscribers by string name with no type-checked callback signature. Warm-reload of e.g. `TRACK_HISTORY_LEN` depends on the subscriber running; there's no guarantee of propagation.
 
 ---
 

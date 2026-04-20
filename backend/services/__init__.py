@@ -1,7 +1,7 @@
 """Business logic services: LLM, agents, vehicle registry, drift, redaction.
 
 This package groups every *non-hot-path* service that supports the main
-perception loop in ``road_safety.core``. Code in this package NEVER blocks or
+perception loop in ``backend.core``. Code in this package NEVER blocks or
 owns the real-time frame pipeline; it provides enrichment, observability,
 operational state, and privacy guarantees that surround it.
 

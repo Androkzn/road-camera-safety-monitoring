@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Request
 
-from road_safety.security.auth import require_admin_if_flagged
-from road_safety.services.test_runner import run_state as test_run_state, start_test_run
+from backend.security.auth import require_admin_if_flagged
+from backend.services.test_runner import run_state as test_run_state, start_test_run
 
 router = APIRouter()
 

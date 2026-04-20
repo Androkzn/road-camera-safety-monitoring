@@ -62,7 +62,7 @@ User explicitly chose: full-scope v1, recharts, manual revert (no auto-revert).
                   │                                      │
                   ▼                                      │
    ┌──────────────────────────────┐    ┌─────────────────┴─────────────┐
-   │ road_safety/settings_store.py│    │ road_safety/services/impact.py│
+   │ backend/settings_store.py│    │ backend/services/impact.py│
    │  Snapshot + RLock + subscribers │  WindowStats, ImpactSession,  │
    │  All-or-nothing apply        │    │  ImpactMonitor.run_loop (15s) │
    └──────┬───────────────────────┘    │  computes deltas, calls LLM   │
@@ -76,17 +76,17 @@ User explicitly chose: full-scope v1, recharts, manual revert (no auto-revert).
 
 Key invariants preserved:
 
-- `road_safety/config.py` remains the single source of truth — but it now also exports a `SETTINGS_SPEC` registry (defaults + min/max + categories) that drives the store.
-- LLM calls go through `_complete()` in `road_safety/services/llm.py` — preserves provider failover, shared `_HAIKU_BUCKET`, circuit breaker, `llm_observer` cost tracking.
+- `backend/config.py` remains the single source of truth — but it now also exports a `SETTINGS_SPEC` registry (defaults + min/max + categories) that drives the store.
+- LLM calls go through `_complete()` in `backend/services/llm.py` — preserves provider failover, shared `_HAIKU_BUCKET`, circuit breaker, `llm_observer` cost tracking.
 - All hot-path gates remain unchanged in *behavior* — only their *constants* become snapshot reads.
 - Privacy invariant intact: `enrich_event()` still scrubs plate at ingest.
-- All write endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>` via existing `road_safety/security.py::require_bearer_token`.
+- All write endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>` via existing `backend/security.py::require_bearer_token`.
 
 ---
 
 ## Phase 1 — Backend: live-mutable settings store
 
-### 1.1 Create [road_safety/settings_store.py](road_safety/settings_store.py)
+### 1.1 Create [backend/settings_store.py](backend/settings_store.py)
 
 New module with:
 
@@ -102,7 +102,7 @@ New module with:
 - `STORE: SettingsStore` singleton at module bottom.
 - `class SettingsValidationError(Exception)` carrying a list of `{key, reason}` dicts (returned as 422 body).
 
-### 1.2 Extend [road_safety/config.py](road_safety/config.py) with `SETTINGS_SPEC`
+### 1.2 Extend [backend/config.py](backend/config.py) with `SETTINGS_SPEC`
 
 Add a `SETTINGS_SPEC: list[SettingSpec]` registry near the bottom of the file (the SoT for defaults + ranges + categories). Existing module constants stay (used at import-time before STORE is initialized) — the STORE is seeded from `SETTINGS_SPEC` at startup with the *current* values of those constants.
 
@@ -143,24 +143,24 @@ Cross-field validators required:
 - **▲ v1.1:** `SLACK_HIGH_MIN_CONFIDENCE >= VEHICLE_PAIR_CONF_FLOOR` (otherwise Slack never fires — detection already suppressed).
 - **▲ v1.1:** `LLM_BUCKET_REFILL_PER_MIN` is a UI-facing unit only; `services/llm.py` builds `TokenBucket(refill_per_sec=REFILL_PER_MIN/60.0)`. The subscriber must perform the divide — do not pass per-minute into the bucket constructor.
 
-**▲ v1.1: Scene-context coupling.** `SceneContextClassifier.adaptive_thresholds()` currently returns per-scene multipliers (`ttc_multiplier`, `pixel_dist_multiplier`) that are applied on top of `TTC_*` / `DIST_*` in the hot path ([road_safety/core/context.py](road_safety/core/context.py)). The SETTINGS_SPEC value is the *operator-set base*; the *effective* value seen by gates is `base * multiplier`. The UI MUST display both (e.g. `TTC_HIGH_SEC 0.5 (eff 0.65, urban)`) or operators will misread why impact differs from expectation. Impact baselines also need scene distribution captured (see §2.1).
+**▲ v1.1: Scene-context coupling.** `SceneContextClassifier.adaptive_thresholds()` currently returns per-scene multipliers (`ttc_multiplier`, `pixel_dist_multiplier`) that are applied on top of `TTC_*` / `DIST_*` in the hot path ([backend/core/context.py](backend/core/context.py)). The SETTINGS_SPEC value is the *operator-set base*; the *effective* value seen by gates is `base * multiplier`. The UI MUST display both (e.g. `TTC_HIGH_SEC 0.5 (eff 0.65, urban)`) or operators will misread why impact differs from expectation. Impact baselines also need scene distribution captured (see §2.1).
 
 ### 1.3 Convert hot-path constants to snapshot reads
 
 Smallest possible diff in each module. Top of each module gets:
 
 ```python
-from road_safety.settings_store import STORE
+from backend.settings_store import STORE
 ```
 
 Each function that uses a tunable starts with `cfg = STORE.snapshot()` (one read per frame, not per comparison). Files touched:
 
-- [road_safety/core/detection.py](road_safety/core/detection.py) — replace `CONF_THRESHOLD`, `VEHICLE_PAIR_CONF_FLOOR`, `PERSON_CONF_THRESHOLD`, `MIN_BBOX_AREA`, `TTC_HIGH_SEC`, `TTC_MED_SEC`, `DIST_HIGH_M`, `DIST_MED_M`, `MIN_SCALE_GROWTH` reads inside `_classify_risk`, `_pair_risk`, `_filter_detections`. **▲ v1.1:** pass the single `cfg` reference through nested call args (do NOT re-snapshot in inner helpers) to guarantee all gates in one frame see the same config.
+- [backend/core/detection.py](backend/core/detection.py) — replace `CONF_THRESHOLD`, `VEHICLE_PAIR_CONF_FLOOR`, `PERSON_CONF_THRESHOLD`, `MIN_BBOX_AREA`, `TTC_HIGH_SEC`, `TTC_MED_SEC`, `DIST_HIGH_M`, `DIST_MED_M`, `MIN_SCALE_GROWTH` reads inside `_classify_risk`, `_pair_risk`, `_filter_detections`. **▲ v1.1:** pass the single `cfg` reference through nested call args (do NOT re-snapshot in inner helpers) to guarantee all gates in one frame see the same config.
 - `TRACK_HISTORY_LEN` — **▲ v1.1:** `deque(maxlen=N)` does not support resizing in place. Subscriber must iterate `TrackHistory._trails` and for each track rebuild the deque: `trails[tid] = deque(list(old)[-N:], maxlen=N)`. Tracks whose history currently exceeds the new maxlen are truncated from the head; tracks below stay intact. This may briefly degrade TTC quality for tracks that lose history; worst case is ~1 missed TTC sample per affected track. Document as expected behavior.
-- [road_safety/core/quality.py](road_safety/core/quality.py) — `_THRESH["blur_sharp"]` and `_THRESH["low_light_lum"]` become snapshot reads inside `update()`/`state()`.
-- [road_safety/services/llm.py](road_safety/services/llm.py) — `_HAIKU_BUCKET` rebuilt via `STORE.register_subscriber_for(["LLM_BUCKET_CAPACITY","LLM_BUCKET_REFILL_PER_MIN"], _rebuild_bucket)`. **▲ v1.1:** `_rebuild_bucket` must divide `REFILL_PER_MIN/60.0` before passing to `TokenBucket(refill_per_sec=...)`. `_CB_THRESHOLD` and `_CB_COOLDOWN_SEC` become snapshot reads inside `_circuit_open()` / `_cb_record()`.
-- [road_safety/integrations/slack.py](road_safety/integrations/slack.py) — `SLACK_HIGH_*` and `_MIN_RISK` (module var) become snapshot reads.
-- [road_safety/server.py](road_safety/server.py) — **▲ v1.1:** `_run_loop` reads `TARGET_FPS` **once at loop entry** (consistent with `requires_restart=true`); `MAX_RECENT_EVENTS`, `PAIR_COOLDOWN_SEC`, `ALPR_MODE` become snapshot reads per loop iteration (cheap and hot-reloadable).
+- [backend/core/quality.py](backend/core/quality.py) — `_THRESH["blur_sharp"]` and `_THRESH["low_light_lum"]` become snapshot reads inside `update()`/`state()`.
+- [backend/services/llm.py](backend/services/llm.py) — `_HAIKU_BUCKET` rebuilt via `STORE.register_subscriber_for(["LLM_BUCKET_CAPACITY","LLM_BUCKET_REFILL_PER_MIN"], _rebuild_bucket)`. **▲ v1.1:** `_rebuild_bucket` must divide `REFILL_PER_MIN/60.0` before passing to `TokenBucket(refill_per_sec=...)`. `_CB_THRESHOLD` and `_CB_COOLDOWN_SEC` become snapshot reads inside `_circuit_open()` / `_cb_record()`.
+- [backend/integrations/slack.py](backend/integrations/slack.py) — `SLACK_HIGH_*` and `_MIN_RISK` (module var) become snapshot reads.
+- [backend/server.py](backend/server.py) — **▲ v1.1:** `_run_loop` reads `TARGET_FPS` **once at loop entry** (consistent with `requires_restart=true`); `MAX_RECENT_EVENTS`, `PAIR_COOLDOWN_SEC`, `ALPR_MODE` become snapshot reads per loop iteration (cheap and hot-reloadable).
 
 **▲ v1.1: `TARGET_FPS` hot-reload semantics (resolved contradiction).** `TARGET_FPS` is `requires_restart=true` in v1. The apply endpoint *accepts* a new value and persists it to the store (so the UI shows the pending value), but the loop does not re-read it; it stays on its boot-time tick rate until restart. The row shows a yellow badge: `applied on next restart`. (v2 follow-up: timer rebuild.)
 
@@ -168,7 +168,7 @@ Each function that uses a tunable starts with `cfg = STORE.snapshot()` (one read
 
 **▲ v1.1: Interaction with `AdaptiveThresholds`.** The snapshot reads supply *base* thresholds; `SceneContextClassifier.adaptive_thresholds()` still applies per-scene multipliers on top. This is intentional (scene adaptation is load-bearing for the false-positive suppression story in CLAUDE.md). The UI must display both base and effective values (see §3.2).
 
-### 1.4 Create [road_safety/api/settings.py](road_safety/api/settings.py)
+### 1.4 Create [backend/api/settings.py](backend/api/settings.py)
 
 FastAPI router mounted on `server.py` with `app.include_router(settings.router)`. All routes guarded by `require_bearer_token(...)`, all mutators write one `compliance/audit.py::log()` row.
 
@@ -191,7 +191,7 @@ FastAPI router mounted on `server.py` with `app.include_router(settings.router)`
 | `GET /api/settings/impact/history?limit=20` | Archived sessions (reads `data/settings_history.jsonl`) | list |
 | `GET /api/settings/effective` | **▲ v1.1:** Base + scene-multiplied effective values for scene-adapted tunables | `{key: {base, effective, multiplier, scene}}` |
 
-### 1.5 Create [road_safety/services/templates.py](road_safety/services/templates.py)
+### 1.5 Create [backend/services/templates.py](backend/services/templates.py)
 
 File-backed CRUD on `data/settings_templates.json`:
 
@@ -215,7 +215,7 @@ This prevents a v2 spec tightening (e.g. raising `CONF_THRESHOLD` minimum) from 
 
 ## Phase 2 — Backend: AI impact analysis engine
 
-### 2.1 Create [road_safety/services/impact.py](road_safety/services/impact.py)
+### 2.1 Create [backend/services/impact.py](backend/services/impact.py)
 
 ```python
 @dataclass
@@ -283,7 +283,7 @@ FP-rate proxy when `< MIN_FEEDBACK=5` feedback verdicts:
 
 **▲ v1.1: Impact history persistence.** On archive, append `{session_id, change_ts, actor, changed_keys, final_recommendation, last_good, baseline_summary, final_window_summary}` (compact, no per-tick history) to `data/settings_history.jsonl`. `GET /api/settings/impact/history?limit=20` reads from this file (tailing, not loading the whole thing). Retention sweep drops entries older than 90 d.
 
-### 2.2 Add `analyze_settings_impact()` to [road_safety/services/llm.py](road_safety/services/llm.py)
+### 2.2 Add `analyze_settings_impact()` to [backend/services/llm.py](backend/services/llm.py)
 
 Sits next to `narrate_event` / `enrich_event` / `chat`. Costs **1 token** from `_HAIKU_BUCKET`. Routes through `_complete()` (provider failover) and records via `llm_observer.record(call_type="settings_impact", ...)` — auto-appears in `/api/llm/stats`.
 
@@ -307,7 +307,7 @@ async def analyze_settings_impact(
 
 Returns `None` on rate-budget exhaustion / circuit-open / parse failure — caller renders numeric-only impact.
 
-### 2.3 Wire impact monitor into [road_safety/server.py](road_safety/server.py) lifespan
+### 2.3 Wire impact monitor into [backend/server.py](backend/server.py) lifespan
 
 In the existing `lifespan` startup (after the agent executor wiring), build `state.impact = ImpactMonitor(events_source=lambda: list(state.recent_events), ...)` and `state.impact_task = asyncio.create_task(state.impact.run_loop())`. Add `state.impact_subscribers: list[asyncio.Queue]` next to existing SSE subscriber lists. Cancel `state.impact_task` in shutdown alongside `retention_task`.
 
@@ -317,7 +317,7 @@ After successful `STORE.apply_diff()`, capture pre/post snapshots and call into 
 
 ### 2.5 SSE `/api/settings/impact/stream`
 
-**▲ v1.1:** Modeled on the existing `/stream/events` handler in `road_safety/server.py` (plan v1.0 incorrectly referenced `/api/live/stream`, which does not exist). Per tick payload:
+**▲ v1.1:** Modeled on the existing `/stream/events` handler in `backend/server.py` (plan v1.0 incorrectly referenced `/api/live/stream`, which does not exist). Per tick payload:
 
 ```json
 {
@@ -334,7 +334,7 @@ After successful `STORE.apply_diff()`, capture pre/post snapshots and call into 
 
 On connect, replay the latest snapshot of the active session. Keepalive every 15 s.
 
-### 2.6 Audit-log entries (via [road_safety/compliance/audit.py](road_safety/compliance/audit.py))
+### 2.6 Audit-log entries (via [backend/compliance/audit.py](backend/compliance/audit.py))
 
 | action | when | detail |
 |---|---|---|
@@ -498,18 +498,18 @@ No auto-revert. No timer. Operator stays in control.
 ## Files: create vs modify (full list)
 
 ### NEW backend
-- [road_safety/settings_store.py](road_safety/settings_store.py) — STORE singleton, snapshots, atomic apply, subscribers.
-- [road_safety/api/settings.py](road_safety/api/settings.py) — FastAPI router with all `/api/settings/*` routes.
-- [road_safety/services/impact.py](road_safety/services/impact.py) — WindowStats, ImpactSession, ImpactMonitor, FP proxy.
-- [road_safety/services/templates.py](road_safety/services/templates.py) — file-backed CRUD + atomic writes.
+- [backend/settings_store.py](backend/settings_store.py) — STORE singleton, snapshots, atomic apply, subscribers.
+- [backend/api/settings.py](backend/api/settings.py) — FastAPI router with all `/api/settings/*` routes.
+- [backend/services/impact.py](backend/services/impact.py) — WindowStats, ImpactSession, ImpactMonitor, FP proxy.
+- [backend/services/templates.py](backend/services/templates.py) — file-backed CRUD + atomic writes.
 
 ### MODIFY backend
-- [road_safety/config.py](road_safety/config.py) — add `SETTINGS_SPEC` registry.
-- [road_safety/server.py](road_safety/server.py) — mount router, lifespan wires `state.impact` + task, `state.impact_subscribers`, `_run_loop` reads snapshot, `PUT /api/settings` calls `on_settings_change`, SSE endpoint.
-- [road_safety/core/detection.py](road_safety/core/detection.py) — snapshot reads for 9 constants.
-- [road_safety/core/quality.py](road_safety/core/quality.py) — snapshot reads for 2 thresholds.
-- [road_safety/services/llm.py](road_safety/services/llm.py) — add `analyze_settings_impact()`; rebuild-bucket subscriber; CB params via snapshot.
-- [road_safety/integrations/slack.py](road_safety/integrations/slack.py) — snapshot reads for 4 SLACK_* constants.
+- [backend/config.py](backend/config.py) — add `SETTINGS_SPEC` registry.
+- [backend/server.py](backend/server.py) — mount router, lifespan wires `state.impact` + task, `state.impact_subscribers`, `_run_loop` reads snapshot, `PUT /api/settings` calls `on_settings_change`, SSE endpoint.
+- [backend/core/detection.py](backend/core/detection.py) — snapshot reads for 9 constants.
+- [backend/core/quality.py](backend/core/quality.py) — snapshot reads for 2 thresholds.
+- [backend/services/llm.py](backend/services/llm.py) — add `analyze_settings_impact()`; rebuild-bucket subscriber; CB params via snapshot.
+- [backend/integrations/slack.py](backend/integrations/slack.py) — snapshot reads for 4 SLACK_* constants.
 
 ### NEW frontend
 - `frontend/src/pages/SettingsPage.tsx` + `.module.css`

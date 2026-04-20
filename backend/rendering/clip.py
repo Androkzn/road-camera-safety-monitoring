@@ -19,7 +19,7 @@ from pathlib import Path
 
 import cv2
 
-from road_safety.logging import get_logger
+from backend.logging import get_logger
 
 log = get_logger(__name__)
 
@@ -43,7 +43,7 @@ def get_clip_model():
     global _clip_model
     with _clip_model_lock:
         if _clip_model is None:
-            from road_safety.core.detection import load_model
+            from backend.core.detection import load_model
             _clip_model = load_model()
         return _clip_model
 
@@ -117,7 +117,7 @@ def render_annotated_event_clip(
     """
     import subprocess
 
-    from road_safety.core.detection import detect_frame
+    from backend.core.detection import detect_frame
 
     cap = cv2.VideoCapture(str(source_path))
     if not cap.isOpened():

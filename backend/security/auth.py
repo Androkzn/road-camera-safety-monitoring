@@ -1,6 +1,6 @@
 """Admin-bearer auth wrappers for the edge server's route handlers.
 
-These are thin wrappers around :func:`road_safety.security.require_bearer_token`
+These are thin wrappers around :func:`backend.security.require_bearer_token`
 that bake in the edge-server's admin token + env var name. They also implement
 the BE-D12..D15 "flagged auth" pattern — when ``ROAD_REQUIRE_AUTH`` is off, the
 server preserves pre-Sprint-0 public behaviour but logs a one-shot WARN per
@@ -15,9 +15,9 @@ import threading
 
 from fastapi import Request
 
-from road_safety.config import ADMIN_TOKEN, REQUIRE_AUTH
-from road_safety.logging import get_logger
-from road_safety.security import require_bearer_token
+from backend.config import ADMIN_TOKEN, REQUIRE_AUTH
+from backend.logging import get_logger
+from backend.security import require_bearer_token
 
 log = get_logger(__name__)
 

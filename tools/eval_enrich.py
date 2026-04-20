@@ -18,9 +18,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# .env loaded by road_safety.config on import.
-from road_safety.config import DATA_DIR
-from road_safety.services.llm import enrich_event, llm_configured  # noqa: E402
+# .env loaded by backend.config on import.
+from backend.config import DATA_DIR
+from backend.services.llm import enrich_event, llm_configured  # noqa: E402
 
 FIXTURE_DIR = DATA_DIR / "eval_fixtures"
 README_TEXT = """# Eval fixtures

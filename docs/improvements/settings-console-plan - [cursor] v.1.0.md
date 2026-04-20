@@ -104,7 +104,7 @@ Create a new top-level `Settings` tab in `TopBar` (alongside **Admin**, **Dashbo
 This pass cross-checks the plan against the actual repo and against the Codex v1.1 and Claude Code v1.1 plans. Items below are real gaps to close before implementation, with the fix folded into the relevant section.
 
 ### Factual / consistency fixes
-- **SSE route name**: the existing live SSE handler is **`/stream/events`** in `road_safety/server.py` (around line 1724), not `/api/live/stream`. Any new settings-impact stream should mirror that handler's pattern (heartbeat, queue cleanup), not a non-existent path.
+- **SSE route name**: the existing live SSE handler is **`/stream/events`** in `backend/server.py` (around line 1724), not `/api/live/stream`. Any new settings-impact stream should mirror that handler's pattern (heartbeat, queue cleanup), not a non-existent path.
 - **TopBar mounting**: the `TopBar.tsx` *file header* claims it is rendered above `<Routes>` in `App.tsx`, but `App.tsx` does **not** render it — each page imports `TopBar` itself. Plan already notes this; we keep the per-page pattern. Updating the stale TopBar header comment is a **prereq cleanup**, not a Settings deliverable.
 - **Live MJPEG path**: `/admin/video_feed` is intentionally **public** in `server.py` (`admin_video_feed`) so the SPA can render it without auth. Reusing `VideoFeed` on Settings inherits that posture — call this out so reviewers do not assume the video stream is gated by Bearer.
 
@@ -256,8 +256,8 @@ Beyond "metrics or structured logs", commit to specific signals so an alert can 
 - Top-level navigation links live in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/layout/TopBar.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/layout/TopBar.tsx); routes are declared in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/App.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/App.tsx). The live perception UI is at **`/`** (`AdminPage`); **`/admin` redirects to `/`**. Add e.g. **`/settings`** for this feature — do not overload the legacy `/admin` path.
 - The existing `Monitoring` page is a watchdog incident queue, not a live tuning page: [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/pages/MonitoringPage.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/pages/MonitoringPage.tsx).
 - The live MJPEG stream already exists at `/admin/video_feed` and is rendered by [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/admin/VideoFeed.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/admin/VideoFeed.tsx).
-- Backend detection thresholds are currently split across hardcoded constants and env-backed config in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/config.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/config.py), [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py), [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/context.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/context.py), and [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/drift.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/drift.py).
-- The backend already exposes useful live telemetry via `/api/live/status`, `/api/live/scene`, `/api/drift`, and `/api/admin/health` in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py), but it does not persist baselines, compare config versions, or support runtime templates.
+- Backend detection thresholds are currently split across hardcoded constants and env-backed config in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py), [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py), [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/context.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/context.py), and [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py).
+- The backend already exposes useful live telemetry via `/api/live/status`, `/api/live/scene`, `/api/drift`, and `/api/admin/health` in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py), but it does not persist baselines, compare config versions, or support runtime templates.
 
 ## Contract and Consistency Decisions To Lock First
 - Keep the existing live telemetry contracts (`/api/live/status`, `/api/live/scene`, `/api/drift`, `/api/admin/health`) as read sources for Settings (health/status remain usable from the existing public-tier polling pattern where applicable).
@@ -293,14 +293,14 @@ flowchart LR
 
 ## Backend Design
 ### 1. Create a single runtime settings domain model
-Add a dedicated settings module, for example under `road_safety/services/` or `road_safety/api/`, that defines:
+Add a dedicated settings module, for example under `backend/services/` or `backend/api/`, that defines:
 - an `EffectiveSettings` schema for all operator-tunable parameters
 - a `SettingsTemplate` schema for named reusable presets
 - a `TemplateRevision` schema for immutable version history
 - a `BaselineSnapshot` schema for frozen comparison windows
 - an `ImpactReport` schema for current-vs-baseline metrics and AI summary output
 
-This should become the single mutable layer for runtime tuning, while leaving secrets and deployment identity in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/config.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/config.py).
+This should become the single mutable layer for runtime tuning, while leaving secrets and deployment identity in [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py).
 
 ### 2. Classify settings by safety and reloadability
 Split parameters into **four** buckets (Round-3 update — `warm_reload` is a real bucket distinct from pure hot-apply).
@@ -335,15 +335,15 @@ This avoids mixing safe operator tuning with infrastructure and secret managemen
 
 ### 3. Centralize today’s fragmented thresholds
 Refactor the hardcoded tunables now spread across:
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/context.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/context.py)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/drift.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/drift.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/context.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/context.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py)
 
 Use injected runtime settings rather than module-level literals for the tunable subset. Keep the existing gate structure intact; only parameter values should change.
 
 ### 4. Add authenticated settings APIs with audit trail
-Extend [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py) (or, preferably, a new `road_safety/api/settings.py` mounted via `app.include_router(...)` to keep `server.py` from growing) with admin-tier endpoints such as:
+Extend [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py) (or, preferably, a new `backend/api/settings.py` mounted via `app.include_router(...)` to keep `server.py` from growing) with admin-tier endpoints such as:
 - `POST /api/settings/validate` (dry-run validation + compatibility check)
 - `GET /api/settings/schema` (current `SETTINGS_SPEC` for the UI to render rows)
 - `GET /api/settings/effective` (current values + raw vs scene-effective + revision_hash)
@@ -362,7 +362,7 @@ Extend [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py`
 - `POST /api/settings/stream_ticket` (issues short-TTL one-time SSE ticket)
 - `GET /api/settings/impact/stream?ticket=...` (SSE — modeled on the existing `/stream/events` handler in `server.py`)
 
-Protect **all** settings routes with the existing bearer-token helper ([`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/security.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/security.py)). The SSE stream is the single exception: it accepts the one-time **ticket** issued by `stream_ticket` (which itself requires Bearer). Audit every mutation through [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/compliance/audit.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/compliance/audit.py) and emit the observability counters listed in the Round-3 review (apply success/failure, rollback, comparability-blocked).
+Protect **all** settings routes with the existing bearer-token helper ([`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py)). The SSE stream is the single exception: it accepts the one-time **ticket** issued by `stream_ticket` (which itself requires Bearer). Audit every mutation through [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/compliance/audit.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/compliance/audit.py) and emit the observability counters listed in the Round-3 review (apply success/failure, rollback, comparability-blocked).
 
 ### 5. Persist settings templates and baseline snapshots
 Store operator-managed artifacts in **SQLite at `data/settings.db`** (decision locked in Round-3 review), with a small `migrations` table for schema evolution. Tables (sketch):
@@ -545,12 +545,12 @@ Initial charts should focus on operational signal, not dashboard decoration:
 - verify route-split bundle: `/`, `/dashboard`, `/monitoring` do not pull in the chart library
 
 ## Key Files To Change
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/security.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/security.py) (reuse `require_bearer_token` for new routes)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/server.py)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/config.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/config.py)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/detection.py)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/context.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/core/context.py)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/drift.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/road_safety/services/drift.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py) (reuse `require_bearer_token` for new routes)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/context.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/context.py)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/App.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/App.tsx)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/layout/TopBar.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/layout/TopBar.tsx)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts) (only if adding reviewed admin wrappers; prefer new `settingsApi` module)

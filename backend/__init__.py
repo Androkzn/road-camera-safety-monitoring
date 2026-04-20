@@ -5,14 +5,14 @@ surfaces near-miss and proximity events from an external-scene vantage
 point. The sibling dashcam project handles in-vehicle cameras; this
 codebase stays focused on stationary traffic-camera streams.
 
-This file is the package marker for the ``road_safety`` Python package.
+This file is the package marker for the ``backend`` Python package.
 
 Python concept — package markers:
     A directory becomes an *importable package* when it contains a file named
     ``__init__.py``. The file can be empty, but by convention it holds the
     package's docstring and top-level metadata (like ``__version__``). Any code
     here runs exactly once the first time the package is imported anywhere in
-    the process (e.g. ``import road_safety``).
+    the process (e.g. ``import backend``).
 
 Responsibility:
     - Declare the public version string (``__version__``) used for diagnostics
@@ -21,9 +21,9 @@ Responsibility:
       (CLI, tests, uvicorn) because they all go through this module first.
 
 Role in the project:
-    - ``road_safety/`` is the main edge-node application (perception + FastAPI
-      server). See ``road_safety/server.py`` for the app factory and
-      ``road_safety/config.py`` for paths/env-var settings.
+    - ``backend/`` is the main edge-node application (perception + FastAPI
+      server). See ``backend/server.py`` for the app factory and
+      ``backend/config.py`` for paths/env-var settings.
     - The separate ``cloud/`` package hosts the cloud receiver (port 8001)
       which ingests signed event batches from this edge node.
 """

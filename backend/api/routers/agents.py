@@ -7,14 +7,14 @@ that cap without a specific reason.
 
 from fastapi import APIRouter, HTTPException, Request
 
-from road_safety.compliance import audit
-from road_safety.security.auth import require_admin
-from road_safety.services.agents import (
+from backend.compliance import audit
+from backend.security.auth import require_admin
+from backend.services.agents import (
     run_coaching_agent,
     run_investigation_agent,
     run_report_agent,
 )
-from road_safety.state import state
+from backend.state import state
 
 router = APIRouter()
 

@@ -74,10 +74,10 @@ from pathlib import Path                           # typed filesystem paths
 from typing import Any, Callable                   # generic-ish type hints
 
 # ----- imports: local -----
-# Paths MUST come from ``road_safety.config`` — the project's single source of
+# Paths MUST come from ``backend.config`` — the project's single source of
 # truth for filesystem layout. Modules never compute ``Path(__file__).parent``
 # on their own.
-from road_safety.config import DATA_DIR
+from backend.config import DATA_DIR
 
 # ----- module-level constants and shared state -----
 
@@ -1580,7 +1580,7 @@ async def _ai_analyze(snapshot: dict, prev_snapshot: dict | None) -> list[Watchd
     # through the wrappers in ``services/llm.py`` to inherit failover,
     # rate budget, circuit breaker, and cost tracking.
     try:
-        from road_safety.services.llm import _complete, llm_configured, MODEL_CHAT
+        from backend.services.llm import _complete, llm_configured, MODEL_CHAT
     except ImportError:
         return []
 

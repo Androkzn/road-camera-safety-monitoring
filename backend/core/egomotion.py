@@ -55,9 +55,9 @@ Caveats
 
 Consumers
 ---------
-- ``road_safety/server.py::_run_loop`` — calls ``update`` once per frame,
+- ``backend/server.py::_run_loop`` — calls ``update`` once per frame,
   then ``relative_motion`` per detection to decide whether to emit an event.
-- ``road_safety/core/context.py`` — accepts the ``speed_proxy_mps`` from the
+- ``backend/core/context.py`` — accepts the ``speed_proxy_mps`` from the
   returned ``EgoFlow`` to pick a coarse scene label (urban / busy /
   quiet) from the median flow magnitude across the camera site.
 
@@ -86,8 +86,8 @@ from typing import Literal
 import cv2
 import numpy as np
 
-from road_safety.config import CAMERA_FOCAL_PX, CAMERA_HEIGHT_M, CameraCalibration
-from road_safety.core.detection import TrackHistory, TrackSample  # noqa: F401
+from backend.config import CAMERA_FOCAL_PX, CAMERA_HEIGHT_M, CameraCalibration
+from backend.core.detection import TrackHistory, TrackSample  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ class EgoFlow:
         ``ey`` with a per-camera orientation inversion (an opposite-
         along-road cam sees the ground flow *upward* when traffic is
         approaching the camera site). Consumed by
-        ``road_safety/core/orientation_policy.py`` to gate the
+        ``backend/core/orientation_policy.py`` to gate the
         opposite-along-road taxonomy on "is the scene actually flowing
         in reverse right now?".
     direction_confidence: 0..1 confidence in the ``direction`` label.

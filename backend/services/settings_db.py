@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-from road_safety.config import DATA_DIR
+from backend.config import DATA_DIR
 
 
 _DB_PATH: Path = DATA_DIR / "settings.db"

@@ -228,14 +228,14 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 ### 5.3 Relevant Existing Files/Modules
 
-- **Detection:** `road_safety/core/detection.py` (YOLOv8 + ByteTrack)
-- **Stream:** `road_safety/core/stream.py` (multi-protocol video reader)
-- **Server:** `road_safety/server.py` (FastAPI orchestrator)
-- **LLM:** `road_safety/services/llm.py` (Anthropic + Azure with failover)
-- **Privacy:** `road_safety/services/redact.py` (face/plate blur, plate hash)
-- **Drift:** `road_safety/services/drift.py` (precision monitor + active learning)
-- **Agents:** `road_safety/services/agents.py` (coaching, investigation, report)
-- **Road:** `road_safety/services/registry.py` (vehicle registry + driver scoring)
+- **Detection:** `backend/core/detection.py` (YOLOv8 + ByteTrack)
+- **Stream:** `backend/core/stream.py` (multi-protocol video reader)
+- **Server:** `backend/server.py` (FastAPI orchestrator)
+- **LLM:** `backend/services/llm.py` (Anthropic + Azure with failover)
+- **Privacy:** `backend/services/redact.py` (face/plate blur, plate hash)
+- **Drift:** `backend/services/drift.py` (precision monitor + active learning)
+- **Agents:** `backend/services/agents.py` (coaching, investigation, report)
+- **Road:** `backend/services/registry.py` (vehicle registry + driver scoring)
 
 ---
 
@@ -299,7 +299,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 13. **PII redaction:** `redact.py` writes dual thumbnails (internal unredacted + public face-/plate-blurred); plate text is salted-hashed before egress.
 14. **LLM enrichment:** `llm.py` narrates the event and optionally runs ALPR only when policy permits (`ROAD_ALPR_MODE=third_party`), and skips on degraded perception or low-risk events.
 15. **Event emission:** SSE to dashboard, tier-aware Slack dispatch (high-risk subject to the Slack quality gate; medium / low buffered), edge publish, road-registry update.
-16. **Feedback ingestion:** `road_safety/api/feedback.py` receives operator verdicts.
+16. **Feedback ingestion:** `backend/api/feedback.py` receives operator verdicts.
 17. **Drift update:** `drift.py` recomputes rolling precision and trend.
 18. **Active learning:** `drift.py` selects decision-boundary and disputed events for relabeling.
 19. **Agent invocation:** `agents.py` runs the tool-calling loop on operator request.
@@ -848,7 +848,7 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 
 ### 16.2 Manual Recovery Procedures
 
-- **Restart server:** `uvicorn road_safety.server:app --host 0.0.0.0 --port 8000`
+- **Restart server:** `uvicorn backend.server:app --host 0.0.0.0 --port 8000`
 - **Flush edge queue:** Delete `data/outbound_queue.jsonl`
 - **Reset drift state:** Restart server (in-memory state resets)
 - **Force retention sweep:** `POST /api/retention/sweep` with `Authorization: Bearer <ROAD_ADMIN_TOKEN>`

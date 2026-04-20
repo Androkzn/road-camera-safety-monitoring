@@ -23,7 +23,7 @@ developers:
     2. Run the pytest suite (``--skip-tests`` to skip). Failures **do not
        abort** — we still start the server so devs can iterate even when a
        test is broken. The exit code is just printed.
-    3. Spawn uvicorn as a subprocess pointing at ``road_safety.server:app``.
+    3. Spawn uvicorn as a subprocess pointing at ``backend.server:app``.
     4. Optionally spawn the cloud receiver (``cloud.receiver:app``) on 8001.
     5. Poll ``/api/live/status`` until it returns 200 (up to 120 s).
     6. Print a status table and open the admin UI in the default browser.
@@ -111,7 +111,7 @@ def build_frontend() -> bool:
     """Install JS deps (if needed) and build the React frontend.
 
     The server serves the bundled ``frontend/dist/`` if it exists
-    (see ``road_safety/config.py::STATIC_DIR``). Building here means the
+    (see ``backend/config.py::STATIC_DIR``). Building here means the
     admin UI is live the moment uvicorn reports healthy.
 
     Returns:
@@ -337,10 +337,10 @@ def main():
 
     # ─── Step 4: spawn the main server. ``Popen`` returns immediately —
     # the server starts loading YOLO weights etc. in the background while
-    # we continue. ``uvicorn road_safety.server:app`` is the ASGI entry.
+    # we continue. ``uvicorn backend.server:app`` is the ASGI entry.
     print(f"  {D}Starting main server on :{port}…{Z}")
     server_proc = subprocess.Popen(
-        [PYTHON, "-m", "uvicorn", "road_safety.server:app",
+        [PYTHON, "-m", "uvicorn", "backend.server:app",
          "--host", SERVER_HOST, "--port", str(port),
          "--log-level", "warning"],
         cwd=str(ROOT),

@@ -83,7 +83,7 @@ from pathlib import Path
 
 # PROJECT_ROOT is the single-source-of-truth anchor for "where the repo
 # lives on disk".  Comes from config.py per project rules.
-from road_safety.config import PROJECT_ROOT
+from backend.config import PROJECT_ROOT
 
 
 # ===========================================================================

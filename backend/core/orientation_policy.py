@@ -3,7 +3,7 @@
 
 Role in the pipeline
 --------------------
-`road_safety/server.py::_run_loop` runs a single detection + TTC stack for
+`backend/server.py::_run_loop` runs a single detection + TTC stack for
 every stream slot, regardless of where that camera points. That stack was
 originally tuned for a camera looking along the road, so wiring it
 verbatim into a cross-road or opposing-direction slot fires "pedestrian
@@ -60,9 +60,9 @@ from typing import TYPE_CHECKING, Literal, Optional
 # egomotion.py (which pulls TrackHistory from detection.py, which pulls
 # config.py, which is the same bottom-of-graph module we also live on).
 if TYPE_CHECKING:  # pragma: no cover - hints only
-    from road_safety.config import CameraCalibration
-    from road_safety.core.detection import Detection, TrackHistory
-    from road_safety.core.egomotion import EgoFlow
+    from backend.config import CameraCalibration
+    from backend.core.detection import Detection, TrackHistory
+    from backend.core.egomotion import EgoFlow
 
 
 log = logging.getLogger(__name__)

@@ -19,7 +19,7 @@ Design: never raises, never blocks the main loop, logs what it removes.
 Audit trail
 -----------
 Every deletion performed here is (in higher-level callers) accompanied by
-an entry in the audit log — see ``road_safety/compliance/audit.py``.  The
+an entry in the audit log — see ``backend/compliance/audit.py``.  The
 intent is that sweeps leave a **tamper-evident trail**: you can point an
 auditor at the audit log and show exactly which files were removed and
 when.  Do not add a path that deletes user data without producing an audit
@@ -101,7 +101,7 @@ INTERVAL_SEC = int(os.getenv("ROAD_RETENTION_INTERVAL_SEC", "3600"))
 
 # DATA_DIR is the single source of truth for where camera-site data lives.
 # Never compute ``Path(__file__).parent`` here — project-wide rule.
-from road_safety.config import DATA_DIR
+from backend.config import DATA_DIR
 
 
 # ===========================================================================

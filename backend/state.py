@@ -24,21 +24,21 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
-from road_safety.config import (
+from backend.config import (
     DEFAULT_STREAM_SOURCE as DEFAULT_SOURCE,
     DRIVER_ID,
     ROAD_ID,
     VEHICLE_ID,
     camera_calibration_for,
 )
-from road_safety.core.context import SceneContextClassifier
-from road_safety.core.detection import TrackHistory
-from road_safety.core.egomotion import EgoMotionEstimator
-from road_safety.core.quality import QualityMonitor
-from road_safety.core.stream import StreamReader, classify_source
-from road_safety.integrations.edge_publisher import EdgePublisher
-from road_safety.services.agents import AgentExecutor
-from road_safety.services.drift import ActiveLearningSampler, DriftMonitor
+from backend.core.context import SceneContextClassifier
+from backend.core.detection import TrackHistory
+from backend.core.egomotion import EgoMotionEstimator
+from backend.core.quality import QualityMonitor
+from backend.core.stream import StreamReader, classify_source
+from backend.integrations.edge_publisher import EdgePublisher
+from backend.services.agents import AgentExecutor
+from backend.services.drift import ActiveLearningSampler, DriftMonitor
 
 
 # ===== SECTION: CAMERA-SITE IDENTITY RESOLUTION =====
@@ -55,7 +55,7 @@ def _resolve_identity() -> tuple[str, str, str, list[str]]:
     """Return the effective camera-site identity for this process, plus any gaps.
 
     Reads ``VEHICLE_ID`` / ``ROAD_ID`` / ``DRIVER_ID`` (sourced from env in
-    ``road_safety/config.py``). These identifiers are attribution slots —
+    ``backend/config.py``). These identifiers are attribution slots —
     in a road-cam deployment their values are typically the camera-site
     vehicle / road / sensor IDs. If any is missing, substitutes a stable
     hostname-derived placeholder so events still emit — but also records

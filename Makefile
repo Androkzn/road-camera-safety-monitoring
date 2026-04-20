@@ -10,8 +10,8 @@ test:
 	pytest tests/ -v --tb=short
 
 lint:
-	python -m py_compile road_safety/server.py
-	python -m py_compile road_safety/config.py
+	python -m py_compile backend/server.py
+	python -m py_compile backend/config.py
 	python -m py_compile start.py
 
 run:

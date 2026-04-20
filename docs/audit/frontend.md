@@ -48,7 +48,7 @@ The case for extracting inline pieces in `SettingsPage` and `MultiSourceGrid` is
 
 ### 1.1 Backend contract is hand-mirrored
 
-**Observed.** [frontend/src/shared/types/common.ts](../../frontend/src/shared/types/common.ts) is **340 lines** of TypeScript shadowing dicts that the FastAPI handlers in [road_safety/server.py](../../road_safety/server.py) build by hand (e.g. `admin_health()` at line 3279). Comments inside the TS file even acknowledge it: `Mirrors JSON shapes produced by FastAPI handlers`.
+**Observed.** [frontend/src/shared/types/common.ts](../../frontend/src/shared/types/common.ts) is **340 lines** of TypeScript shadowing dicts that the FastAPI handlers in [backend/server.py](../../backend/server.py) build by hand (e.g. `admin_health()` at line 3279). Comments inside the TS file even acknowledge it: `Mirrors JSON shapes produced by FastAPI handlers`.
 
 **Why it matters.** When backend renames `frames_processed` to `processed_frames`, TypeScript stays green; runtime breaks. The 340 lines also bloat the file you have to scroll through to find anything.
 
@@ -212,7 +212,7 @@ at [AdminPage.tsx](../../frontend/src/features/admin/AdminPage.tsx), [DashboardP
 - `useLiveStatus` polls every 5 s ([shared/hooks/useLiveStatus.ts:16](../../frontend/src/shared/hooks/useLiveStatus.ts)).
 - `useAdminHealth` polls every 4 s ([features/admin/hooks/useAdminHealth.ts:8](../../frontend/src/features/admin/hooks/useAdminHealth.ts)).
 - Dashboard mounts `useLiveStatus`. Admin mounts `useAdminHealth`. **Settings mounts both** ([SettingsPage.tsx:63–64](../../frontend/src/features/settings/SettingsPage.tsx)).
-- Backend serves both endpoints from largely-overlapping data ([road_safety/server.py:2777, 3279](../../road_safety/server.py)).
+- Backend serves both endpoints from largely-overlapping data ([backend/server.py:2777, 3279](../../backend/server.py)).
 
 **Why it matters.** This is the canonical "too many API calls for not important UI" pattern. The Settings page polls *both* every 4–5 s primarily to feed the TopBar uptime pill — a UI element that nobody is checking second-by-second.
 

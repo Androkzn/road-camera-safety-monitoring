@@ -5,8 +5,8 @@ classification mismatch) with hand-built Detection lists so we never
 load a real torch model or touch the filesystem.
 """
 
-from road_safety.core.detection import Detection
-from road_safety.core.validator import (
+from backend.core.detection import Detection
+from backend.core.validator import (
     DiscrepancyComparator,
     _iou,
 )

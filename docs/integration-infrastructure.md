@@ -11,7 +11,7 @@ flowchart TB
   subgraph browser["Browser"]
     SPA[React SPA]
   end
-  subgraph edge["Edge: FastAPI road_safety.server"]
+  subgraph edge["Edge: FastAPI backend.server"]
     REST[REST JSON]
     SSE[SSE streams]
     MJPEG[MJPEG /admin/video_feed]
@@ -39,7 +39,7 @@ flowchart TB
 ### Production (recommended mental model)
 
 1. Run `npm run build` → assets in `frontend/dist/`.
-2. Run uvicorn on `road_safety.server:app`.
+2. Run uvicorn on `backend.server:app`.
 3. Browser loads `https://host:8000/` → JS/CSS from `/assets/...`, API from same host.
 
 **No CORS configuration is required** for the stock UI because everything shares one origin.
@@ -144,7 +144,7 @@ This is **server-to-server**. The React app never posts to the cloud receiver.
 
 | Component | Location | Role |
 |-----------|----------|------|
-| `EdgePublisher` | `road_safety/integrations/edge_publisher.py` | Append-only local queue; periodic batch POST with HMAC; exponential backoff. |
+| `EdgePublisher` | `backend/integrations/edge_publisher.py` | Append-only local queue; periodic batch POST with HMAC; exponential backoff. |
 | `cloud.receiver` | `cloud/receiver.py` | Verifies `X-Road-Timestamp` + signature; dedupes by `event_id`; stores JSON in SQLite. |
 
 Environment variables (typical):

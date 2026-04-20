@@ -29,7 +29,7 @@ KEY INVARIANTS (do not violate)
     names and passing ill-formed arguments — "tool-overload hallucination".
     CLAUDE.md codifies this as a hard rule.
   * LLM ROUTING. All LLM calls in this codebase are expected to route through
-    ``road_safety/services/llm.py`` helpers so they inherit multi-provider
+    ``backend/services/llm.py`` helpers so they inherit multi-provider
     failover (Anthropic <-> Azure OpenAI), the token-bucket rate budget, the
     3-fail/60s-open circuit breaker, and cost/latency tracking via
     ``llm_obs.observer``. The agent loop below calls the Anthropic SDK
@@ -75,11 +75,11 @@ from typing import Any, Callable
 
 # All paths are imported from the single source of truth. Never compute
 # ``Path(__file__).parent`` in this module — ``config.py`` owns path layout.
-from road_safety.config import CORPUS_DIR, DATA_DIR
+from backend.config import CORPUS_DIR, DATA_DIR
 # ``llm_observer`` is the shared cost/latency tracker. Every LLM call in this
 # file records through it so the /api/llm/* admin endpoints reflect agent
 # spend alongside enrichment spend.
-from road_safety.services.llm_obs import observer as llm_observer
+from backend.services.llm_obs import observer as llm_observer
 
 # MAX_STEPS — hard cap on the agent's tool-use loop. After this many
 # assistant-tool-result round trips, we stop regardless of what the model is
@@ -101,7 +101,7 @@ MAX_STEPS = 5
 # ---------------------
 # Tool implementations MUST NOT import or call any LLM SDK (anthropic,
 # openai, azure) directly. If a tool needs enrichment or text generation,
-# it must go through ``road_safety/services/llm.py`` so the call inherits:
+# it must go through ``backend/services/llm.py`` so the call inherits:
 #     - multi-provider failover (Anthropic <-> Azure OpenAI)
 #     - client-side token-bucket rate budget
 #     - circuit breaker (3 failures -> 60s open)
@@ -633,7 +633,7 @@ class AgentExecutor:
         # LLM layer configured?" in one place. If you add agent routing
         # for a second provider, wire it through that module; do NOT read
         # env vars directly here.
-        from road_safety.services.llm import _ANTHROPIC_KEY, llm_configured
+        from backend.services.llm import _ANTHROPIC_KEY, llm_configured
 
         if not llm_configured() or not _ANTHROPIC_KEY:
             # Fail fast with a structured result — the dashboard can show

@@ -54,7 +54,7 @@ Env vars that shape behaviour
 -----------------------------
 * ``ROAD_VEHICLE_ID`` / ``ROAD_ID`` / ``ROAD_DRIVER_ID`` — identity
   defaults when an event arrives with no fleet identity fields set.
-  (Read from ``road_safety.config``.)
+  (Read from ``backend.config``.)
 * ``ROAD_SCORE_DECAY_INTERVAL_SEC`` — how often :meth:`decay_scores` is
   called by the scheduler.  ``0`` disables decay.
 
@@ -90,7 +90,7 @@ from typing import Any
 
 # Identity defaults — used when an incoming event has no fleet-identity
 # fields.  All three come from env vars set at process start.
-from road_safety.config import DRIVER_ID, ROAD_ID, VEHICLE_ID
+from backend.config import DRIVER_ID, ROAD_ID, VEHICLE_ID
 
 # ---------------------------------------------------------------------------
 # Scoring constants
@@ -476,7 +476,7 @@ class RoadRegistry:
 # ---------------------------------------------------------------------------
 # Module-level singleton — this is what every caller should import.
 # ---------------------------------------------------------------------------
-# ``from road_safety.services.registry import road_registry`` gives you the
+# ``from backend.services.registry import road_registry`` gives you the
 # one shared instance used by the whole server.  Do not instantiate your
 # own ``RoadRegistry()`` — you'd end up with a second copy that sees none
 # of the live events.

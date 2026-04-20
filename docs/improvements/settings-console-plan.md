@@ -47,12 +47,12 @@ the existing safety gates.
 
 ### S1 — Runtime settings core
 
-- New `road_safety/settings_spec.py` with `SettingSpec` dataclass and a
+- New `backend/settings_spec.py` with `SettingSpec` dataclass and a
   `SETTINGS_SPEC` registry covering ~16 tunables (see "Spec inventory" below).
 - Each spec carries: `key`, `default`, `min`, `max`, `enum`, `type`,
   `category`, `description`, `mutability`, optional `validator`, plus
   documentation of the source module.
-- New `road_safety/settings_store.py` — `SettingsStore` singleton with:
+- New `backend/settings_store.py` — `SettingsStore` singleton with:
   - Frozen-dict snapshot exposed via `MappingProxyType` and read with
     `STORE.snapshot()` (cheap, lock-free for readers).
   - `apply_diff(diff, *, actor, expected_revision_hash=None)` — atomic
@@ -127,7 +127,7 @@ Single-writer file model under the edge process (out of scope: HA / multi-instan
 
 ### S4 — Impact engine
 
-`road_safety/services/impact.py` with `WindowStats`, `ImpactSession`,
+`backend/services/impact.py` with `WindowStats`, `ImpactSession`,
 `ImpactMonitor`. Persisted to SQLite on every tick so a server restart inside
 the monitoring window does not lose state.
 
@@ -170,7 +170,7 @@ spelled out in the code comments — see `services/impact.py`.
 ### S5 — API surface
 
 All under `/api/settings/*`, all `require_bearer_token`, all mutations
-audit-logged through `road_safety/compliance/audit.py`.
+audit-logged through `backend/compliance/audit.py`.
 
 Reads:
 - `GET  /api/settings/effective` → current values + raw + scene-effective
@@ -309,20 +309,20 @@ documented here flow through `settings_spec.SETTINGS_SPEC`.
 ## Files: create vs modify (high level)
 
 ### New backend
-- `road_safety/settings_spec.py`
-- `road_safety/settings_store.py`
-- `road_safety/services/settings_db.py`
-- `road_safety/services/templates.py`
-- `road_safety/services/impact.py`
-- `road_safety/api/settings.py`
+- `backend/settings_spec.py`
+- `backend/settings_store.py`
+- `backend/services/settings_db.py`
+- `backend/services/templates.py`
+- `backend/services/impact.py`
+- `backend/api/settings.py`
 
 ### Modified backend
-- `road_safety/config.py` — no schema change; settings_spec imports defaults from here.
-- `road_safety/server.py` — mount router; add `recent_events` lock; gate watchdog mutators; lifespan wires impact monitor; per-loop snapshot reads for `MAX_RECENT_EVENTS` / `PAIR_COOLDOWN_SEC` / `ALPR_MODE`.
-- `road_safety/core/detection.py` — snapshot reads for the detection / risk-tier / gating constants; `TRACK_HISTORY_LEN` deque rebuild on subscriber.
-- `road_safety/core/quality.py` — snapshot reads for the two threshold constants.
-- `road_safety/services/llm.py` — `_HAIKU_BUCKET` rebuilt via subscriber; `_CB_THRESHOLD` / `_CB_COOLDOWN_SEC` snapshot reads; new `analyze_settings_impact()` advisory function.
-- `road_safety/integrations/slack.py` — snapshot reads for the Slack thresholds.
+- `backend/config.py` — no schema change; settings_spec imports defaults from here.
+- `backend/server.py` — mount router; add `recent_events` lock; gate watchdog mutators; lifespan wires impact monitor; per-loop snapshot reads for `MAX_RECENT_EVENTS` / `PAIR_COOLDOWN_SEC` / `ALPR_MODE`.
+- `backend/core/detection.py` — snapshot reads for the detection / risk-tier / gating constants; `TRACK_HISTORY_LEN` deque rebuild on subscriber.
+- `backend/core/quality.py` — snapshot reads for the two threshold constants.
+- `backend/services/llm.py` — `_HAIKU_BUCKET` rebuilt via subscriber; `_CB_THRESHOLD` / `_CB_COOLDOWN_SEC` snapshot reads; new `analyze_settings_impact()` advisory function.
+- `backend/integrations/slack.py` — snapshot reads for the Slack thresholds.
 
 ### New frontend
 - `frontend/src/pages/SettingsPage.tsx` (+ `.module.css`)

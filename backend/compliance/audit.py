@@ -90,7 +90,7 @@ from typing import Any
 
 # DATA_DIR comes from the single-source-of-truth config module.  Never
 # compute ``Path(__file__).parent`` here — see the project's Python rules.
-from road_safety.config import DATA_DIR
+from backend.config import DATA_DIR
 
 # ---------------------------------------------------------------------------
 # Module-level constants (computed once at import time)

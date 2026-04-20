@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, HTTPException, Request
 
-from road_safety.compliance import audit
-from road_safety.security.auth import require_admin
-from road_safety.state import state
+from backend.compliance import audit
+from backend.security.auth import require_admin
+from backend.state import state
 
 router = APIRouter()
 

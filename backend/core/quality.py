@@ -12,7 +12,7 @@ the focus breathing on a dirty lens).
 This module samples three cheap per-frame features plus one slow running
 average of detector confidence, classifies the pipeline as ``nominal`` or one
 of four ``degraded_*`` states, and exposes a small ``risk_adjustment`` dict
-that the hot-path in ``road_safety/server.py::_run_loop`` reads to:
+that the hot-path in ``backend/server.py::_run_loop`` reads to:
 
   1. SUPPRESS event emission / LLM enrichment when the camera is degraded,
   2. Widen TTC and pixel-distance thresholds so borderline cases don't fire.
@@ -24,7 +24,7 @@ surfaces the state so operators can see *why* the system went quiet.
 
 Consumers
 ---------
-- ``road_safety/server.py`` — gates emission + feeds the health banner.
+- ``backend/server.py`` — gates emission + feeds the health banner.
 - ``frontend/src/pages/MonitoringPage.tsx`` — renders the live state.
 
 Python idioms used in this file (explained once):
@@ -52,7 +52,7 @@ import numpy as np
 # of truth for the two thresholds we care about here at runtime; the
 # ``_THRESH`` dict still holds the seed defaults for unit tests that
 # instantiate :class:`QualityMonitor` without booting the store.
-from road_safety.settings_store import STORE as _SETTINGS_STORE
+from backend.settings_store import STORE as _SETTINGS_STORE
 
 # ---------------------------------------------------------------------------
 # State vocabulary
@@ -179,7 +179,7 @@ class QualityMonitor:
 
     Consumers
     ---------
-    ``road_safety/server.py`` (emission gating + health banner),
+    ``backend/server.py`` (emission gating + health banner),
     ``MonitoringPage`` (dashboard watchdog queue).
     """
 
@@ -432,7 +432,7 @@ class QualityMonitor:
 
 # ---------------------------------------------------------------------------
 # Module smoke test — not a real test, just a manual sanity hook. Running
-# ``python -m road_safety.core.quality`` will push ten all-black frames at
+# ``python -m backend.core.quality`` will push ten all-black frames at
 # the monitor and print its state. Useful when poking at thresholds.
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
