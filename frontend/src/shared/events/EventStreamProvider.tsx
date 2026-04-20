@@ -94,7 +94,9 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
   return (
     <DataCtx.Provider value={dataValue}>
       <ConnectionCtx.Provider value={connected}>
-        <ActionsCtx.Provider value={actionsValue}>{children}</ActionsCtx.Provider>
+        <ActionsCtx.Provider value={actionsValue}>
+          {children}
+        </ActionsCtx.Provider>
       </ConnectionCtx.Provider>
     </DataCtx.Provider>
   );

@@ -56,6 +56,7 @@ export function TemplatesCard({
             )}
             <div className={styles.templateActions}>
               <button
+                type="button"
                 className={styles.btn}
                 disabled={busy}
                 onClick={() => onApply(t.id)}
@@ -64,6 +65,7 @@ export function TemplatesCard({
               </button>
               {!t.system && (
                 <button
+                  type="button"
                   className={`${styles.btn} ${styles.btnDanger}`}
                   disabled={busy}
                   onClick={async () => {
@@ -89,7 +91,12 @@ export function TemplatesCard({
           + Save current as template
         </summary>
         <div
-          style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            marginTop: 8,
+          }}
         >
           <input
             className={styles.tokenInput}
@@ -104,6 +111,7 @@ export function TemplatesCard({
             onChange={(e) => setDesc(e.target.value)}
           />
           <button
+            type="button"
             className={`${styles.btn} ${styles.btnPrimary}`}
             disabled={!name.trim() || creating}
             onClick={async () => {

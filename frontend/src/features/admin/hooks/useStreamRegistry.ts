@@ -77,10 +77,12 @@ export function useStreamRegistry(): UseStreamRegistryResult {
       const previous = qc.getQueryData<LiveSourcesResponse>(
         adminQueryKeys.liveSources,
       );
-      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
-        prev
-          ? { ...prev, sources: prev.sources.filter((s) => s.id !== id) }
-          : prev,
+      qc.setQueryData<LiveSourcesResponse>(
+        adminQueryKeys.liveSources,
+        (prev) =>
+          prev
+            ? { ...prev, sources: prev.sources.filter((s) => s.id !== id) }
+            : prev,
       );
       return { previous };
     },
@@ -115,15 +117,17 @@ export function useStreamRegistry(): UseStreamRegistryResult {
     },
     onMutate: ({ action, ids }) => {
       const running = action === "start";
-      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
-        prev
-          ? {
-              ...prev,
-              sources: prev.sources.map((s) =>
-                ids.includes(s.id) ? { ...s, running } : s,
-              ),
-            }
-          : prev,
+      qc.setQueryData<LiveSourcesResponse>(
+        adminQueryKeys.liveSources,
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                sources: prev.sources.map((s) =>
+                  ids.includes(s.id) ? { ...s, running } : s,
+                ),
+              }
+            : prev,
       );
     },
     onSettled: invalidateList,

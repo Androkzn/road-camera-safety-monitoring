@@ -22,7 +22,9 @@
   background: #0b0f14;
   border: 1px solid var(--border);
   border-radius: 10px;
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
 .card:hover {
   border-color: #2d3748;
@@ -65,7 +67,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;                     /* remove inline-image baseline gap */
+  display: block; /* remove inline-image baseline gap */
 }
 
 /* Right-hand text column — stacked rows separated by small gap. */

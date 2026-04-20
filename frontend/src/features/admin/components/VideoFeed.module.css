@@ -24,7 +24,7 @@
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;     /* TEACH: centers along the main axis */
+  justify-content: center; /* TEACH: centers along the main axis */
   background: #000;
   position: relative;
   min-height: 280px;
@@ -68,7 +68,7 @@
 
 /* One stat cell inside the overlay. */
 .stat {
-  flex: 1;                      /* split overlay evenly */
+  flex: 1; /* split overlay evenly */
   padding: 8px 12px;
   text-align: center;
   border-right: 1px solid rgba(255, 255, 255, 0.06);

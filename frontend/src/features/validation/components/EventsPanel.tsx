@@ -52,8 +52,7 @@ export function EventsPanel({
   const [showLow, setShowLow] = useState(false);
 
   const visibleEvents = useMemo(
-    () =>
-      showLow ? events : events.filter((ev) => ev.risk_level !== "low"),
+    () => (showLow ? events : events.filter((ev) => ev.risk_level !== "low")),
     [events, showLow],
   );
   const hiddenLowCount = events.length - visibleEvents.length;
@@ -147,7 +146,10 @@ export function EventsPanel({
         ) : (
           <div className={styles.list}>
             {shadowOnly.map((f) => (
-              <div key={`${f.snapshot_id}_${f.ts}`} className={styles.shadowRow}>
+              <div
+                key={`${f.snapshot_id}_${f.ts}`}
+                className={styles.shadowRow}
+              >
                 <div className={styles.shadowTop}>
                   <span className={styles.shadowTitle}>{f.title}</span>
                   <span className={`${styles.badge} ${styles.badgeDisputed}`}>

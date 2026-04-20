@@ -35,8 +35,7 @@
  * and a `useRef`/`useEffect` pair to wire up the player.
  */
 
-// TEACH: `useState` — see full explainer in TabBar.tsx. Each call
-//        creates an independent slot of component state.
+// TEACH: `useState` creates an independent slot of component state.
 import { useState } from "react";
 import styles from "./VideoFeed.module.css";
 
@@ -92,7 +91,9 @@ export function VideoFeed({ stats }: VideoFeedProps) {
              "neither loaded nor failed" state, i.e. first connection
              in flight. */}
         {!loaded && !error && (
-          <div className={styles.placeholder}>Waiting for video stream&hellip;</div>
+          <div className={styles.placeholder}>
+            Waiting for video stream&hellip;
+          </div>
         )}
         {error && (
           <div className={styles.placeholder}>Video feed unavailable</div>
@@ -103,19 +104,27 @@ export function VideoFeed({ stats }: VideoFeedProps) {
             {/* TEACH: Two classes applied at once via template string —
                  `styles.num` is the shared size/weight, `styles.accent`
                  is the colour variant for this specific stat. */}
-            <div className={`${styles.num} ${styles.accent}`}>{stats.detections}</div>
+            <div className={`${styles.num} ${styles.accent}`}>
+              {stats.detections}
+            </div>
             <div className={styles.statLabel}>detections</div>
           </div>
           <div className={styles.stat}>
-            <div className={`${styles.num} ${styles.green}`}>{stats.persons}</div>
+            <div className={`${styles.num} ${styles.green}`}>
+              {stats.persons}
+            </div>
             <div className={styles.statLabel}>persons</div>
           </div>
           <div className={styles.stat}>
-            <div className={`${styles.num} ${styles.warn}`}>{stats.vehicles}</div>
+            <div className={`${styles.num} ${styles.warn}`}>
+              {stats.vehicles}
+            </div>
             <div className={styles.statLabel}>vehicles</div>
           </div>
           <div className={styles.stat}>
-            <div className={`${styles.num} ${styles.danger}`}>{stats.interactions}</div>
+            <div className={`${styles.num} ${styles.danger}`}>
+              {stats.interactions}
+            </div>
             <div className={styles.statLabel}>interactions</div>
           </div>
           <div className={styles.stat}>

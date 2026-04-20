@@ -50,7 +50,9 @@ export function IncidentCard({
       <div className={styles.incidentHeader}>
         <div className={styles.incidentHeaderLeft}>
           {selectMode && (
-            <span className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}>
+            <span
+              className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}
+            >
               {isSelected ? "✓" : ""}
             </span>
           )}
@@ -62,14 +64,18 @@ export function IncidentCard({
               <h2 className={styles.incidentTitle}>{incident.title}</h2>
               <div className={styles.metaPills}>
                 <span className={styles.pill}>{incident.category}</span>
-                {incident.owner && <span className={styles.pill}>{incident.owner}</span>}
+                {incident.owner && (
+                  <span className={styles.pill}>{incident.owner}</span>
+                )}
                 {incident.count > 1 && (
                   <span className={`${styles.pill} ${styles.repeatPill}`}>
                     Seen {incident.count}x
                   </span>
                 )}
                 {latest.source === "ai" && (
-                  <span className={`${styles.pill} ${styles.aiPill}`}>AI hypothesis</span>
+                  <span className={`${styles.pill} ${styles.aiPill}`}>
+                    AI hypothesis
+                  </span>
                 )}
               </div>
             </div>
@@ -84,6 +90,7 @@ export function IncidentCard({
         </div>
         {!selectMode && (
           <button
+            type="button"
             className={styles.deleteSingle}
             onClick={(e) => {
               e.stopPropagation();
@@ -99,7 +106,8 @@ export function IncidentCard({
       <div className={styles.nextStepBox}>
         <span className={styles.nextStepLabel}>Next move</span>
         <strong>
-          {latest.suggestion || "Inspect the evidence attached to this incident."}
+          {latest.suggestion ||
+            "Inspect the evidence attached to this incident."}
         </strong>
       </div>
 
@@ -133,7 +141,9 @@ export function IncidentCard({
                 <span className={styles.evidenceLabel}>{item.label}</span>
                 <strong className={styles.evidenceValue}>{item.value}</strong>
                 {item.threshold && (
-                  <span className={styles.evidenceThreshold}>Target {item.threshold}</span>
+                  <span className={styles.evidenceThreshold}>
+                    Target {item.threshold}
+                  </span>
                 )}
               </div>
             ))}
@@ -157,7 +167,10 @@ export function IncidentCard({
           <div className={styles.blockLabel}>Fast Debug Paths</div>
           <div className={styles.commandsList}>
             {latest.debug_commands.map((command, index) => (
-              <code className={styles.commandChip} key={`${incident.id}-cmd-${index}`}>
+              <code
+                className={styles.commandChip}
+                key={`${incident.id}-cmd-${index}`}
+              >
                 {command}
               </code>
             ))}

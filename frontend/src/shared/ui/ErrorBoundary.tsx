@@ -29,7 +29,10 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
   state: ErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
@@ -38,7 +41,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     this.props.onError?.(error, info);
-    // eslint-disable-next-line no-console
+
     console.error("[ErrorBoundary]", error, info);
   }
 
@@ -54,7 +57,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 }
 
-function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) {
+function DefaultFallback({
+  error,
+  reset,
+}: {
+  error: Error;
+  reset: () => void;
+}) {
   return (
     <div className={styles.root} role="alert">
       <h1 className={styles.title}>Something broke on this page</h1>

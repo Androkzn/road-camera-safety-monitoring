@@ -3,8 +3,8 @@
  * coming from the edge perception pipeline.
  *
  * Where it renders:
- *   Rendered inside pages/AdminPage.tsx, usually as one of the tabs in a
- *   TabBar (see ./TabBar.tsx). The parent owns the frame buffer and passes
+ *   Rendered inside AdminPage.tsx as one of the tabs (shared/ui/Tabs).
+ *   The parent owns the frame buffer and passes
  *   the latest N snapshots down via props.
  *
  * Props:

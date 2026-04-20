@@ -16,7 +16,7 @@
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  min-height: 0;                 /* allow inner scroll — see TabBar notes */
+  min-height: 0; /* allow inner scroll — see TabBar notes */
   overflow: hidden;
 }
 
@@ -92,7 +92,7 @@
 /* Suggestion-chip row above the compose box (quick prompts). */
 .chips {
   display: flex;
-  flex-wrap: wrap;                /* wrap chips onto multiple lines */
+  flex-wrap: wrap; /* wrap chips onto multiple lines */
   gap: 6px;
   padding: 10px 16px;
   border-top: 1px solid var(--border);
@@ -107,7 +107,10 @@
   border-radius: 999px;
   font-size: 11px;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s;
   font-family: inherit;
 }
 .chip:hover {
@@ -128,18 +131,18 @@
  * (locally-scoped) `compose` class. Useful for styling elements
  * whose JSX does not receive a className of its own. */
 .compose textarea {
-  flex: 1;                          /* grow to fill row */
-  resize: none;                     /* disable the drag-handle */
+  flex: 1; /* grow to fill row */
+  resize: none; /* disable the drag-handle */
   background: #0b0f14;
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
-  font: inherit;                    /* inherit the parent font settings */
+  font: inherit; /* inherit the parent font settings */
   font-size: 12.5px;
   min-height: 56px;
   max-height: 140px;
-  outline: none;                    /* we draw our own focus ring below */
+  outline: none; /* we draw our own focus ring below */
   transition: border-color 0.15s;
 }
 /* TEACH: :focus is the keyboard/input focus state. We swap the
@@ -159,7 +162,7 @@
   cursor: pointer;
   font-size: 12.5px;
   min-width: 84px;
-  align-self: stretch;               /* match textarea height */
+  align-self: stretch; /* match textarea height */
   transition: opacity 0.15s;
   font-family: inherit;
 }

@@ -37,7 +37,11 @@ export function TopBar({
   const statusVariant =
     connected === true ? "ok" : connected === false ? "bad" : "wait";
   const statusLabel =
-    connected === true ? "live" : connected === false ? "disconnected" : "connecting…";
+    connected === true
+      ? "live"
+      : connected === false
+        ? "disconnected"
+        : "connecting…";
 
   return (
     <header className={styles.topbar}>

@@ -88,7 +88,8 @@ export function SelectedStreamHeader({
             )}
           </div>
           <div className={styles.host} title={source.url}>
-            {shortHost(source.url)} · {totalSources} stream{totalSources === 1 ? "" : "s"} total
+            {shortHost(source.url)} · {totalSources} stream
+            {totalSources === 1 ? "" : "s"} total
           </div>
         </div>
       </div>
@@ -101,7 +102,11 @@ export function SelectedStreamHeader({
           value={`${source.frames_processed.toLocaleString()} / ${source.frames_read.toLocaleString()}`}
           hint="processed / read"
         />
-        <Stat label="active" value={String(source.active_episodes)} hint="open episodes" />
+        <Stat
+          label="active"
+          value={String(source.active_episodes)}
+          hint="open episodes"
+        />
         <Stat
           label="perception"
           value={perception}
@@ -144,7 +149,9 @@ function Stat({
   return (
     <div className={styles.stat} title={hint}>
       <span className={styles.statLabel}>{label}</span>
-      <span className={`${styles.statValue} ${warn ? styles.warn : ""}`}>{value}</span>
+      <span className={`${styles.statValue} ${warn ? styles.warn : ""}`}>
+        {value}
+      </span>
     </div>
   );
 }

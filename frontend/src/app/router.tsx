@@ -31,7 +31,13 @@ const SettingsPage = lazy(() =>
   import("../features/settings").then((m) => ({ default: m.SettingsPage })),
 );
 
-function RouteShell({ label, children }: { label: string; children: ReactNode }) {
+function RouteShell({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <ErrorBoundary>
       <Suspense fallback={<RouteFallback label={`Loading ${label}…`} />}>

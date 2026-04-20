@@ -17,9 +17,11 @@
   margin-bottom: 8px;
   background: var(--card);
   border: 1px solid var(--border);
-  animation: fadeIn 0.25s ease;     /* defined in global.css */
+  animation: fadeIn 0.25s ease; /* defined in global.css */
   cursor: default;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 .card:hover {
   border-color: var(--accent);
@@ -130,8 +132,23 @@
 
 /* Per-family taxonomy tint. Border + text get the family color; background
  * stays the card surface for a muted outlined look. */
-.taxonomy_FCW  { color: var(--medium); border-color: var(--medium); }
-.taxonomy_BSW  { color: var(--accent); border-color: var(--accent); }
-.taxonomy_RCW  { color: var(--high);   border-color: var(--high); }
-.taxonomy_RCTA { color: #fb923c;       border-color: #fb923c; }
-.taxonomy_NONE { color: var(--muted);  border-color: var(--border); }
+.taxonomy_FCW {
+  color: var(--medium);
+  border-color: var(--medium);
+}
+.taxonomy_BSW {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.taxonomy_RCW {
+  color: var(--high);
+  border-color: var(--high);
+}
+.taxonomy_RCTA {
+  color: #fb923c;
+  border-color: #fb923c;
+}
+.taxonomy_NONE {
+  color: var(--muted);
+  border-color: var(--border);
+}

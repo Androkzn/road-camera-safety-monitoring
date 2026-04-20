@@ -60,7 +60,9 @@ export const settingsApi = {
     }),
 
   rollback: () =>
-    adminFetch<ApplyResultPayload>("/api/settings/rollback", { method: "POST" }),
+    adminFetch<ApplyResultPayload>("/api/settings/rollback", {
+      method: "POST",
+    }),
 
   captureBaseline: () =>
     adminFetch<{ ok: boolean; audit_id: string }>(

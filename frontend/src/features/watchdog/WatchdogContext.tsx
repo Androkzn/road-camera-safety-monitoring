@@ -23,7 +23,10 @@ import {
   STALE_TIME_MS,
 } from "../../shared/config/runtime";
 import { dialog } from "../../shared/ui";
-import type { WatchdogFinding, WatchdogStatus } from "../../shared/types/common";
+import type {
+  WatchdogFinding,
+  WatchdogStatus,
+} from "../../shared/types/common";
 
 import { watchdogApi, watchdogQueryKeys } from "./api";
 
@@ -77,7 +80,7 @@ function handleWatchdogAdminError(exc: unknown, action: string): void {
     });
     return;
   }
-  // eslint-disable-next-line no-console
+
   console.error(exc);
   void dialog.alert({
     title: `${action} failed`,
@@ -101,12 +104,14 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
 
   const deleteMutation = useMutation({
     mutationFn: (keys: string[]) => watchdogApi.deleteFindings(keys),
-    onSuccess: () => qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
   });
 
   const clearMutation = useMutation({
     mutationFn: () => watchdogApi.clearAll(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
   });
 
   const deleteFindings = useCallback(

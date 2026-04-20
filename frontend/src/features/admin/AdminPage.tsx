@@ -53,7 +53,8 @@ export function AdminPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (focusedId) window.localStorage.setItem("road_admin_focused_id", focusedId);
+    if (focusedId)
+      window.localStorage.setItem("road_admin_focused_id", focusedId);
     else window.localStorage.removeItem("road_admin_focused_id");
     // LivePreviewCard on SettingsPage subscribes to this CustomEvent to
     // mirror the focused stream selection when both pages are open in the

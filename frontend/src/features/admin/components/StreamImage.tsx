@@ -80,9 +80,21 @@ interface StreamImageProps {
  */
 export function StreamImage({ source, className, onError }: StreamImageProps) {
   if (VIDEO_TRANSPORT === "mjpeg") {
-    return <MjpegStreamImage source={source} className={className} onError={onError} />;
+    return (
+      <MjpegStreamImage
+        source={source}
+        className={className}
+        onError={onError}
+      />
+    );
   }
-  return <PollingStreamImage source={source} className={className} onError={onError} />;
+  return (
+    <PollingStreamImage
+      source={source}
+      className={className}
+      onError={onError}
+    />
+  );
 }
 
 function MjpegStreamImage({ source, className, onError }: StreamImageProps) {

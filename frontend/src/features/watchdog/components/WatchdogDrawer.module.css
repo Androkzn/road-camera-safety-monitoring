@@ -11,8 +11,8 @@
 
 /* Dimmed backdrop behind the drawer (same pattern as TestDrawer). */
 .overlay {
-  position: fixed;                   /* pin to viewport */
-  inset: 0;                          /* stretch to all edges */
+  position: fixed; /* pin to viewport */
+  inset: 0; /* stretch to all edges */
   background: rgba(0, 0, 0, 0.5);
   z-index: 900;
   opacity: 0;
@@ -30,7 +30,7 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(560px, 92vw);           /* pick smaller of 560px / 92vw */
+  width: min(560px, 92vw); /* pick smaller of 560px / 92vw */
   z-index: 901;
   background: var(--panel);
   border-left: 1px solid var(--border);
@@ -121,7 +121,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: rgba(56, 189, 248, 0.06);    /* cyan-tinted tray */
+  background: rgba(56, 189, 248, 0.06); /* cyan-tinted tray */
   border-bottom: 1px solid rgba(56, 189, 248, 0.15);
   gap: 8px;
 }
@@ -223,7 +223,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  opacity: 0;                        /* hidden by default */
+  opacity: 0; /* hidden by default */
   transition: all 0.15s;
   flex-shrink: 0;
 }
@@ -283,10 +283,18 @@
   font-variant-numeric: tabular-nums;
 }
 /* Colour modifiers for the count value via parent modifier. */
-.terror .tValue { color: var(--high); }
-.twarning .tValue { color: var(--medium); }
-.tinfo .tValue { color: var(--accent); }
-.ttotal .tValue { color: var(--text); }
+.terror .tValue {
+  color: var(--high);
+}
+.twarning .tValue {
+  color: var(--medium);
+}
+.tinfo .tValue {
+  color: var(--accent);
+}
+.ttotal .tValue {
+  color: var(--text);
+}
 
 /* Caption row under the tiles describing the active filter. */
 .filterLabel {

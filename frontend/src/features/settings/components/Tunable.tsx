@@ -93,9 +93,10 @@ function Label() {
   const [helpOpen, setHelpOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(
-    null,
-  );
+  const [popoverPos, setPopoverPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!helpOpen) return;
@@ -227,7 +228,10 @@ function Control() {
   if (spec.type === "enum" && spec.enum) {
     return (
       <div className={styles.controlCol}>
-        <select value={String(draft)} onChange={(e) => onChange(e.target.value)}>
+        <select
+          value={String(draft)}
+          onChange={(e) => onChange(e.target.value)}
+        >
           {spec.enum.map((v) => (
             <option key={v} value={v}>
               {humanize(v)}
@@ -257,9 +261,7 @@ function Control() {
       if (!Number.isFinite(n)) return spec.type === "int" ? 0 : 0;
       const snapped = Math.round((n - min) / step) * step + min;
       const digits =
-        step >= 1
-          ? 0
-          : Math.min(6, Math.max(0, -Math.floor(Math.log10(step))));
+        step >= 1 ? 0 : Math.min(6, Math.max(0, -Math.floor(Math.log10(step))));
       return Number(snapped.toFixed(digits));
     };
     return (
@@ -312,7 +314,9 @@ function Meta() {
         Reset to {String(spec.default)}
       </button>
       {spec.mutability === "read_only" && (
-        <span className={`${styles.badge} ${styles.badgeReadonly}`}>read-only</span>
+        <span className={`${styles.badge} ${styles.badgeReadonly}`}>
+          read-only
+        </span>
       )}
     </div>
   );

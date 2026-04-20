@@ -27,10 +27,10 @@ export const adminApi = {
       { method: "POST" },
     ),
   restartAllLiveSources: () =>
-    fetchJson<{ ok: boolean; results: Array<LiveSourceStatus & { ok: boolean; error?: string }> }>(
-      "/api/live/sources/restart_all",
-      { method: "POST" },
-    ),
+    fetchJson<{
+      ok: boolean;
+      results: Array<LiveSourceStatus & { ok: boolean; error?: string }>;
+    }>("/api/live/sources/restart_all", { method: "POST" }),
   setLiveSourceDetection: (id: string, enabled: boolean) =>
     fetchJson<LiveSourceStatus>(
       `/api/live/sources/${encodeURIComponent(id)}/detection?enabled=${enabled}`,

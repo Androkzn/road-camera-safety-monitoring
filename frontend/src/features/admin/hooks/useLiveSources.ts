@@ -87,15 +87,17 @@ export function useLiveSources(
 
   const patchRunning = useCallback(
     (id: string, running: boolean) => {
-      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
-        prev
-          ? {
-              ...prev,
-              sources: prev.sources.map((s) =>
-                s.id === id ? { ...s, running } : s,
-              ),
-            }
-          : prev,
+      qc.setQueryData<LiveSourcesResponse>(
+        adminQueryKeys.liveSources,
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                sources: prev.sources.map((s) =>
+                  s.id === id ? { ...s, running } : s,
+                ),
+              }
+            : prev,
       );
     },
     [qc],
@@ -103,15 +105,17 @@ export function useLiveSources(
 
   const patchDetection = useCallback(
     (id: string, enabled: boolean) => {
-      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
-        prev
-          ? {
-              ...prev,
-              sources: prev.sources.map((s) =>
-                s.id === id ? { ...s, detection_enabled: enabled } : s,
-              ),
-            }
-          : prev,
+      qc.setQueryData<LiveSourcesResponse>(
+        adminQueryKeys.liveSources,
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                sources: prev.sources.map((s) =>
+                  s.id === id ? { ...s, detection_enabled: enabled } : s,
+                ),
+              }
+            : prev,
       );
     },
     [qc],

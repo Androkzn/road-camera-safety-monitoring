@@ -73,7 +73,7 @@ export function MultiSourceGrid({
     );
 
   const focusedSource = focusedId
-    ? sources.find((s) => s.id === focusedId) ?? null
+    ? (sources.find((s) => s.id === focusedId) ?? null)
     : null;
   const minimizedSources = focusedSource
     ? sources.filter((s) => s.id !== focusedSource.id)

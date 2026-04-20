@@ -18,7 +18,7 @@
   font-size: 11.5px;
   border-bottom: 1px solid var(--border);
   background: #0b0f14;
-  transition: background-color 0.3s;  /* smooth color swap when state changes */
+  transition: background-color 0.3s; /* smooth color swap when state changes */
 }
 
 /* Applied (in addition to .banner) when the pipeline is degraded.

@@ -15,7 +15,11 @@ interface UseSSEOptions<T> {
   enabled?: boolean;
 }
 
-export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) {
+export function useSSE<T>({
+  url,
+  onMessage,
+  enabled = true,
+}: UseSSEOptions<T>) {
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
   const [connected, setConnected] = useState(false);
@@ -45,7 +49,11 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
         };
         es.onerror = () => {
           setConnected(false);
-          try { es?.close(); } catch { /* noop */ }
+          try {
+            es?.close();
+          } catch {
+            /* noop */
+          }
           es = null;
           if (!stopped) {
             timer = setTimeout(connect, backoff);
@@ -71,7 +79,11 @@ export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) 
     return () => {
       stopped = true;
       clearTimeout(timer);
-      try { es?.close(); } catch { /* noop */ }
+      try {
+        es?.close();
+      } catch {
+        /* noop */
+      }
       es = null;
       setConnected(false);
     };

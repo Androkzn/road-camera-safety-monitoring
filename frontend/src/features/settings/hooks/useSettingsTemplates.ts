@@ -2,11 +2,7 @@
  * useSettingsTemplates — list/create/delete/apply settings templates.
  */
 import { useCallback, useEffect } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   clearAdminToken,

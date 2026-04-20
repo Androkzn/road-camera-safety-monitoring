@@ -153,6 +153,7 @@ export function ImpactCard({
 
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <button
+          type="button"
           className={styles.btn}
           onClick={onRefresh}
           disabled={refreshing}

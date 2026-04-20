@@ -40,15 +40,14 @@ export function ValidatorControl() {
         />
       </div>
       <p className={styles.hint}>
-        Runs a second, heavier detector in the background — never gates
-        live alerts, but publishes disagreements to this incident queue
-        under the <code>validator</code> category.
+        Runs a second, heavier detector in the background — never gates live
+        alerts, but publishes disagreements to this incident queue under the{" "}
+        <code>validator</code> category.
       </p>
       {startupDisabled ? (
         <p className={styles.warn}>
-          Disabled at startup. Set <code>ROAD_VALIDATOR_ENABLED=1</code>{" "}
-          in <code>.env</code> and restart the server to enable runtime
-          toggling.
+          Disabled at startup. Set <code>ROAD_VALIDATOR_ENABLED=1</code> in{" "}
+          <code>.env</code> and restart the server to enable runtime toggling.
         </p>
       ) : (
         <div className={styles.stats}>
@@ -65,7 +64,9 @@ export function ValidatorControl() {
           </span>
         </div>
       )}
-      {error && <p className={styles.warn}>Status unavailable: {error.message}</p>}
+      {error && (
+        <p className={styles.warn}>Status unavailable: {error.message}</p>
+      )}
     </div>
   );
 }

@@ -38,4 +38,8 @@
   color: #fca5a5;
 }
 
-.actions { display: flex; gap: 8px; margin-top: 4px; }
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

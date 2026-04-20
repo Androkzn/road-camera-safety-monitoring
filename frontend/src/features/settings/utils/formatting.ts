@@ -33,7 +33,10 @@ export function tierClass(tier: ConfidenceTier): string {
   }
 }
 
-function unitFromTail(tokens: string[]): { unit: string | null; consume: number } {
+function unitFromTail(tokens: string[]): {
+  unit: string | null;
+  consume: number;
+} {
   if (tokens.length === 0) return { unit: null, consume: 0 };
   const last = (tokens[tokens.length - 1] ?? "").toUpperCase();
   // PER + time unit composes into "per <unit>"

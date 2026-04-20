@@ -36,6 +36,7 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
         against this baseline.
       </p>
       <button
+        type="button"
         className={styles.btn}
         disabled={busy}
         onClick={async () => {
@@ -62,16 +63,16 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
               });
               return;
             }
-            const body = (exc as AdminApiError).body as
-              | { detail?: string; error?: string }
-              | null;
+            const body = (exc as AdminApiError).body as {
+              detail?: string;
+              error?: string;
+            } | null;
             const detail =
               body?.detail ||
               body?.error ||
               (exc as Error).message ||
               "unknown error";
             setStatus({ kind: "err", message: `Capture failed: ${detail}` });
-            // eslint-disable-next-line no-console
             console.error("baseline capture failed", exc);
           } finally {
             setBusy(false);
@@ -82,9 +83,8 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
       </button>
       {status?.kind === "ok" && (
         <div className={styles.warnings} style={{ marginBottom: 0 }}>
-          Baseline captured — session{" "}
-          <code>{status.auditId.slice(0, 18)}</code>. The Impact card will
-          populate as new events arrive.
+          Baseline captured — session <code>{status.auditId.slice(0, 18)}</code>
+          . The Impact card will populate as new events arrive.
         </div>
       )}
       {status?.kind === "err" && (

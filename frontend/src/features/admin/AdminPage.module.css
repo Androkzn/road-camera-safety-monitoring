@@ -16,7 +16,7 @@
   grid-template-columns: 1fr 380px;
   grid-template-rows: 1fr;
   flex: 1;
-  min-height: 0;                     /* enables inner scroll regions */
+  min-height: 0; /* enables inner scroll regions */
   gap: 0;
 }
 

@@ -11,6 +11,7 @@
  */
 import type { ReactNode } from "react";
 
+import { cx } from "../lib/cx";
 import styles from "./EmptyState.module.css";
 
 interface EmptyStateProps {
@@ -21,8 +22,14 @@ interface EmptyStateProps {
   className?: string;
 }
 
-export function EmptyState({ title, message, icon, actions, className }: EmptyStateProps) {
-  const cls = [styles.root, className ?? ""].filter(Boolean).join(" ");
+export function EmptyState({
+  title,
+  message,
+  icon,
+  actions,
+  className,
+}: EmptyStateProps) {
+  const cls = cx(styles.root, className);
   return (
     <div className={cls} role="status">
       {icon}

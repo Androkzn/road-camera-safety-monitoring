@@ -58,9 +58,9 @@ body {
  * lets the TopBar sit flush at top while the page content stretches
  * to fill remaining vertical space via `flex: 1`. */
 #root {
-  display: flex;               /* TEACH: flex = 1D layout (row or column) */
-  flex-direction: column;      /* stack children top-to-bottom */
-  min-height: 100vh;           /* 100vh = full viewport height */
+  display: flex; /* TEACH: flex = 1D layout (row or column) */
+  flex-direction: column; /* stack children top-to-bottom */
+  min-height: 100vh; /* 100vh = full viewport height */
 }
 
 /* TEACH: ::-webkit-scrollbar targets the scrollbar itself on
@@ -104,7 +104,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: none;   /* shorthand: reset transform to identity */
+    transform: none; /* shorthand: reset transform to identity */
   }
 }
 

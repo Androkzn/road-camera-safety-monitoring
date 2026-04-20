@@ -5,6 +5,7 @@
  */
 import { useState, useCallback } from "react";
 
+import { LIMITS } from "../../../shared/config/runtime";
 import { adminApi } from "../api";
 import type { SafetyEvent } from "../../../shared/types/common";
 
@@ -31,7 +32,7 @@ export function useHistory() {
         const items = await adminApi.getLiveEvents({
           risk_level: activeFilters.risk_level || undefined,
           event_type: activeFilters.event_type || undefined,
-          limit: 200,
+          limit: LIMITS.liveEventsDefaultLimit,
         });
         setEvents(items.reverse());
       } catch (err) {
@@ -54,12 +55,16 @@ export function useHistory() {
     [load],
   );
 
+  const refresh = useCallback(() => {
+    void load();
+  }, [load]);
+
   return {
     events,
     loading,
     error,
     filters,
     updateFilters,
-    refresh: () => load(),
+    refresh,
   };
 }

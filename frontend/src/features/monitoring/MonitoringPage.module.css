@@ -122,7 +122,11 @@
 .tile {
   position: relative;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.05),
+      rgba(255, 255, 255, 0.02)
+    ),
     var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -131,7 +135,7 @@
   cursor: pointer;
   transition: all 0.18s;
   user-select: none;
-  opacity: 0.72;                    /* dimmed until active */
+  opacity: 0.72; /* dimmed until active */
 }
 
 /* TEACH: `transform: translateY(-1px)` slides the element up 1px
@@ -153,7 +157,7 @@
   border-color: var(--high);
   background:
     radial-gradient(circle at top, rgba(239, 68, 68, 0.22), transparent 65%),
-    linear-gradient(180deg, rgba(239, 68, 68, 0.10), rgba(239, 68, 68, 0.04)),
+    linear-gradient(180deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.04)),
     var(--panel);
   box-shadow:
     0 0 0 1px var(--high) inset,
@@ -164,7 +168,7 @@
   border-color: var(--medium);
   background:
     radial-gradient(circle at top, rgba(245, 158, 11, 0.22), transparent 65%),
-    linear-gradient(180deg, rgba(245, 158, 11, 0.10), rgba(245, 158, 11, 0.04)),
+    linear-gradient(180deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.04)),
     var(--panel);
   box-shadow:
     0 0 0 1px var(--medium) inset,
@@ -175,7 +179,7 @@
   border-color: var(--accent);
   background:
     radial-gradient(circle at top, rgba(56, 189, 248, 0.22), transparent 65%),
-    linear-gradient(180deg, rgba(56, 189, 248, 0.10), rgba(56, 189, 248, 0.04)),
+    linear-gradient(180deg, rgba(56, 189, 248, 0.1), rgba(56, 189, 248, 0.04)),
     var(--panel);
   box-shadow:
     0 0 0 1px var(--accent) inset,
@@ -185,8 +189,12 @@
 .tileActive.ttotal {
   border-color: rgba(255, 255, 255, 0.35);
   background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.10), transparent 65%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.1), transparent 65%),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.06),
+      rgba(255, 255, 255, 0.02)
+    ),
     var(--panel);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.25) inset,
@@ -414,10 +422,16 @@
   border-radius: 14px;
   border: 1px solid var(--border);
   background:
-    radial-gradient(circle at top right, rgba(56, 189, 248, 0.12), transparent 42%),
+    radial-gradient(
+      circle at top right,
+      rgba(56, 189, 248, 0.12),
+      transparent 42%
+    ),
     var(--panel);
   cursor: pointer;
-  transition: transform 0.16s, border-color 0.16s;
+  transition:
+    transform 0.16s,
+    border-color 0.16s;
 }
 
 .queueCard:hover {
@@ -427,7 +441,7 @@
 
 /* Severity pill at the top of each queue card. */
 .queueSeverity {
-  align-self: flex-start;            /* pill does not stretch to full width */
+  align-self: flex-start; /* pill does not stretch to full width */
   padding: 4px 8px;
   border-radius: 999px;
   font-size: 10px;
@@ -494,9 +508,15 @@
   border-radius: 16px;
   border: 1px solid var(--border);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.01)
+    ),
     var(--panel);
-  transition: border-color 0.15s, transform 0.15s;
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
 }
 
 .incidentCard:hover {
@@ -532,7 +552,11 @@
 .selected {
   border-color: rgba(56, 189, 248, 0.45) !important;
   background:
-    radial-gradient(circle at top right, rgba(56, 189, 248, 0.14), transparent 42%),
+    radial-gradient(
+      circle at top right,
+      rgba(56, 189, 248, 0.14),
+      transparent 42%
+    ),
     var(--panel);
 }
 
@@ -567,7 +591,7 @@
   font-weight: 700;
   color: transparent;
   transition: all 0.15s;
-  margin-top: 2px;                   /* optically aligns with the title baseline */
+  margin-top: 2px; /* optically aligns with the title baseline */
 }
 
 .checkbox.checked {
@@ -679,7 +703,11 @@
   margin-top: 14px;
   padding: 12px 13px;
   border-radius: 12px;
-  background: linear-gradient(90deg, rgba(56, 189, 248, 0.10), rgba(56, 189, 248, 0.03));
+  background: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.1),
+    rgba(56, 189, 248, 0.03)
+  );
   border: 1px solid rgba(56, 189, 248, 0.14);
   display: flex;
   flex-direction: column;

@@ -64,7 +64,9 @@ function HealthCell({ label, value, sub, variant = "" }: HealthCellProps) {
       {/* TEACH: Dynamic class composition. When `variant` is "ok" this
            becomes `"<hash>val <hash>ok"`; when it's "" we append an
            empty string so we never emit a stray "undefined" class. */}
-      <div className={`${styles.val} ${variant ? styles[variant] : ""}`}>{value}</div>
+      <div className={`${styles.val} ${variant ? styles[variant] : ""}`}>
+        {value}
+      </div>
       {/* TEACH: `sub ?? "\u00a0"` — nullish coalescing. If `sub` is
            null/undefined, fall back to a non-breaking space so the cell
            keeps its vertical rhythm even when there is no sub-text. */}
@@ -105,7 +107,13 @@ export function HealthStrip({ health }: HealthStripProps) {
   // TEACH: Destructuring with RENAMES. `server: srv` means "take the
   //        `server` field and bind it to a local variable named `srv`".
   //        Pure ergonomics — shorter names in the JSX below.
-  const { server: srv, pipeline: pip, integrations: intg, perception: perc, scene: sc } = health;
+  const {
+    server: srv,
+    pipeline: pip,
+    integrations: intg,
+    perception: perc,
+    scene: sc,
+  } = health;
 
   return (
     <div className={styles.strip}>
@@ -143,7 +151,9 @@ export function HealthStrip({ health }: HealthStripProps) {
         //        empty strings with `.filter(Boolean)`, then `.join`.
         sub={
           [
-            perc.avg_confidence != null ? `conf ${Number(perc.avg_confidence).toFixed(2)}` : "",
+            perc.avg_confidence != null
+              ? `conf ${Number(perc.avg_confidence).toFixed(2)}`
+              : "",
             perc.luminance != null ? `lum ${Math.round(perc.luminance)}` : "",
           ]
             .filter(Boolean)
@@ -154,14 +164,12 @@ export function HealthStrip({ health }: HealthStripProps) {
         label="Scene"
         value={sc.label}
         variant="accent"
-        sub={
-          [
-            sc.speed_proxy_mps != null ? `~${sc.speed_proxy_mps} m/s` : "",
-            sc.reason || "",
-          ]
-            .filter(Boolean)
-            .join(" / ")
-        }
+        sub={[
+          sc.speed_proxy_mps != null ? `~${sc.speed_proxy_mps} m/s` : "",
+          sc.reason || "",
+        ]
+          .filter(Boolean)
+          .join(" / ")}
       />
       <HealthCell
         label="Tracker"
@@ -184,11 +192,7 @@ export function HealthStrip({ health }: HealthStripProps) {
         value={intg.edge_publisher ? "On" : "Off"}
         variant={intg.edge_publisher ? "ok" : ""}
       />
-      <HealthCell
-        label="PII"
-        value={intg.pii_redaction}
-        variant="ok"
-      />
+      <HealthCell label="PII" value={intg.pii_redaction} variant="ok" />
     </div>
   );
 }

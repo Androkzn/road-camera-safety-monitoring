@@ -26,22 +26,31 @@ export function SelectionBar({
     <div className={styles.selectionBar}>
       <div className={styles.selectionInfo}>
         <span>{selectedCount} incident groups selected</span>
-        <button className={styles.selBarBtn} onClick={onSelectAll}>
+        <button
+          type="button"
+          className={styles.selBarBtn}
+          onClick={onSelectAll}
+        >
           Select all ({filteredCount})
         </button>
-        <button className={styles.selBarBtn} onClick={onDeselectAll}>
+        <button
+          type="button"
+          className={styles.selBarBtn}
+          onClick={onDeselectAll}
+        >
           Deselect all
         </button>
       </div>
       <div className={styles.selectionActions}>
         <button
+          type="button"
           className={`${styles.selBarBtn} ${styles.deleteBtn}`}
           onClick={onDeleteSelected}
           disabled={selectedCount === 0 || deleting}
         >
           {deleting ? "Deleting…" : `Delete (${selectedCount})`}
         </button>
-        <button className={styles.selBarBtn} onClick={onCancel}>
+        <button type="button" className={styles.selBarBtn} onClick={onCancel}>
           Cancel
         </button>
       </div>

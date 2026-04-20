@@ -19,7 +19,7 @@
   background: rgba(0, 0, 0, 0.5);
   z-index: 900;
   opacity: 0;
-  pointer-events: none;              /* block clicks while hidden */
+  pointer-events: none; /* block clicks while hidden */
   transition: opacity 0.25s;
 }
 /* When `.open` is applied (in addition to `.overlay`), reveal it. */
@@ -44,7 +44,7 @@
   z-index: 901;
   background: var(--panel);
   border-left: 1px solid var(--border);
-  transform: translateX(100%);       /* hidden off the right edge */
+  transform: translateX(100%); /* hidden off the right edge */
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
@@ -67,7 +67,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  flex: 1;                           /* push siblings (close btn) to the right */
+  flex: 1; /* push siblings (close btn) to the right */
 }
 
 /* The "x" close button in the header. */
@@ -157,7 +157,7 @@
 .barFill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.4s ease;       /* TEACH: transitions animate changes to a property */
+  transition: width 0.4s ease; /* TEACH: transitions animate changes to a property */
   background: var(--accent);
 }
 /* Final-state colour modifiers. */
@@ -273,7 +273,7 @@
   color: #fca5a5;
   font-family: var(--font-mono);
   white-space: pre-wrap;
-  word-break: break-all;             /* break inside long tokens if needed */
+  word-break: break-all; /* break inside long tokens if needed */
   max-height: 100px;
   overflow-y: auto;
 }

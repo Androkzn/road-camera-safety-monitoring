@@ -46,13 +46,19 @@ export function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {
     existing.count += 1;
     existing.rawKeys.push(key);
 
-    if ((SEV_ORDER[finding.severity] ?? 9) < (SEV_ORDER[existing.severity] ?? 9)) {
+    if (
+      (SEV_ORDER[finding.severity] ?? 9) < (SEV_ORDER[existing.severity] ?? 9)
+    ) {
       existing.severity = finding.severity;
     }
-    if (new Date(finding.ts).getTime() < new Date(existing.firstSeen).getTime()) {
+    if (
+      new Date(finding.ts).getTime() < new Date(existing.firstSeen).getTime()
+    ) {
       existing.firstSeen = finding.ts;
     }
-    if (new Date(finding.ts).getTime() >= new Date(existing.lastSeen).getTime()) {
+    if (
+      new Date(finding.ts).getTime() >= new Date(existing.lastSeen).getTime()
+    ) {
       existing.lastSeen = finding.ts;
       existing.latest = finding;
       existing.category = finding.category || existing.category;

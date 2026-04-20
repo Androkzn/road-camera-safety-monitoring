@@ -20,7 +20,10 @@ interface ApplyResultBannerProps {
   onDismiss: () => void;
 }
 
-export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps) {
+export function ApplyResultBanner({
+  result,
+  onDismiss,
+}: ApplyResultBannerProps) {
   if (!result) return null;
   const diffCount = Object.keys(result.diff).length;
   return (
@@ -35,10 +38,12 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
         </strong>
         {result.applied_now.length > 0 && (
           <>
-            {" "}Live now:{" "}
+            {" "}
+            Live now:{" "}
             {result.applied_now.map((k, i) => (
               <span key={k}>
-                {i > 0 ? ", " : ""}<code>{humanize(k)}</code>
+                {i > 0 ? ", " : ""}
+                <code>{humanize(k)}</code>
               </span>
             ))}
             .
@@ -46,10 +51,12 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
         )}
         {result.pending_restart.length > 0 && (
           <>
-            {" "}<strong>Needs restart to take effect:</strong>{" "}
+            {" "}
+            <strong>Needs restart to take effect:</strong>{" "}
             {result.pending_restart.map((k, i) => (
               <span key={k}>
-                {i > 0 ? ", " : ""}<code>{humanize(k)}</code>
+                {i > 0 ? ", " : ""}
+                <code>{humanize(k)}</code>
               </span>
             ))}
             .
@@ -57,8 +64,9 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
         )}
         {result.audit_id && (
           <>
-            {" "}Impact session <code>{result.audit_id.slice(0, 18)}</code>{" "}
-            started — watch the card on the right.
+            {" "}
+            Impact session <code>{result.audit_id.slice(0, 18)}</code> started —
+            watch the card on the right.
           </>
         )}
       </div>

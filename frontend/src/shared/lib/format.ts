@@ -33,6 +33,45 @@ export function formatConfidence(c?: number | null): string {
   return c != null ? `${Math.round(c * 100)}%` : "—";
 }
 
+/** "lane_change" → "lane change". Lower-cased humanization for display. */
+export function humanize(value: string | undefined | null): string {
+  if (!value) return "—";
+  return value.replace(/_/g, " ");
+}
+
+/** Format a number with units, returning "—" for null/undefined/NaN. */
+export function fmtNum(
+  v: number | undefined | null,
+  unit = "",
+  digits = 2,
+): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  return `${v.toFixed(digits)}${unit}`;
+}
+
+/** Format a 0–1 fraction as a percentage, returning "—" for null/undefined/NaN. */
+export function fmtPct(v: number | undefined | null): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return "—";
+  return `${Math.round(v * 100)}%`;
+}
+
+/** Format an ISO timestamp into a locale-friendly string, returning "—" on failure. */
+export function fmtTime(ts?: string): string {
+  if (!ts) return "—";
+  try {
+    return new Date(ts).toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return ts;
+  }
+}
+
 /**
  * Make a thumbnail URL absolute against the current origin so a relative
  * "thumbs/abc.jpg" resolves the same regardless of which route we're on.

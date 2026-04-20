@@ -36,7 +36,7 @@
  * The fadeIn animation smooths new groups arriving from SSE. */
 .frameGroup {
   margin-bottom: 12px;
-  animation: fadeIn 0.25s ease;   /* defined in global.css */
+  animation: fadeIn 0.25s ease; /* defined in global.css */
 }
 
 /* Header row above each frame group: "frame 123 ... 14:03:02". */
@@ -57,15 +57,17 @@
 /* One detection row: class | confidence | track-id | bbox. */
 .detRow {
   display: flex;
-  align-items: center;   /* TEACH: centers children on the cross axis */
-  gap: 8px;              /* TEACH: gap = space between flex children */
+  align-items: center; /* TEACH: centers children on the cross axis */
+  gap: 8px; /* TEACH: gap = space between flex children */
   padding: 5px 8px;
   border-radius: 6px;
   margin-bottom: 3px;
   font-size: 12px;
   background: var(--card);
-  border: 1px solid transparent;   /* reserve space so :hover border doesn't shift layout */
-  transition: border-color 0.15s, background 0.15s;
+  border: 1px solid transparent; /* reserve space so :hover border doesn't shift layout */
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 /* TEACH: :hover is a pseudo-class — styles apply only while the
  * pointer is over the element. Great for affordances. */
@@ -82,10 +84,10 @@
 /* Color-coded class names. The .tsx adds one of these in
  * addition to .detCls so we get a semantic hue per class. */
 .person {
-  color: #86efac;   /* soft green */
+  color: #86efac; /* soft green */
 }
 .vehicle {
-  color: #fbbf24;   /* amber/yellow */
+  color: #fbbf24; /* amber/yellow */
 }
 
 /* Confidence percentage (monospaced so digits line up). */

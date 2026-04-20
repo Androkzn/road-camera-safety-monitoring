@@ -92,11 +92,7 @@ export function EventFilterBar({
       </select>
 
       {onClear && hasFilters && (
-        <button
-          type="button"
-          className={styles.clearBtn}
-          onClick={onClear}
-        >
+        <button type="button" className={styles.clearBtn} onClick={onClear}>
           Clear
         </button>
       )}

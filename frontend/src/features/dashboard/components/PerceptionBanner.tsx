@@ -27,8 +27,7 @@ export function PerceptionBannerRow({ perception }: PerceptionBannerProps) {
     metrics.push(`sharp ${Number(perception.sharpness).toFixed(0)}`);
   if (perception?.avg_confidence != null)
     metrics.push(`avg-conf ${Number(perception.avg_confidence).toFixed(2)}`);
-  if (perception?.samples != null)
-    metrics.push(`n=${perception.samples}`);
+  if (perception?.samples != null) metrics.push(`n=${perception.samples}`);
 
   return (
     <div className={`${styles.banner} ${degraded ? styles.degraded : ""}`}>
@@ -50,8 +49,7 @@ export function SceneBannerRow({ scene }: SceneBannerProps) {
     metrics.push(`~${Number(scene.speed_proxy_mps).toFixed(1)} m/s`);
   if (scene?.pedestrian_rate_per_min != null)
     metrics.push(`ped ${Number(scene.pedestrian_rate_per_min).toFixed(1)}/min`);
-  if (scene?.thresholds)
-    metrics.push(`TTC≤${scene.thresholds.ttc_high_sec}s`);
+  if (scene?.thresholds) metrics.push(`TTC≤${scene.thresholds.ttc_high_sec}s`);
 
   return (
     <div className={styles.banner} style={{ borderTop: "none" }}>

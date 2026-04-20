@@ -8,7 +8,10 @@
  * Auth-bearing requests live in `adminApi.ts` so the public-tier surface
  * never grows a credential by accident.
  */
-export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+export async function fetchJson<T>(
+  url: string,
+  init?: RequestInit,
+): Promise<T> {
   const res = await fetch(url, { cache: "no-store", ...init });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();

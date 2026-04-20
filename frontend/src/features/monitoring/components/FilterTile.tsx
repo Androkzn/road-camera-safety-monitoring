@@ -11,9 +11,16 @@ interface FilterTileProps {
   onClick: () => void;
 }
 
-export function FilterTile({ label, value, variant, active, onClick }: FilterTileProps) {
+export function FilterTile({
+  label,
+  value,
+  variant,
+  active,
+  onClick,
+}: FilterTileProps) {
   return (
     <button
+      type="button"
       className={`${styles.tile} ${styles[`t${variant}`]} ${active ? styles.tileActive : ""}`}
       onClick={onClick}
     >

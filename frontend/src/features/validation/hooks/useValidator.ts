@@ -34,9 +34,7 @@ export interface ValidatorStatusPayload {
 
 const VALIDATOR_QUERY_KEY = ["monitoring", "validator"] as const;
 
-export function useValidator(
-  refetchMs: number = POLL_INTERVAL_MS.validator,
-) {
+export function useValidator(refetchMs: number = POLL_INTERVAL_MS.validator) {
   const qc = useQueryClient();
 
   const status = useQuery<ValidatorStatusPayload>({
@@ -55,9 +53,8 @@ export function useValidator(
       ),
     onMutate: async (enabled) => {
       await qc.cancelQueries({ queryKey: VALIDATOR_QUERY_KEY });
-      const previous = qc.getQueryData<ValidatorStatusPayload>(
-        VALIDATOR_QUERY_KEY,
-      );
+      const previous =
+        qc.getQueryData<ValidatorStatusPayload>(VALIDATOR_QUERY_KEY);
       if (previous) {
         qc.setQueryData<ValidatorStatusPayload>(VALIDATOR_QUERY_KEY, {
           ...previous,

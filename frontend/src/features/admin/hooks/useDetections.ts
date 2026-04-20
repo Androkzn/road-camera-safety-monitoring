@@ -39,7 +39,9 @@ export function useDetections() {
   // Per-source latest playhead. We hold this in state (not a ref) so
   // consumers re-render when a new snapshot arrives. Each SSE message
   // overwrites only its own source key — slots stay independent.
-  const [playheads, setPlayheads] = useState<Record<string, PlayheadSample>>({});
+  const [playheads, setPlayheads] = useState<Record<string, PlayheadSample>>(
+    {},
+  );
 
   const fpsCounterRef = useRef({ count: 0, start: Date.now() });
 
@@ -89,9 +91,9 @@ export function useDetections() {
         // alive, but only when the position actually moved or the
         // source was previously unknown.
         if (
-          previous
-          && previous.posSec === sample.posSec
-          && previous.durationSec === sample.durationSec
+          previous &&
+          previous.posSec === sample.posSec &&
+          previous.durationSec === sample.durationSec
         ) {
           return prev;
         }

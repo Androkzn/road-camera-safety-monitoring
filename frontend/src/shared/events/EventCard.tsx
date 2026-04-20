@@ -7,7 +7,7 @@
 
 import { useState, useEffect } from "react";
 
-import { POLL_INTERVAL_MS } from "../config/runtime";
+import { POLL_INTERVAL_MS, THRESHOLDS } from "../config/runtime";
 import { cx } from "../lib/cx";
 import {
   formatWallTime,
@@ -35,7 +35,10 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
   useEffect(() => {
     if (!isNew) return;
-    const t = setTimeout(() => setFlash(false), POLL_INTERVAL_MS.eventCardFlash);
+    const t = setTimeout(
+      () => setFlash(false),
+      POLL_INTERVAL_MS.eventCardFlash,
+    );
     return () => clearTimeout(t);
   }, [isNew]);
 
@@ -59,7 +62,11 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
   return (
     <div
-      className={cx(styles.card, flash && styles.flash, interactive && (styles.interactive ?? ""))}
+      className={cx(
+        styles.card,
+        flash && styles.flash,
+        interactive && (styles.interactive ?? ""),
+      )}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
       onClick={interactive ? () => onSelect?.(e) : undefined}
@@ -73,7 +80,11 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
             }
           : undefined
       }
-      aria-label={interactive ? `Open details for ${humanEventType(e.event_type)}` : undefined}
+      aria-label={
+        interactive
+          ? `Open details for ${humanEventType(e.event_type)}`
+          : undefined
+      }
     >
       <div className={styles.thumb}>
         {thumb ? (
@@ -82,7 +93,8 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
             alt=""
             onError={(ev) => {
               (ev.target as HTMLImageElement).style.display = "none";
-              (ev.target as HTMLImageElement).parentElement!.textContent = "no preview";
+              (ev.target as HTMLImageElement).parentElement!.textContent =
+                "no preview";
             }}
           />
         ) : (
@@ -97,7 +109,9 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
             <span>{formatWallTime(e.wall_time)}</span>
             <span className={styles.sep}>•</span>
             <span>
-              {e.timestamp_sec != null ? `T+${Number(e.timestamp_sec).toFixed(1)}s` : ""}
+              {e.timestamp_sec != null
+                ? `T+${Number(e.timestamp_sec).toFixed(1)}s`
+                : ""}
             </span>
           </span>
         </div>
@@ -108,10 +122,17 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
           <span>conf {formatConfidence(e.confidence)}</span>
         </div>
 
-        {(e.ttc_sec != null || e.distance_m != null || e.distance_px != null) && (
+        {(e.ttc_sec != null ||
+          e.distance_m != null ||
+          e.distance_px != null) && (
           <div className={styles.meta}>
             {e.ttc_sec != null && (
-              <Tag variant={e.ttc_sec <= 1.5 ? "kin-warn" : "kin"} title="time-to-collision">
+              <Tag
+                variant={
+                  e.ttc_sec <= THRESHOLDS.ttcWarnSec ? "kin-warn" : "kin"
+                }
+                title="time-to-collision"
+              >
                 TTC {Number(e.ttc_sec).toFixed(1)}s
               </Tag>
             )}
@@ -163,7 +184,10 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
         {/* stopPropagation keeps thumbs-up/down from bubbling into the
             card-level click handler that opens the event-detail dialog. */}
-        <div onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => ev.stopPropagation()}>
+        <div
+          onClick={(ev) => ev.stopPropagation()}
+          onKeyDown={(ev) => ev.stopPropagation()}
+        >
           <FeedbackButtons eventId={e.event_id} />
         </div>
       </div>

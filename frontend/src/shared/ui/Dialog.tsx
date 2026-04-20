@@ -59,17 +59,17 @@ let _dialogApi: DialogApi | null = null;
 export const dialog: DialogApi = {
   alert: (opts) => {
     if (!_dialogApi) {
-      // eslint-disable-next-line no-alert
-      window.alert(typeof opts.message === "string" ? opts.message : opts.title ?? "");
+      window.alert(
+        typeof opts.message === "string" ? opts.message : (opts.title ?? ""),
+      );
       return Promise.resolve();
     }
     return _dialogApi.alert(opts);
   },
   confirm: (opts) => {
     if (!_dialogApi) {
-      // eslint-disable-next-line no-alert
       const ok = window.confirm(
-        typeof opts.message === "string" ? opts.message : opts.title ?? "",
+        typeof opts.message === "string" ? opts.message : (opts.title ?? ""),
       );
       return Promise.resolve(ok);
     }
@@ -104,7 +104,12 @@ export function DialogProvider({ children }: { children: ReactNode }) {
         new Promise<void>((resolve) => {
           setQueue((q) => [
             ...q,
-            { id: ++_entryCounter, kind: "alert", opts, resolve: () => resolve() },
+            {
+              id: ++_entryCounter,
+              kind: "alert",
+              opts,
+              resolve: () => resolve(),
+            },
           ]);
         }),
       confirm: (opts) =>
@@ -201,7 +206,8 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 }
                 onClick={() => dismiss(true)}
               >
-                {current.opts.okLabel ?? (current.kind === "confirm" ? "OK" : "Got it")}
+                {current.opts.okLabel ??
+                  (current.kind === "confirm" ? "OK" : "Got it")}
               </button>
             </div>
           </form>

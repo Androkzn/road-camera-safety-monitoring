@@ -135,7 +135,12 @@ export function buildDisputesByEventId(
  * objects.
  */
 export function formatObjects(objects: string[] | undefined): string {
-  return objects?.slice(0, 3).map((o) => humanize(o)).join(" · ") ?? "";
+  return (
+    objects
+      ?.slice(0, 3)
+      .map((o) => humanize(o))
+      .join(" · ") ?? ""
+  );
 }
 
 /**

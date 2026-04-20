@@ -6,11 +6,15 @@
  */
 import { forwardRef, type InputHTMLAttributes } from "react";
 
+import { cx } from "../lib/cx";
 import styles from "./Input.module.css";
 
 export type InputSize = "sm" | "md" | "lg";
 
-export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
+export interface InputProps extends Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "size"
+> {
   invalid?: boolean;
   inputSize?: InputSize;
 }
@@ -25,13 +29,18 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { invalid, inputSize = "md", className, ...rest },
   ref,
 ) {
-  const cls = [
+  const cls = cx(
     styles.input,
     sizeClass[inputSize],
-    invalid ? styles.invalid : "",
-    className ?? "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return <input ref={ref} className={cls} aria-invalid={invalid || undefined} {...rest} />;
+    invalid && styles.invalid,
+    className,
+  );
+  return (
+    <input
+      ref={ref}
+      className={cls}
+      aria-invalid={invalid || undefined}
+      {...rest}
+    />
+  );
 });

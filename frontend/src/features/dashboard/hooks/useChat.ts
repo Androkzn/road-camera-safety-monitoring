@@ -4,7 +4,7 @@
  * function that appends a user turn, hits the chat API, then appends
  * the bot reply (or an error bubble on failure).
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 import { dashboardApi } from "../api";
 
@@ -15,9 +15,8 @@ interface ChatMessage {
   isError?: boolean;
 }
 
-let msgCounter = 0;
-
 export function useChat() {
+  const msgCounter = useRef(0);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -32,8 +31,8 @@ export function useChat() {
       const trimmed = query.trim();
       if (!trimmed || loading) return;
 
-      const userId = `msg-${++msgCounter}`;
-      const botId = `msg-${++msgCounter}`;
+      const userId = `msg-${++msgCounter.current}`;
+      const botId = `msg-${++msgCounter.current}`;
 
       setMessages((prev) => [
         ...prev,

@@ -20,7 +20,7 @@
 
 /* Base button style — neutral pill; modifiers (.tp/.fp) tint it. */
 .btn {
-  display: inline-flex;            /* inline but flex-capable for icon + text */
+  display: inline-flex; /* inline but flex-capable for icon + text */
   align-items: center;
   gap: 5px;
   background: var(--panel);
@@ -32,7 +32,10 @@
   cursor: pointer;
   font-family: inherit;
   line-height: 1;
-  transition: border-color 0.15s, opacity 0.25s, background-color 0.15s;
+  transition:
+    border-color 0.15s,
+    opacity 0.25s,
+    background-color 0.15s;
 }
 /* Generic hover affordance; filtered out while disabled. */
 .btn:hover:not(:disabled) {
@@ -78,7 +81,7 @@
   width: 12px;
   height: 12px;
   display: inline-block;
-  vertical-align: -1px;            /* nudge icon down for visual alignment */
+  vertical-align: -1px; /* nudge icon down for visual alignment */
 }
 
 /* Acknowledgement text shown after submission ("Thanks" / error). */

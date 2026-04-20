@@ -28,7 +28,12 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
   const submit = useCallback(
     async (verdict: "tp" | "fp") => {
       if (state.submitted || state.loading) return;
-      setState({ submitted: false, verdict: null, error: false, loading: true });
+      setState({
+        submitted: false,
+        verdict: null,
+        error: false,
+        loading: true,
+      });
       try {
         await postJson<{ status: string }>("/api/feedback", {
           event_id: eventId,
@@ -36,7 +41,12 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
         });
         setState({ submitted: true, verdict, error: false, loading: false });
       } catch {
-        setState({ submitted: false, verdict: null, error: true, loading: false });
+        setState({
+          submitted: false,
+          verdict: null,
+          error: true,
+          loading: false,
+        });
       }
     },
     [eventId, state.submitted, state.loading],
@@ -51,7 +61,15 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
         onClick={() => submit("tp")}
         title="True positive"
       >
-        <svg className={styles.ico} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          className={styles.ico}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 3 1v5h5a2 2 0 0 1 2 2l-2 7a2 2 0 0 1-2 2H7" />
         </svg>
         Correct
@@ -63,7 +81,15 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
         onClick={() => submit("fp")}
         title="False alarm"
       >
-        <svg className={styles.ico} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          className={styles.ico}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M17 13V4h3v9zM17 13l-4 8a2 2 0 0 1-3-1v-5H5a2 2 0 0 1-2-2l2-7a2 2 0 0 1 2-2h10" />
         </svg>
         False alarm

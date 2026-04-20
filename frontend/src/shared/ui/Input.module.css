@@ -8,12 +8,18 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
 }
 
-.input::placeholder { color: var(--muted); }
+.input::placeholder {
+  color: var(--muted);
+}
 
-.input:hover:not(:disabled) { border-color: #2c3a4d; }
+.input:hover:not(:disabled) {
+  border-color: #2c3a4d;
+}
 .input:focus-visible {
   outline: none;
   border-color: var(--accent);
@@ -34,6 +40,15 @@
   outline-offset: 1px;
 }
 
-.sizeSm { font-size: 12px; padding: 5px 8px; }
-.sizeMd { font-size: 13px; padding: 7px 10px; }
-.sizeLg { font-size: 14px; padding: 9px 12px; }
+.sizeSm {
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.sizeMd {
+  font-size: 13px;
+  padding: 7px 10px;
+}
+.sizeLg {
+  font-size: 14px;
+  padding: 9px 12px;
+}

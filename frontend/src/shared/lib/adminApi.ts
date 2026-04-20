@@ -171,7 +171,10 @@ function buildErrorMessage(
   return base;
 }
 
-export async function adminFetch<T>(url: string, init?: RequestInit): Promise<T> {
+export async function adminFetch<T>(
+  url: string,
+  init?: RequestInit,
+): Promise<T> {
   const res = await fetch(url, withAdminAuth(init));
   if (res.ok) {
     return (await res.json()) as T;
@@ -187,7 +190,9 @@ export async function adminFetch<T>(url: string, init?: RequestInit): Promise<T>
     retryHeader != null && /^\d+$/.test(retryHeader.trim())
       ? parseInt(retryHeader, 10)
       : undefined;
-  const err = new Error(buildErrorMessage(res.status, body, retryAfterSec)) as AdminApiError;
+  const err = new Error(
+    buildErrorMessage(res.status, body, retryAfterSec),
+  ) as AdminApiError;
   err.status = res.status;
   err.body = body;
   err.retryAfterSec = retryAfterSec;

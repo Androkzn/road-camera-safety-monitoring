@@ -8,9 +8,15 @@
   gap: 10px;
 }
 
-.padSm { padding: 10px; }
-.padMd { padding: 14px; }
-.padLg { padding: 18px; }
+.padSm {
+  padding: 10px;
+}
+.padMd {
+  padding: 14px;
+}
+.padLg {
+  padding: 18px;
+}
 
 .elevated {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);

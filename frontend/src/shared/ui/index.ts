@@ -31,7 +31,12 @@ export { Spinner } from "./Spinner";
 export { ErrorBoundary } from "./ErrorBoundary";
 
 export { DialogProvider, useDialog, dialog } from "./Dialog";
-export type { DialogApi, AlertOptions, ConfirmOptions, DialogVariant } from "./Dialog";
+export type {
+  DialogApi,
+  AlertOptions,
+  ConfirmOptions,
+  DialogVariant,
+} from "./Dialog";
 
 export { Pill } from "./Pill";
 export { Dot } from "./Dot";

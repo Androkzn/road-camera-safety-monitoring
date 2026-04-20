@@ -63,8 +63,11 @@ export function SettingsPage() {
   const driftCount = useDriftCount();
   const dialog = useDialog();
 
-  const connected: boolean | undefined =
-    live ? !!live.running : liveError ? false : undefined;
+  const connected: boolean | undefined = live
+    ? !!live.running
+    : liveError
+      ? false
+      : undefined;
   const sourceName = live?.source ? shortSource(live.source) : "—";
   const errorCount = wdStatus?.by_severity?.error ?? 0;
 
@@ -133,7 +136,9 @@ export function SettingsPage() {
             onApply={apply}
           />
 
-          {validationErrors.length > 0 && <ErrorList errors={validationErrors} />}
+          {validationErrors.length > 0 && (
+            <ErrorList errors={validationErrors} />
+          )}
           {warnings.length > 0 && (
             <ErrorList errors={warnings} variant="warning" />
           )}
@@ -149,6 +154,7 @@ export function SettingsPage() {
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                 <button
+                  type="button"
                   className={styles.btn}
                   onClick={() => void settings.refresh()}
                   disabled={settings.loading}
@@ -156,6 +162,7 @@ export function SettingsPage() {
                   {settings.loading ? "Retrying…" : "Retry"}
                 </button>
                 <button
+                  type="button"
                   className={styles.btn}
                   onClick={() => clearToken()}
                   title="Clear the cached admin token and re-prompt"
@@ -180,7 +187,9 @@ export function SettingsPage() {
 
           {!settings.schema && !settings.error && (
             <p className={styles.subtle}>
-              {settings.loading ? "Loading settings…" : "Settings not loaded yet."}
+              {settings.loading
+                ? "Loading settings…"
+                : "Settings not loaded yet."}
             </p>
           )}
         </section>
@@ -192,7 +201,11 @@ export function SettingsPage() {
             onApply={applyTemplate}
             onCreate={async (name, description) => {
               if (!settings.effective) return;
-              await templates.create(name, description, settings.effective.values);
+              await templates.create(
+                name,
+                description,
+                settings.effective.values,
+              );
             }}
             onDelete={async (id) => templates.remove(id)}
           />

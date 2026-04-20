@@ -9,6 +9,7 @@
  */
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 
+import { cx } from "../lib/cx";
 import styles from "./Card.module.css";
 
 export type CardPad = "sm" | "md" | "lg";
@@ -38,14 +39,12 @@ export function Card({
   children,
   ...rest
 }: CardProps) {
-  const cls = [
+  const cls = cx(
     styles.card,
     padClass[pad],
-    elevated ? styles.elevated : "",
-    className ?? "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+    elevated && styles.elevated,
+    className,
+  );
   return (
     <div className={cls} {...rest}>
       {children}
@@ -54,10 +53,14 @@ export function Card({
 }
 
 function CardHeader({ title, actions, className, style }: HeaderProps) {
-  const cls = [styles.header, className ?? ""].filter(Boolean).join(" ");
+  const cls = cx(styles.header, className);
   return (
     <div className={cls} style={style}>
-      {typeof title === "string" ? <h3 className={styles.title}>{title}</h3> : title}
+      {typeof title === "string" ? (
+        <h3 className={styles.title}>{title}</h3>
+      ) : (
+        title
+      )}
       {actions}
     </div>
   );

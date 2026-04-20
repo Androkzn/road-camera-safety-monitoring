@@ -89,12 +89,7 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
     void qc.invalidateQueries({ queryKey: adminQueryKeys.liveSources });
   };
 
-  const startMutation = useMutation<
-    unknown,
-    Error,
-    void,
-    OptimisticCtx
-  >({
+  const startMutation = useMutation<unknown, Error, void, OptimisticCtx>({
     mutationFn: () => adminApi.startLiveSource(sourceId),
     onMutate: () => patchRunning(true),
     onError: (exc, _v, ctx) => {
@@ -108,12 +103,7 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
     onSettled: invalidateList,
   });
 
-  const pauseMutation = useMutation<
-    unknown,
-    Error,
-    void,
-    OptimisticCtx
-  >({
+  const pauseMutation = useMutation<unknown, Error, void, OptimisticCtx>({
     mutationFn: () => adminApi.pauseLiveSource(sourceId),
     onMutate: () => patchRunning(false),
     onError: (exc, _v, ctx) => {
@@ -127,17 +117,15 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
     onSettled: invalidateList,
   });
 
-  const detectionMutation = useMutation<
-    unknown,
-    Error,
-    boolean,
-    OptimisticCtx
-  >({
-    mutationFn: (enabled) => adminApi.setLiveSourceDetection(sourceId, enabled),
-    onMutate: (enabled) => patchDetection(enabled),
-    onError: (_exc, _v, ctx) => rollback(ctx),
-    onSettled: invalidateList,
-  });
+  const detectionMutation = useMutation<unknown, Error, boolean, OptimisticCtx>(
+    {
+      mutationFn: (enabled) =>
+        adminApi.setLiveSourceDetection(sourceId, enabled),
+      onMutate: (enabled) => patchDetection(enabled),
+      onError: (_exc, _v, ctx) => rollback(ctx),
+      onSettled: invalidateList,
+    },
+  );
 
   const busy: StreamBusyAction = startMutation.isPending
     ? "starting"

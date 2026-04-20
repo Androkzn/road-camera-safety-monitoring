@@ -3,8 +3,8 @@
  * /api/live/events (not the live SSE feed).
  *
  * Where it renders:
- *   One of the tabs inside pages/AdminPage.tsx's TabBar (see
- *   ./TabBar.tsx). Unlike DetectionsPanel (which is live), this panel
+ *   One of the tabs inside AdminPage.tsx (shared/ui/Tabs). Unlike
+ *   DetectionsPanel (which is live), this panel
  *   queries the backend on mount and on filter change.
  *
  * Props:
@@ -55,7 +55,8 @@ export function HistoryPanel() {
   // TEACH: The custom hook returns a big object of state + callbacks.
   //        We destructure everything we need in one line. If you want
   //        to know what each field is, open hooks/useHistory.ts.
-  const { events, loading, error, filters, updateFilters, refresh } = useHistory();
+  const { events, loading, error, filters, updateFilters, refresh } =
+    useHistory();
   // Event-detail modal: clicking any AdminEventCard pops the same dialog
   // the validation page uses, so admins can scrub the annotated clip
   // straight from the history list.
@@ -71,6 +72,9 @@ export function HistoryPanel() {
   //        unmount or before re-running); we don't need one here.
   useEffect(() => {
     refresh();
+    // refresh is intentionally omitted: it changes when `filters` changes, but
+    // `updateFilters` already calls `load(next)` — listing it here would double-fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -111,7 +115,7 @@ export function HistoryPanel() {
              a plain DOM <button> that's almost never measurable; it
              matters only when passing callbacks into memoised children
              (React.memo / useCallback territory). */}
-        <button className={styles.refreshBtn} onClick={refresh}>
+        <button type="button" className={styles.refreshBtn} onClick={refresh}>
           Refresh
         </button>
         <span className={styles.count}>{events.length} events</span>
@@ -121,9 +125,7 @@ export function HistoryPanel() {
         {/* TEACH: Four mutually-exclusive states, rendered with `&&`.
              Order matters: loading wins over error which wins over
              empty which wins over the populated list. */}
-        {loading && (
-          <div className={styles.empty}>Loading&hellip;</div>
-        )}
+        {loading && <div className={styles.empty}>Loading&hellip;</div>}
         {error && (
           // TEACH: Inline `style` prop takes an object (not a string).
           //        Keys are camelCased DOM style names. Using a CSS

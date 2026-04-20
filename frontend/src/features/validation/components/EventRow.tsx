@@ -7,7 +7,9 @@
  * EventsPanel.module.css stylesheet so DOM + classNames stay
  * byte-identical to the pre-split output.
  */
+import { cx } from "../../../shared/lib/cx";
 import type { SafetyEvent } from "../../../shared/types/common";
+import { RiskBadge } from "../../../shared/ui";
 import {
   disputeDetail,
   formatConfidencePct,
@@ -42,7 +44,7 @@ export function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
 
   return (
     <div
-      className={`${styles.row} ${styles[risk] ?? ""} ${styles.rowClickable ?? ""}`}
+      className={cx(styles.row, styles[risk], onClick && styles.rowClickable)}
       onClick={onClick}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
@@ -57,19 +59,23 @@ export function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
       <div className={styles.mid}>
         <div className={styles.midTop}>
           <span className={styles.eventType}>{humanize(ev.event_type)}</span>
-          <span className={`${styles.riskPill} ${styles[risk] ?? ""}`}>{risk}</span>
+          <RiskBadge level={risk} compact />
         </div>
         <div className={styles.meta}>
           {objects || "—"}
           {ev.vehicle_id ? ` · ${humanize(ev.vehicle_id)}` : ""}
-          {typeof ev.ttc_sec === "number" ? ` · TTC ${ev.ttc_sec.toFixed(1)}s` : ""}
+          {typeof ev.ttc_sec === "number"
+            ? ` · TTC ${ev.ttc_sec.toFixed(1)}s`
+            : ""}
         </div>
       </div>
       <div className={styles.conf}>
         <span className={styles.confLabel}>Conf</span>
         <span className={styles.confValue}>{conf}</span>
       </div>
-      <span className={`${styles.badge} ${badgeClass}`}>{verdictLabel(verdict)}</span>
+      <span className={cx(styles.badge, badgeClass)}>
+        {verdictLabel(verdict)}
+      </span>
 
       {verdict === "disputed" && dispute && (
         <div className={styles.dispute}>

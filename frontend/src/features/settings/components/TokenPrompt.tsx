@@ -59,6 +59,7 @@ export function TokenPrompt({
                 autoFocus
               />
               <button
+                type="button"
                 className={`${styles.btn} ${styles.btnPrimary}`}
                 disabled={!tokenInput.trim()}
                 onClick={() => onSave(tokenInput.trim())}

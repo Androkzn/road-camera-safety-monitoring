@@ -37,10 +37,7 @@ import {
   extractValidationErrors,
   isPrivacyConfirmRequired,
 } from "../utils/validation";
-import type {
-  ApplyResultPayload,
-  DraftValue,
-} from "../types";
+import type { ApplyResultPayload, DraftValue } from "../types";
 
 import type { SettingsState } from "./useSettings";
 import type { SettingsTemplatesState } from "./useSettingsTemplates";
@@ -138,13 +135,13 @@ export function useSettingsApply({
         }
       }
       // Structured console log for operators tuning from DevTools.
-      // eslint-disable-next-line no-console
+
       console.groupCollapsed(
         `[settings] apply → ${Object.keys(diff).length} key(s)`,
       );
-      // eslint-disable-next-line no-console
+
       console.table(beforeAfter);
-      // eslint-disable-next-line no-console
+
       console.groupEnd();
       setSubmitting(true);
       setValidationErrors([]);
@@ -161,7 +158,7 @@ export function useSettingsApply({
           pending_restart: res.pending_restart || [],
           audit_id: res.audit_id ?? null,
         });
-        // eslint-disable-next-line no-console
+
         console.info("[settings] apply ok", {
           applied_now: res.applied_now,
           pending_restart: res.pending_restart,
@@ -171,7 +168,6 @@ export function useSettingsApply({
         setDraft({});
         void impact.refresh();
       } catch (exc) {
-        // eslint-disable-next-line no-console
         console.warn("[settings] apply failed", exc);
         const kind = classifyApplyError(exc);
         if (kind === "validation") {
@@ -213,7 +209,7 @@ export function useSettingsApply({
           });
           return;
         }
-        // eslint-disable-next-line no-console
+
         console.error(exc);
         await dialog.alert({
           title: "Apply failed",
@@ -252,7 +248,7 @@ export function useSettingsApply({
         pending_restart: res.pending_restart || [],
         audit_id: res.audit_id ?? null,
       });
-      // eslint-disable-next-line no-console
+
       console.info("[settings] rollback ok", {
         applied_now: res.applied_now,
         pending_restart: res.pending_restart,
@@ -283,7 +279,7 @@ export function useSettingsApply({
           pending_restart: res.pending_restart || [],
           audit_id: res.audit_id ?? null,
         });
-        // eslint-disable-next-line no-console
+
         console.info("[settings] template apply ok", {
           template_id: id,
           applied_now: res.applied_now,

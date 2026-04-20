@@ -21,8 +21,8 @@
   cursor: pointer;
   border: 1px solid var(--border);
   background: #0b0f14;
-  transition: all 0.2s;             /* `all` = animate every animatable prop */
-  user-select: none;                 /* prevent text selection on drag */
+  transition: all 0.2s; /* `all` = animate every animatable prop */
+  user-select: none; /* prevent text selection on drag */
   color: var(--text);
 }
 .badge:hover {
@@ -33,7 +33,7 @@
 .dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;                /* makes a square into a circle */
+  border-radius: 50%; /* makes a square into a circle */
   flex-shrink: 0;
 }
 /* Dot colour variants. `animation` pulls the global pulse-dot

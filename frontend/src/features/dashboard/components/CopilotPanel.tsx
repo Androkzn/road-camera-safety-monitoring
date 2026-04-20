@@ -9,8 +9,14 @@ import { useChat } from "../hooks/useChat";
 import styles from "./CopilotPanel.module.css";
 
 const CHIPS = [
-  { label: "Any high-risk pedestrian events?", query: "Any high-risk pedestrian events in the last 2 minutes?" },
-  { label: "Medium-risk SLA?", query: "What's our SLA for medium-risk events?" },
+  {
+    label: "Any high-risk pedestrian events?",
+    query: "Any high-risk pedestrian events in the last 2 minutes?",
+  },
+  {
+    label: "Medium-risk SLA?",
+    query: "What's our SLA for medium-risk events?",
+  },
   { label: "Summarize last 10 events", query: "Summarize the last 10 events." },
 ];
 
@@ -82,7 +88,11 @@ export function CopilotPanel() {
         ))}
       </div>
 
-      <form className={styles.compose} onSubmit={handleSubmit} autoComplete="off">
+      <form
+        className={styles.compose}
+        onSubmit={handleSubmit}
+        autoComplete="off"
+      >
         <textarea
           ref={textareaRef}
           placeholder="Ask Copilot… (Enter to send, Shift+Enter = newline)"

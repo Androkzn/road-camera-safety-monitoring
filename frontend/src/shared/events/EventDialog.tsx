@@ -8,46 +8,18 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { THRESHOLDS } from "../config/runtime";
+import { fmtNum, fmtPct, fmtTime, humanize } from "../lib/format";
 import type { SafetyEvent } from "../types/common";
+import { RiskBadge } from "../ui";
 
 import styles from "./EventDialog.module.css";
 
-interface EventDialogProps {
+export interface EventDialogProps {
   event: SafetyEvent | null;
   disputeLabel?: string;
   disputeBody?: string;
   onClose: () => void;
-}
-
-function humanize(value: string | undefined | null): string {
-  if (!value) return "—";
-  return value.replace(/_/g, " ");
-}
-
-function fmtNum(v: number | undefined | null, unit = "", digits = 2): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
-  return `${v.toFixed(digits)}${unit}`;
-}
-
-function fmtPct(v: number | undefined | null): string {
-  if (v === null || v === undefined || Number.isNaN(v)) return "—";
-  return `${Math.round(v * 100)}%`;
-}
-
-function fmtTime(ts?: string): string {
-  if (!ts) return "—";
-  try {
-    return new Date(ts).toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return ts;
-  }
 }
 
 export function EventDialog({
@@ -75,13 +47,14 @@ export function EventDialog({
 
   const clipUrl = useMemo(
     () =>
-      event ? `/api/events/${encodeURIComponent(event.event_id)}/clip?before=3&after=3` : null,
+      event
+        ? `/api/events/${encodeURIComponent(event.event_id)}/clip?before=${THRESHOLDS.clipWindowSec}&after=${THRESHOLDS.clipWindowSec}`
+        : null,
     [event],
   );
 
   if (!event) return null;
 
-  const risk = event.risk_level;
   const objects = event.objects?.map(humanize).join(", ") || "—";
 
   return (
@@ -111,8 +84,8 @@ export function EventDialog({
                   <img src={`/${event.thumbnail}`} alt="event thumbnail" />
                 ) : null}
                 <span>
-                  No seekable clip available — the source is a live stream
-                  or the file is not accessible server-side.
+                  No seekable clip available — the source is a live stream or
+                  the file is not accessible server-side.
                 </span>
               </div>
             )}
@@ -124,7 +97,9 @@ export function EventDialog({
                 ? ` · @ ${event.timestamp_sec.toFixed(1)}s`
                 : ""}
             </span>
-            <span className={styles.loopHint}>↻ Loop · ±3s around event</span>
+            <span className={styles.loopHint}>
+              ↻ Loop · ±{THRESHOLDS.clipWindowSec}s around event
+            </span>
           </div>
         </div>
 
@@ -150,23 +125,35 @@ export function EventDialog({
 
           <div className={styles.body}>
             <div className={styles.pillRow}>
-              <span className={`${styles.pill} ${styles[risk] ?? ""}`}>{risk} risk</span>
-              {event.risk_demoted && <span className={styles.pill}>demoted</span>}
-              {event.peak_risk_level && event.peak_risk_level !== risk && (
-                <span className={styles.pill}>peak {event.peak_risk_level}</span>
+              <RiskBadge level={event.risk_level} />
+              {event.risk_demoted && (
+                <span className={styles.pill}>demoted</span>
               )}
+              {event.peak_risk_level &&
+                event.peak_risk_level !== event.risk_level && (
+                  <span className={styles.pill}>
+                    peak {event.peak_risk_level}
+                  </span>
+                )}
               {event.scene_context?.label && (
-                <span className={styles.pill}>{humanize(event.scene_context.label)}</span>
+                <span className={styles.pill}>
+                  {humanize(event.scene_context.label)}
+                </span>
               )}
-              {event.perception_state && event.perception_state !== "nominal" && (
-                <span className={styles.pill}>{event.perception_state}</span>
-              )}
+              {event.perception_state &&
+                event.perception_state !== "nominal" && (
+                  <span className={styles.pill}>{event.perception_state}</span>
+                )}
             </div>
 
             {(disputeLabel || disputeBody) && (
               <div className={styles.dispute}>
-                {disputeLabel && <span className={styles.disputeLabel}>{disputeLabel}</span>}
-                {disputeBody && <span className={styles.disputeBody}>{disputeBody}</span>}
+                {disputeLabel && (
+                  <span className={styles.disputeLabel}>{disputeLabel}</span>
+                )}
+                {disputeBody && (
+                  <span className={styles.disputeBody}>{disputeBody}</span>
+                )}
               </div>
             )}
 
@@ -190,10 +177,17 @@ export function EventDialog({
                 <Cell label="Objects" value={objects} />
                 <Cell label="Confidence" value={fmtPct(event.confidence)} />
                 <Cell label="TTC" value={fmtNum(event.ttc_sec, " s", 1)} />
-                <Cell label="Distance" value={fmtNum(event.distance_m, " m", 1)} />
+                <Cell
+                  label="Distance"
+                  value={fmtNum(event.distance_m, " m", 1)}
+                />
                 <Cell
                   label="Distance (px)"
-                  value={typeof event.distance_px === "number" ? `${event.distance_px.toFixed(0)} px` : "—"}
+                  value={
+                    typeof event.distance_px === "number"
+                      ? `${event.distance_px.toFixed(0)} px`
+                      : "—"
+                  }
                 />
                 <Cell
                   label="Episode"
@@ -201,7 +195,9 @@ export function EventDialog({
                 />
                 <Cell
                   label="Track IDs"
-                  value={event.track_ids?.length ? event.track_ids.join(" · ") : "—"}
+                  value={
+                    event.track_ids?.length ? event.track_ids.join(" · ") : "—"
+                  }
                 />
                 <Cell label="Event ID" value={event.event_id} />
               </div>
@@ -227,7 +223,11 @@ export function EventDialog({
                     <>
                       <Cell
                         label="Ego speed proxy"
-                        value={fmtNum(event.ego_flow.speed_proxy_mps, " m/s", 2)}
+                        value={fmtNum(
+                          event.ego_flow.speed_proxy_mps,
+                          " m/s",
+                          2,
+                        )}
                       />
                       <Cell
                         label="Ego flow conf"

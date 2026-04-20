@@ -20,7 +20,12 @@ interface TestDrawerProps {
   onRerun: () => void;
 }
 
-export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) {
+export function TestDrawer({
+  open,
+  onClose,
+  status,
+  onRerun,
+}: TestDrawerProps) {
   const d = status;
   const total = d?.total ?? 0;
   const passed = d?.passed ?? 0;
@@ -61,7 +66,12 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
       <aside className={`${styles.drawer} ${open ? styles.open : ""}`}>
         <div className={styles.head}>
           <h2>Test Suite</h2>
-          <button className={styles.closeBtn} onClick={onClose} title="Close">
+          <button
+            type="button"
+            className={styles.closeBtn}
+            onClick={onClose}
+            title="Close"
+          >
             &times;
           </button>
         </div>
@@ -114,14 +124,18 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
                 {tests.map((t) => (
                   <div key={t.node_id}>
                     <div className={styles.testItem}>
-                      <span className={`${styles.testIcon} ${styles[t.outcome]}`}>
+                      <span
+                        className={`${styles.testIcon} ${styles[t.outcome]}`}
+                      >
                         {ICONS[t.outcome] ?? "?"}
                       </span>
                       <span className={styles.testName} title={t.node_id}>
                         {t.name}
                       </span>
                       <span className={styles.testDur}>
-                        {t.duration_ms > 0 ? `${t.duration_ms.toFixed(0)}ms` : ""}
+                        {t.duration_ms > 0
+                          ? `${t.duration_ms.toFixed(0)}ms`
+                          : ""}
                       </span>
                     </div>
                     {t.message && (
@@ -135,7 +149,11 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
         </div>
 
         <div className={styles.actions}>
-          <button onClick={onRerun} disabled={state === "running"}>
+          <button
+            type="button"
+            onClick={onRerun}
+            disabled={state === "running"}
+          >
             Re-run Tests
           </button>
           <span className={styles.elapsed}>

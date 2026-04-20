@@ -28,6 +28,7 @@ export function SettingsHeader({
           {dirtyCount} pending change{dirtyCount === 1 ? "" : "s"}
         </span>
         <button
+          type="button"
           className={styles.btn}
           disabled={!dirtyCount}
           onClick={onDiscard}
@@ -35,6 +36,7 @@ export function SettingsHeader({
           Discard
         </button>
         <button
+          type="button"
           className={`${styles.btn} ${styles.btnDanger}`}
           disabled={submitting}
           onClick={onRollback}
@@ -42,6 +44,7 @@ export function SettingsHeader({
           Rollback to last-good
         </button>
         <button
+          type="button"
           className={`${styles.btn} ${styles.btnPrimary}`}
           disabled={!dirtyCount || submitting}
           onClick={onApply}

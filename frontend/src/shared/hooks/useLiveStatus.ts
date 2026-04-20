@@ -19,7 +19,8 @@ export function useLiveStatus(
 ) {
   return useQuery({
     queryKey: liveStatusQueryKey,
-    queryFn: ({ signal }) => fetchJson<LiveStatus>("/api/live/status", { signal }),
+    queryFn: ({ signal }) =>
+      fetchJson<LiveStatus>("/api/live/status", { signal }),
     refetchInterval: refetchIntervalMs,
   });
 }

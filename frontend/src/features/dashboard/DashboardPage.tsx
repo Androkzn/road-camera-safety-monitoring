@@ -6,14 +6,13 @@
  * filter bar and TestDrawer toggle. Everything else is composition.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useLiveStatus } from "../../shared/hooks/useLiveStatus";
 import { useUptimeTicker } from "../../shared/hooks/useUptimeTicker";
-import { adminFetch } from "../../shared/lib/adminApi";
 import { PageChrome } from "../../shared/layout/PageChrome";
-import { EventFilterBar, useDialog } from "../../shared/ui";
+import { EventFilterBar } from "../../shared/ui";
 import { EventCard, EventDialog } from "../../shared/events";
 import type { SafetyEvent } from "../../shared/types/common";
 import { TestBadge, TestDrawer, useTests } from "../tests";
@@ -26,6 +25,7 @@ import {
   SceneBannerRow,
   SummaryTiles,
 } from "./components";
+import { useClearEvents } from "./hooks/useClearEvents";
 import { useDrift } from "./hooks/useDrift";
 import { useScene } from "./hooks/useScene";
 
@@ -51,33 +51,14 @@ export function DashboardPage() {
   const { data: drift, refetch: refreshDrift } = useDrift();
   const { status: testStatus, rerun: rerunTests } = useTests();
   const { findings, clearAll: clearAllFindings } = useWatchdogCtx();
-  const [clearingEvents, setClearingEvents] = useState(false);
   const hasFindings = (findings?.length ?? 0) > 0;
-  const dialog = useDialog();
-
-  const handleClearEvents = useCallback(async () => {
-    const ok = await dialog.confirm({
-      title: "Clear all events?",
-      message:
-        hasFindings
-          ? "This wipes the event feed and all watchdog findings. The action is local and can't be undone."
-          : "This wipes the event feed. The action is local and can't be undone.",
-      okLabel: "Clear all",
-      cancelLabel: "Cancel",
-      variant: "danger",
-    });
-    if (!ok) return;
-    setClearingEvents(true);
-    try {
-      await adminFetch<{ cleared: number }>("/api/events", { method: "DELETE" });
-      clearEvents();
-      if (hasFindings) {
-        await clearAllFindings();
-      }
-    } finally {
-      setClearingEvents(false);
-    }
-  }, [clearEvents, clearAllFindings, hasFindings, dialog]);
+  const { clear: handleClearEvents, clearing: clearingEvents } = useClearEvents(
+    {
+      clearEvents,
+      clearAllFindings,
+      hasFindings,
+    },
+  );
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const prevTestStatus = useRef<string>("idle");
@@ -135,7 +116,10 @@ export function DashboardPage() {
         sourceName={sourceName}
         connected={connected}
         testBadge={
-          <TestBadge status={testStatus} onClick={() => setDrawerOpen((o) => !o)} />
+          <TestBadge
+            status={testStatus}
+            onClick={() => setDrawerOpen((o) => !o)}
+          />
         }
       />
 
@@ -156,7 +140,10 @@ export function DashboardPage() {
           />
           <PerceptionBannerRow perception={mergedPerception} />
           <SceneBannerRow scene={scene ?? null} />
-          <DriftBannerRow drift={drift ?? null} onRefresh={() => refreshDrift()} />
+          <DriftBannerRow
+            drift={drift ?? null}
+            onRefresh={() => refreshDrift()}
+          />
 
           <div className={styles.filterBar}>
             <EventFilterBar

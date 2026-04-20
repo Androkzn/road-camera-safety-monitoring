@@ -8,6 +8,7 @@
  */
 import type { CSSProperties } from "react";
 
+import { cx } from "../lib/cx";
 import styles from "./Skeleton.module.css";
 
 interface SkeletonProps {
@@ -18,8 +19,14 @@ interface SkeletonProps {
   style?: CSSProperties;
 }
 
-export function Skeleton({ width = "100%", height = 14, circle, className, style }: SkeletonProps) {
-  const cls = [styles.skeleton, className ?? ""].filter(Boolean).join(" ");
+export function Skeleton({
+  width = "100%",
+  height = 14,
+  circle,
+  className,
+  style,
+}: SkeletonProps) {
+  const cls = cx(styles.skeleton, className);
   return (
     <span
       className={cls}

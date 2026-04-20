@@ -5,6 +5,7 @@
  */
 import type { HTMLAttributes, ReactNode } from "react";
 
+import { cx } from "../lib/cx";
 import styles from "./Section.module.css";
 
 interface SectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
@@ -12,8 +13,14 @@ interface SectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   actions?: ReactNode;
 }
 
-export function Section({ title, actions, className, children, ...rest }: SectionProps) {
-  const cls = [styles.section, className ?? ""].filter(Boolean).join(" ");
+export function Section({
+  title,
+  actions,
+  className,
+  children,
+  ...rest
+}: SectionProps) {
+  const cls = cx(styles.section, className);
   return (
     <section className={cls} {...rest}>
       {(title || actions) && (

@@ -29,7 +29,7 @@
   letter-spacing: 0.3px;
   white-space: nowrap;
   color: var(--text);
-  text-decoration: none;            /* remove the <a> underline */
+  text-decoration: none; /* remove the <a> underline */
   margin-right: 24px;
   display: flex;
   align-items: center;
@@ -58,8 +58,10 @@
   font-weight: 500;
   color: var(--muted);
   text-decoration: none;
-  border-bottom: 2px solid transparent;   /* placeholder so active doesn't shift */
-  transition: color 0.15s, border-color 0.15s;
+  border-bottom: 2px solid transparent; /* placeholder so active doesn't shift */
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
 .nav a:hover {
   color: var(--text);
@@ -98,8 +100,8 @@
   line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 0 0 2px var(--panel);    /* halo so bubble pops over border */
-  animation: pulse-bubble 1.4s ease-in-out infinite;  /* defined below */
+  box-shadow: 0 0 0 2px var(--panel); /* halo so bubble pops over border */
+  animation: pulse-bubble 1.4s ease-in-out infinite; /* defined below */
   pointer-events: none;
 }
 
@@ -115,8 +117,13 @@
  * they live in the global animation name space. Use unique names
  * (like "pulse-bubble") to avoid collisions across files. */
 @keyframes pulse-bubble {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
 }
 
 /* Flex spacer — pushes anything after it to the right edge. */

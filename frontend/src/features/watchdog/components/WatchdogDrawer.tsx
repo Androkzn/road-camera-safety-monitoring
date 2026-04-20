@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from "react";
 
+import { THRESHOLDS } from "../../../shared/config/runtime";
 import type {
   WatchdogFinding,
   WatchdogStatus,
@@ -13,7 +14,11 @@ import { useDialog } from "../../../shared/ui";
 
 import styles from "./WatchdogDrawer.module.css";
 
-const SEV_ICON: Record<string, string> = { error: "!!", warning: "!", info: "i" };
+const SEV_ICON: Record<string, string> = {
+  error: "!!",
+  warning: "!",
+  info: "i",
+};
 const SEV_ORDER: Record<string, number> = { error: 0, warning: 1, info: 2 };
 
 type SevFilter = "all" | "error" | "warning" | "info";
@@ -135,6 +140,7 @@ export function WatchdogDrawer({
           <div className={styles.headActions}>
             {!selectMode && filtered.length > 0 && (
               <button
+                type="button"
                 className={styles.actionBtn}
                 onClick={() => setSelectMode(true)}
                 title="Select findings"
@@ -144,6 +150,7 @@ export function WatchdogDrawer({
             )}
             {!selectMode && total > 0 && onClearAll && (
               <button
+                type="button"
                 className={`${styles.actionBtn} ${styles.clearBtn}`}
                 onClick={handleClearAll}
                 disabled={deleting}
@@ -152,7 +159,12 @@ export function WatchdogDrawer({
                 {deleting ? "Clearing…" : "Clear All"}
               </button>
             )}
-            <button className={styles.closeBtn} onClick={onClose} title="Close">
+            <button
+              type="button"
+              className={styles.closeBtn}
+              onClick={onClose}
+              title="Close"
+            >
               &times;
             </button>
           </div>
@@ -162,22 +174,35 @@ export function WatchdogDrawer({
           <div className={styles.selectionBar}>
             <div className={styles.selectionInfo}>
               <span>{selected.size} selected</span>
-              <button className={styles.selBarBtn} onClick={selectAll}>
+              <button
+                type="button"
+                className={styles.selBarBtn}
+                onClick={selectAll}
+              >
                 Select all ({filtered.length})
               </button>
-              <button className={styles.selBarBtn} onClick={() => setSelected(new Set())}>
+              <button
+                type="button"
+                className={styles.selBarBtn}
+                onClick={() => setSelected(new Set())}
+              >
                 Deselect all
               </button>
             </div>
             <div className={styles.selectionActions}>
               <button
+                type="button"
                 className={`${styles.selBarBtn} ${styles.deleteBtn}`}
                 onClick={handleDeleteSelected}
                 disabled={selected.size === 0 || deleting}
               >
                 {deleting ? "Deleting…" : `Delete (${selected.size})`}
               </button>
-              <button className={styles.selBarBtn} onClick={exitSelectMode}>
+              <button
+                type="button"
+                className={styles.selBarBtn}
+                onClick={exitSelectMode}
+              >
                 Cancel
               </button>
             </div>
@@ -185,18 +210,45 @@ export function WatchdogDrawer({
         )}
 
         <div className={styles.summaryGrid}>
-          <FilterTile label="Errors" value={errors} variant="error" active={filter === "error"} onClick={() => toggle("error")} />
-          <FilterTile label="Warnings" value={warnings} variant="warning" active={filter === "warning"} onClick={() => toggle("warning")} />
-          <FilterTile label="Info" value={infos} variant="info" active={filter === "info"} onClick={() => toggle("info")} />
-          <FilterTile label="All" value={total} variant="total" active={filter === "all"} onClick={() => setFilter("all")} />
+          <FilterTile
+            label="Errors"
+            value={errors}
+            variant="error"
+            active={filter === "error"}
+            onClick={() => toggle("error")}
+          />
+          <FilterTile
+            label="Warnings"
+            value={warnings}
+            variant="warning"
+            active={filter === "warning"}
+            onClick={() => toggle("warning")}
+          />
+          <FilterTile
+            label="Info"
+            value={infos}
+            variant="info"
+            active={filter === "info"}
+            onClick={() => toggle("info")}
+          />
+          <FilterTile
+            label="All"
+            value={total}
+            variant="total"
+            active={filter === "all"}
+            onClick={() => setFilter("all")}
+          />
         </div>
 
         <div className={styles.meta}>
           <span>
-            Checks: {status?.run_count ?? 0} | Interval: {status?.interval_sec ?? 60}s
+            Checks: {status?.run_count ?? 0} | Interval:{" "}
+            {status?.interval_sec ?? THRESHOLDS.defaultWatchdogIntervalSec}s
           </span>
           <span>
-            {lastAgo != null ? `Last check: ${Math.round(lastAgo)}s ago` : "Waiting…"}
+            {lastAgo != null
+              ? `Last check: ${Math.round(lastAgo)}s ago`
+              : "Waiting…"}
           </span>
         </div>
 
@@ -230,11 +282,15 @@ export function WatchdogDrawer({
                   >
                     <div className={styles.findingTop}>
                       {selectMode && (
-                        <span className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}>
+                        <span
+                          className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}
+                        >
                           {isSelected ? "✓" : ""}
                         </span>
                       )}
-                      <span className={`${styles.sevIcon} ${styles[f.severity]}`}>
+                      <span
+                        className={`${styles.sevIcon} ${styles[f.severity]}`}
+                      >
                         {SEV_ICON[f.severity] ?? "?"}
                       </span>
                       <span className={styles.findingTitle}>{f.title}</span>
@@ -243,6 +299,7 @@ export function WatchdogDrawer({
                       </span>
                       {!selectMode && onDeleteSelected && (
                         <button
+                          type="button"
                           className={styles.deleteSingle}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -256,7 +313,9 @@ export function WatchdogDrawer({
                     </div>
                     <div className={styles.findingDetail}>{f.detail}</div>
                     {f.suggestion && (
-                      <div className={styles.findingSuggestion}>{f.suggestion}</div>
+                      <div className={styles.findingSuggestion}>
+                        {f.suggestion}
+                      </div>
                     )}
                   </div>
                 );

@@ -4,6 +4,7 @@
  */
 import type { CSSProperties } from "react";
 
+import { cx } from "../lib/cx";
 import styles from "./Spinner.module.css";
 
 interface SpinnerProps {
@@ -21,7 +22,7 @@ export function Spinner({
   style,
   ariaLabel = "Loading",
 }: SpinnerProps) {
-  const cls = [styles.spinner, className ?? ""].filter(Boolean).join(" ");
+  const cls = cx(styles.spinner, className);
   return (
     <span
       role="status"

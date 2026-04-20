@@ -7,6 +7,7 @@
  */
 import { useState, type ReactNode } from "react";
 
+import { cx } from "../lib/cx";
 import styles from "./Tabs.module.css";
 
 export interface TabSpec {
@@ -26,15 +27,13 @@ interface TabsProps {
 export function Tabs({ tabs, defaultTab, onChange, className }: TabsProps) {
   const [active, setActive] = useState<string>(defaultTab ?? tabs[0]?.id ?? "");
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
-  const cls = [styles.root, className ?? ""].filter(Boolean).join(" ");
+  const cls = cx(styles.root, className);
   return (
     <div className={cls}>
       <div role="tablist" className={styles.list}>
         {tabs.map((tab) => {
           const isActive = tab.id === active;
-          const tabCls = [styles.tab, isActive ? styles.tabActive : ""]
-            .filter(Boolean)
-            .join(" ");
+          const tabCls = cx(styles.tab, isActive && styles.tabActive);
           return (
             <button
               key={tab.id}

@@ -15,6 +15,46 @@ Top priorities:
 3. Split oversized orchestrator files (`SettingsPage`, `MultiSourceGrid`, `EventsPanel`, `useLiveSources`).
 4. Improve UI reuse primitives to cut duplication and keep view files readable.
 
+## 1.1 Implementation Update (2026-04-20)
+
+This section records what has actually landed after the original audit snapshot.
+
+**Verified after implementation:** `npm run test` and `npm run build` pass.
+
+### Completed
+
+- **D1.A (Settings split):** `useSettingsApply` + `TokenEmptyState` extracted; `SettingsPage` reduced to orchestration.
+- **D2.A / D2.B / D2.C:** low-value polling slowed on Settings, manual settings polling moved to React Query, shared uptime ticker introduced.
+- **D2.D (FE-only path):** live-source mutations moved to Query invalidation pattern; bulk start/pause now fan out POSTs with a single post-settle invalidation.
+- **D3:** `WatchdogContext` value memoized.
+- **D4.A / D4.B:** shared `cx`, `ErrorList`, `EventFilterBar`, and `PageChrome` patterns are in place and adopted at key call sites.
+- **D5.A:** `useLiveSources` responsibilities split into `useLiveSourcesList`, `useStreamControl`, and `useStreamRegistry`; `StreamTile` extracted.
+- **D6 + D8:** SSE hoisted into app-level `EventStreamProvider`; stale ref-count trap removed.
+- **D10:** admin token cross-tab sync fixed with `BroadcastChannel` while preserving session-scoped storage.
+- **DV1:** validation panel split with `EventRow` + `utils/verdict.ts`.
+
+### Additional Improvements Landed (Beyond Original Plan)
+
+- Request-cancellation plumbing (`AbortSignal`) propagated through the main query hooks/API wrappers.
+- Shared runtime constants introduced in `shared/config/runtime.ts` for polling intervals, stale times, delays, backoff, and list limits.
+- Event stream context split into data/connection/actions so status-only consumers (e.g. Monitoring) avoid unnecessary event-buffer rerenders.
+
+### Still Open / Dependent
+
+- **D2.D+** and **DSec** depend on backend signed/bulk endpoints (`BE-D13`, `BE-D16`).
+- **D7** (generated FE types from OpenAPI) remains pending backend contract rollout.
+- **D4.C** and **D1.B** remain conditional follow-ons (not required for current correctness/perf goals).
+- **D9** remains a drive-by category; exhaustive-deps and minor cleanup opportunities still exist as surrounding files evolve.
+
+### Additional Gaps Identified In Follow-Up Review
+
+The original audit was strongest on hooks, state, SSE ownership, query usage, and structural decomposition. A follow-up pass against common React review traps surfaced a few areas that deserve to be tracked explicitly as additional FE work:
+
+- **D11:** accessibility and keyboard/focus semantics for custom interaction primitives (`Tabs`, `EventDialog`, admin-token input).
+- **D12:** mutation failure UX parity for admin controls (detection-toggle rollback currently has no operator-visible error).
+- **D13:** stable React keys in monitoring lists (`IncidentCard` uses index-based keys in repeated collections).
+- **D14:** dead-hook cleanup for latent stale-state traps (`useLastVisit` reads from `localStorage` once and never updates state; appears unused).
+
 ## 2. What To Focus On First
 
 1. **Hook correctness:** stale closures and disabled dependency checks in hot hooks.
@@ -22,6 +62,8 @@ Top priorities:
 3. **State re-render control:** memoize context value and normalize cross-page timer/filter logic.
 4. **Modularity:** decompose page and hook files over 250-300 LOC.
 5. **Reusable UI:** consolidate repeated className/error/ticker/event-card patterns.
+6. **Accessibility:** audit custom tabs/dialogs/forms for keyboard and screen-reader correctness.
+7. **Mutation UX:** make optimistic admin controls fail loudly and consistently.
 
 ## 3. Detailed Findings By Requested Area
 
@@ -130,6 +172,44 @@ Recommendations:
 - Memoize provider `value` with `useMemo`.
 - Keep app-level context small; push more server state reads to query hooks directly.
 
+### H) Accessibility And Interaction Semantics
+
+Findings:
+
+- `Tabs` uses the right ARIA roles, but not the full keyboard model expected of a custom tabs primitive: no roving `tabIndex`, no arrow/Home/End handling, and no `aria-labelledby` connection from the panel back to the active tab (`frontend/src/shared/ui/Tabs.tsx`).
+- `EventDialog` sets `role="dialog"` + `aria-modal="true"`, but there is no focus trap, initial-focus handoff, focus-restore on close, or explicit dialog labeling (`frontend/src/shared/events/EventDialog.tsx`).
+- `TokenPrompt` relies on placeholder text for the admin token input, with no explicit label or `aria-label` on a security-sensitive control (`frontend/src/features/settings/components/TokenPrompt.tsx`).
+
+Recommendations:
+
+- Treat custom interaction primitives as an explicit accessibility review category, not an afterthought.
+- Add keyboard/focus acceptance criteria for tabs and modal dialogs.
+- Require visible or programmatic labels on all form controls, especially auth/admin inputs.
+
+### I) Mutation UX And Error Recovery
+
+Findings:
+
+- `useStreamControl` gives start/pause failures operator-visible dialog feedback, but the detection-toggle mutation only rolls back optimistic state and stays silent on error (`frontend/src/features/admin/hooks/useStreamControl.ts`).
+- The legacy `useLiveSources` path also updates detection optimistically without surfacing a user-facing error on failure (`frontend/src/features/admin/hooks/useLiveSources.ts`).
+
+Recommendations:
+
+- Standardize optimistic admin mutations on a single rule: rollback plus visible operator feedback.
+- Keep failure handling consistent across start/pause/toggle flows so controls do not appear to "ignore" user actions.
+
+### J) React Correctness Drive-Bys
+
+Findings:
+
+- `IncidentCard` uses index-based keys for evidence/step/command lists; harmless when static, but a correctness trap if ordering or filtering changes (`frontend/src/features/monitoring/components/IncidentCard.tsx`).
+- `useLastVisit` reads `localStorage` once into state, never updates the state value, and appears unused in `frontend/src`; if revived later, it would hand consumers a stale snapshot for the full mount (`frontend/src/features/monitoring/hooks/useIncidentState.ts`).
+
+Recommendations:
+
+- Prefer stable domain keys over indexes in repeated collections.
+- Delete unused hooks with stale-read patterns before they become accidental dependencies.
+
 ## 4. Prioritized Issue List
 
 | ID | Severity | Finding | Evidence |
@@ -145,6 +225,10 @@ Recommendations:
 | FE-9 | Medium | Admin-token "cross-tab sync" is broken — `window.dispatchEvent` + `sessionStorage` is same-tab only | `useAdminToken.ts:4-6`; `adminApi.ts:35,44` — see §D10 |
 | FE-10 | Low | Dead `admin-focused-id-changed` CustomEvent, exhaustive-deps audit drive-by | `AdminPage.tsx:60`; see §D9 |
 | FE-11 | Blocker | Admin-tier endpoints used by FE assume BE-side auth — today most BE mutations are `AUTH: public`. **Cross-doc issue.** | See [backend audit BE-D12](backend-audit-2026-04-20.md#be-d12---control-endpoints-unauthenticated-be-12-critical) |
+| FE-12 | Medium | Custom tabs/dialog/input flows are under-reviewed for keyboard/focus/label accessibility | `shared/ui/Tabs.tsx`; `shared/events/EventDialog.tsx`; `features/settings/components/TokenPrompt.tsx` |
+| FE-13 | Medium | Detection-toggle mutations roll back silently instead of giving operator-visible failure feedback | `features/admin/hooks/useStreamControl.ts`; `features/admin/hooks/useLiveSources.ts` |
+| FE-14 | Low | Monitoring lists use index-based keys, which weakens React identity guarantees if items reorder | `features/monitoring/components/IncidentCard.tsx` |
+| FE-15 | Low | Unused `useLastVisit` hook captures a stale local-storage snapshot and invites latent bugs | `features/monitoring/hooks/useIncidentState.ts` |
 
 ## 5. Showcase Framing (What This Demonstrates)
 
@@ -159,6 +243,7 @@ Strong expertise signals to highlight:
 2. Structural judgment on god files vs feature-local decomposition.
 3. Performance judgment on unnecessary API calls for non-critical UI.
 4. Product judgment on where reusable components actually reduce maintenance cost.
+5. Accessibility judgment on custom interaction primitives instead of only static markup.
 
 ## 6. Decisions And Trade-Offs
 
@@ -439,12 +524,103 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 
 ---
 
+### D11 - Accessibility pass on custom interaction primitives
+
+**Observation.**
+- [Tabs.tsx](frontend/src/shared/ui/Tabs.tsx) uses `role="tablist"` / `role="tab"` / `role="tabpanel"` and `aria-controls`, but lacks roving `tabIndex`, arrow-key navigation, and a panel-to-tab label association.
+- [EventDialog.tsx](frontend/src/shared/events/EventDialog.tsx) sets `role="dialog"` / `aria-modal="true"`, but does not appear to move focus into the dialog, trap focus, restore focus on close, or label the dialog with `aria-labelledby`.
+- [TokenPrompt.tsx](frontend/src/features/settings/components/TokenPrompt.tsx) uses placeholder-only labeling for the admin token field.
+
+**Why it matters.** These are common "looks fine in visual QA" React misses that break keyboard use, screen readers, and high-confidence admin workflows. Custom primitives need stricter standards than ordinary markup because the browser does less for you.
+
+**Options**
+
+| Option | Trade-offs |
+|---|---|
+| A - Fix the existing primitives in place (`Tabs`, `EventDialog`, `TokenPrompt`) and add explicit keyboard/focus acceptance criteria | 0.5-1 day. Best value; no dependency churn. |
+| B - Replace custom interactions with a headless UI library | Larger refactor and API churn. Only worth it if more custom primitives are planned. |
+| C - Leave and rely on manual visual QA | Lowest effort; leaves the exact class of bugs React apps often miss. |
+
+**Recommended: A.** This is the right level of rigor for the current codebase: targeted accessibility hardening without a library migration.
+
+**Acceptance criteria.**
+- Tabs support arrow-key navigation plus Home/End, and only the active tab is in the normal tab order.
+- Dialog opens with focus inside, traps focus while open, restores focus on close, and is labeled by its heading.
+- The admin token input has a visible label or an explicit accessible name.
+- A manual keyboard pass on Settings/Admin succeeds without mouse-only traps.
+
+---
+
+### D12 - Mutation failure UX parity
+
+**Observation.** In [useStreamControl.ts](frontend/src/features/admin/hooks/useStreamControl.ts), start/pause failures open an alert dialog, but detection-toggle failures only roll back optimistic cache state. The legacy path in [useLiveSources.ts](frontend/src/features/admin/hooks/useLiveSources.ts) also lacks a user-facing error for toggle failure.
+
+**Why it matters.** Silent rollback is a common source of "the UI ignored me" confusion in React apps with optimistic mutations. Operators need clear feedback when admin controls fail.
+
+**Options**
+
+| Option | Trade-offs |
+|---|---|
+| A - Add the same dialog/toast error surface to detection-toggle failures and standardize mutation error handling | 30-60 min. Best consistency win. |
+| B - Keep rollback-only and rely on refetch to correct the UI | Lowest effort. Poor operator confidence. |
+| C - Build a generic mutation-feedback helper for all admin controls | Slightly more upfront work; worthwhile if more admin mutations are added soon. |
+
+**Recommended: A now, C if the admin control surface grows.**
+
+**Acceptance criteria.**
+- Detection-toggle failure produces visible operator feedback, not just cache rollback.
+- Start/pause/toggle flows share the same failure language and severity treatment.
+- After a failed mutation, UI state matches server state within one invalidate cycle.
+
+---
+
+### D13 - Stable keys in repeated collections
+
+**Observation.** [IncidentCard.tsx](frontend/src/features/monitoring/components/IncidentCard.tsx) uses index-based keys for evidence chips, investigation steps, and debug-command chips.
+
+**Why it matters.** Index keys are easy to justify when lists look static, but they weaken React identity guarantees if ordering, filtering, or deduplication ever changes.
+
+**Options**
+
+| Option | Trade-offs |
+|---|---|
+| A - Use stable keys derived from domain values (`label`, `value`, command text, or a BE-issued id if available) | 15-30 min. Simple, future-safe cleanup. |
+| B - Leave index keys because lists are currently append-only | Zero effort. Carries low-grade correctness debt. |
+
+**Recommended: A.** This is the kind of small cleanup that prevents weird UI state reuse later.
+
+**Acceptance criteria.**
+- No index-based keys remain in monitoring repeated collections unless the list is provably static and documented as such.
+
+---
+
+### D14 - Remove or fix `useLastVisit`
+
+**Observation.** [useIncidentState.ts](frontend/src/features/monitoring/hooks/useIncidentState.ts) exposes `useLastVisit()`, which snapshots `localStorage` into React state once and never updates that state. The hook appears unused in `frontend/src`.
+
+**Why it matters.** Dead hooks with stale-read patterns are classic future bug seeds: they look reusable, but encode subtly wrong state semantics.
+
+**Options**
+
+| Option | Trade-offs |
+|---|---|
+| A - Delete the hook if unused | 10 min. Best outcome if there is no active consumer. |
+| B - Keep it, but refactor the API so consumers get a live value or an explicit one-shot snapshot contract | Small cleanup if the hook is expected to return soon. |
+| C - Leave as-is | Zero effort. Preserves a misleading abstraction. |
+
+**Recommended: A if unused; B only if a near-term consumer is planned.**
+
+**Acceptance criteria.**
+- `useLastVisit` is either deleted or documented/refactored so its stale snapshot behavior is not implicit.
+
+---
+
 ## 7. Sequencing
 
 Ordered by **correctness -> cleanup -> structure**, not by file.
 
 **~1 week of FE capacity:**
-D3 (15 min, correctness bug) -> D6.A (hoist SSE provider, 2-3h) + D8.A folded in -> D2.A+B+C (slow polls + ticker + migrate manual-polling hooks, half day) -> D4.A+B (cx, ErrorList, RiskBadge adoption, EventFilterBar, PageChrome, ~1 day) -> D1.A (SettingsPage hook extraction, 1 day) -> D2.D (bulk-action invalidation, 4h) -> D9 drive-bys.
+D3 (15 min, correctness bug) -> D6.A (hoist SSE provider, 2-3h) + D8.A folded in -> D2.A+B+C (slow polls + ticker + migrate manual-polling hooks, half day) -> D4.A+B (cx, ErrorList, RiskBadge adoption, EventFilterBar, PageChrome, ~1 day) -> D1.A (SettingsPage hook extraction, 1 day) -> D2.D (bulk-action invalidation, 4h) -> D11 (a11y pass on Tabs/Dialog/TokenPrompt, 0.5-1 day) -> D12 + D13 + D14 drive-bys.
 
 **~3 weeks of FE capacity:**
 The above, then D5.A + `StreamTile` extraction (1 day) -> D7.B or C depending on BE timeline (types from OpenAPI or zod at the boundary) -> D1.B only if settings keeps growing -> D4.C only if a third event-card variant appears.
@@ -455,6 +631,7 @@ The above, then D5.A + `StreamTile` extraction (1 day) -> D7.B or C depending on
 - Calling a `usePolling` -> TanStack Query migration "eliminates ~200 lines of boilerplate" - the real win is one abstraction in place of two, not a specific LOC count.
 - Treating SSE as something TanStack Query can replace. It can't; they solve different problems. Hoist SSE to its own provider instead (D6).
 - Claiming code-splitting gains without measuring - routes are already lazy-loaded.
+- Treating accessibility as a polish pass to postpone indefinitely once custom tabs/dialogs already exist.
 
 **What this sequencing demonstrates:**
 1. Correctness bugs first (D3 context memo, D6 double-SSE, D8 stale counts).
@@ -524,6 +701,10 @@ One row per actionable FE decision. **Depends-on** cites backend IDs where cross
 | D9 | Drive-by cleanups (dead CustomEvent, exhaustive-deps audit) | drive-by | - | §D9 | 1 |
 | D10 | Fix admin-token cross-tab sync (`BroadcastChannel`) + doc | 30 min | - | §D10 | 1 |
 | DSec | Migrate `<img>`/`EventSource` consumers to signed-URL flow | 1 day | [BE-D13](backend-audit-2026-04-20.md#be-d13---live-mediadetection-streams-unauthenticated-be-13-critical) | §DSec | 0/1 (follows BE-D13) |
+| D11 | A11y pass on `Tabs`, `EventDialog`, and `TokenPrompt` | 0.5-1 day | - | §D11 | 1 |
+| D12 | Standardize mutation failure feedback for detection toggles | 30-60 min | - | §D12 | 1 |
+| D13 | Replace index-based keys in monitoring repeated collections | 15-30 min | - | §D13 | 1 |
+| D14 | Delete or refactor `useLastVisit` | 10-30 min | - | §D14 | 1 |
 | D5.A | Split `useLiveSources` + extract `StreamTile` | 1 day | - | §D5 | 2 |
 | DV1 | Split `EventsPanel` | 2-3 h | D4.B preferred | §7.1 Validation | 2 |
 | D7 Ph2 | Emit `generated.ts` from `/openapi.json` | 2 days | BE-D6.A Ph1 | §D7, [BE §9](backend-audit-2026-04-20.md#9-contract-migration-plan-shared-with-fe-d7) | 2 |
@@ -539,7 +720,20 @@ One row per actionable FE decision. **Depends-on** cites backend IDs where cross
 - Sprint 2 begins once BE Phase 1 ([backend §9](backend-audit-2026-04-20.md#9-contract-migration-plan-shared-with-fe-d7)) ships. FE generates types alongside `common.ts` and migrates Settings first.
 - Sprint 3+ items are evidence-gated or depend on other features finishing.
 
+## 8.1 Current Status Snapshot
+
+Status as of implementation update:
+
+| Bucket | Items |
+|---|---|
+| Done | D1.A, D2.A, D2.B, D2.C, D2.D (FE-only), D3, D4.A, D4.B, D5.A, D6, D8, D10, DV1 |
+| In progress / drive-by | D9 |
+| Newly identified follow-ons | D11, D12, D13, D14 |
+| Waiting on backend | D2.D+, DSec, D7 Ph2+ |
+| Conditional / later | D4.C, D1.B, D7.B fallback |
+
 ## 9. Notes
 
 1. This audit is static/runtime-logic focused from source inspection plus local frontend build verification.
 2. Backend tests could not be run in this workspace because Python test tooling is not currently runnable here (broken `.venv` interpreter path and no system `pytest`). **This is itself the primary argument for [Sprint 0](backend-audit-2026-04-20.md#8-sprint-0--verification-prerequisites) - FE Sprint 1 can proceed independently, but any BE-dependent FE work waits until BE tooling is green.**
+3. A follow-up React-review pass expanded the document beyond hooks/perf/structure to cover common custom-component accessibility gaps, optimistic-mutation UX parity, stable keys, and dead-hook cleanup.

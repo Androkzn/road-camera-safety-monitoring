@@ -68,8 +68,13 @@
  * are nearly identical so there is no visible issue; in general
  * prefer using the single global definition to avoid surprises. */
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Red count bubble on the top-right corner of the pill.
@@ -89,12 +94,17 @@
   line-height: 18px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 0 0 2px #0b0f14;     /* halo against dark chrome */
+  box-shadow: 0 0 0 2px #0b0f14; /* halo against dark chrome */
   animation: pulse-bubble 1.4s ease-in-out infinite;
 }
 
 /* Local scale pulse for the bubble. Same-name notes as above. */
 @keyframes pulse-bubble {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.12); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
 }

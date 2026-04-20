@@ -48,3 +48,9 @@ export const LIMITS = {
   watchdogRecent: 100,
   liveEventsDefaultLimit: 200,
 } as const;
+
+export const THRESHOLDS = {
+  ttcWarnSec: 1.5,
+  defaultWatchdogIntervalSec: 60,
+  clipWindowSec: 3,
+} as const;

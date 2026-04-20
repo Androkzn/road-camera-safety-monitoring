@@ -19,6 +19,7 @@ export function ImmediateActions({ incidents }: ImmediateActionsProps) {
       <div className={styles.queueGrid}>
         {incidents.map((incident) => (
           <button
+            type="button"
             key={incident.id}
             className={`${styles.queueCard} ${styles[incident.severity]}`}
             onClick={() => {

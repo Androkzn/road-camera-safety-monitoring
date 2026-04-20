@@ -27,15 +27,22 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   white-space: nowrap;
 }
-.tab:last-child { border-right: 0; }
-.tab:hover { background: rgba(255, 255, 255, 0.03); color: var(--text); }
+.tab:last-child {
+  border-right: 0;
+}
+.tab:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+}
 .tab:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -3px;
