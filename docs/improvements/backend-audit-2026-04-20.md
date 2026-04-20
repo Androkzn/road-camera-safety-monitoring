@@ -19,6 +19,34 @@ Top priorities:
 5. Add stronger typed API contracts for core routes.
 6. Add explicit model performance instrumentation and inference scheduling strategy.
 
+## 1.1 Current State Update (refresh)
+
+This section reflects the **current repository state** after post-audit implementation work.
+
+### Completed since the original audit baseline
+
+| Decision | Status | Evidence in repo |
+|---|---|---|
+| BE-D2.A/B (`server.py` decomposition + runtime extraction) | Done | `backend/server.py` is now a thin composition root (~119 LOC); runtime/pipeline logic moved into `backend/startup.py`, `backend/state.py`, and `backend/perception/*`. |
+| BE-D12/13/14/15 auth + media + clip + SSRF hardening | Done | Control/media routes call auth guards; signed media URL flow is in `backend/security/signing.py`; clip endpoint uses auth + rate-limit in `backend/api/routers/live.py`; SSRF validator is enforced in `backend/api/routers/sources.py` via `backend/security/ssrf.py`. |
+| BE-D6 Phase 1 typed API contracts | Done | `response_model=` is present on the target routes (`/api/live/status`, `/api/admin/health`, `/api/live/sources`, `/api/events/{id}`, `/chat`) with shared models in `backend/api/models.py`. |
+| BE-D8 snapshot/atomic read direction | Done (Phase A/B intent) | `LiveState.snapshot()` and recent-event access helpers exist in `backend/state.py`; routes consume frozen snapshots/helpers instead of direct list mutation reads. |
+| BE-D7 privacy primitive in compliance package | Done | Plate scrub helper now lives in `backend/compliance/privacy.py` and is imported from `backend/services/llm.py`. |
+| BE-D4 HTTP client reuse | Done | Shared async clients with `_get_client()` + `aclose()` exist in `backend/integrations/edge_publisher.py` and `backend/integrations/slack.py`. |
+| BE-D5.A stage timings | Done | Per-stage timing capture (`yolo`, `quality`, `ego`, `scene`, `emit`) is recorded and exposed in `/api/admin/health`. |
+| Sprint 0 verification/tooling prerequisite | Done | Local checks pass: `make test-all` (BE + FE) and `make typecheck` are green in this workspace. |
+
+### Partial / still open
+
+| Decision | Status | Current note |
+|---|---|---|
+| BE-D16 bulk source control | Partial | `restart_all` exists; generalized bulk action surface is still limited. |
+| BE-D11 overlapping status/health polling | Open | `/api/live/status` and `/api/admin/health` both remain active and overlapping. |
+| BE-D3 watchdog/queue full-file I/O | Open | `watchdog` and edge queue paths still use full-file read/split/write patterns. |
+| BE-D10 typed config schema (`pydantic-settings`) | Open | `backend/config.py` still relies on env parsing without `BaseSettings` schema enforcement. |
+| BE-D9.B/C advanced scheduling/per-slot tracker architecture | Open (evidence-gated) | Warmup/timing visibility landed; deeper scheduling work remains intentionally deferred pending evidence. |
+| BE-D1.C + BE-D6 Phase 4 strictness | Open (FE-coupled) | Removal of legacy proxy/extra-allow paths should wait for FE migration completion. |
+
 ## 2. What To Focus On First
 
 **Sprint 0 (pre-production blockers — see §8 for tooling prerequisites):**
@@ -34,6 +62,8 @@ Top priorities:
 6. **Model path scalability:** handle increased source count without unpredictable latency (BE-D5, BE-D9). Measure before scheduling; BE-D5.A ships before BE-D5.B is even considered.
 
 ## 3. Detailed Findings By Requested Area
+
+**Historical note:** Sections 3-6 capture the **original audit-time findings** (baseline snapshot). Use §1.1 for the up-to-date implementation status.
 
 ### A) Type Safety
 
@@ -611,17 +641,18 @@ That URL is then passed through [:1313](backend/server.py#L1313) into the stream
 
 Ordered by **correctness -> observability -> testability -> scale**, not by module.
 
-**Week 0 - Sprint 0 (prerequisites, see §8) + security hardening**
-Fix `.venv` and `pytest` tooling first. Then: **BE-D12.A (auth on control endpoints) -> BE-D15.A (SSRF validator on `/api/live/sources`) -> BE-D14.A+B (clip endpoint auth + rate limit + quantized params) -> BE-D13.B (signed-URL mint for media/detection streams).** These are pre-production blockers; ship them before any refactor.
+**Completed baseline block (already landed):**
+Sprint 0 security and verification work + Plan A core items (BE-D12/13/14/15, BE-D2.A/B, BE-D6 Ph1, BE-D7, BE-D8, BE-D4, BE-D5.A, BE-D1.B) are now in-tree (§1.1).
 
-**Weeks 1-2 - correctness + quick wins (Plan A)**
-BE-D1.B (multi-source correctness across emit + operator APIs) -> BE-D7.A (move privacy primitive to `compliance/`) -> BE-D8.B (snapshot method for route reads) -> BE-D4.A (client reuse) -> BE-D9.A (inference knobs + warmup + preload secondary models) -> backoff jitter for edge publisher -> BE-D5.A (stage timings only - answer "is this a problem?").
+**Next 1-2 sprints (highest leverage remaining):**
+1. **BE-D3** — replace full-file watchdog/queue reads with incremental/tail-aware I/O.
+2. **BE-D11** — reduce overlapping poll surfaces (`/api/live/status` vs `/api/admin/health`) and remove duplicate FE poll pressure.
+3. **BE-D10** — adopt typed config schema (`pydantic-settings`) with fail-fast validation in non-dev environments.
 
-**Weeks 3-5 - finish the extraction + contracts (Plan A cont'd)**
-BE-D2.A (router-only extraction for the 51 inline routes - finishes what the team started) -> BE-D2.B (extract `Episode` + `_flush_episode` + `_emit_event`) -> BE-D6.A (Pydantic on top 5-6 routes + `EventModel`; reuse `LiveStateSnapshot` as the response model per BE-D8) -> unit tests for the previously untested gates (Quality, Ego, Scene, Convergence).
-
-**Weeks 6+ - Plan B, only if evidence supports it**
-BE-D2.C (watchdog + detection + llm sub-splits - all pure relocations) -> BE-D9.B+C (per-slot tracker state + batched inference, if multi-source track collisions show up in validation) -> BE-D10.A (pydantic-settings) -> BE-D3 (A or B depending on file growth metrics) -> BE-D5.B (if stage timings show real contention) -> BE-D1.C (once FE has migrated off primary-proxy reads) -> full BE-D2.D only with a dedicated multi-sprint budget.
+**Evidence-gated scale phase (only after metrics justify it):**
+4. **BE-D9.B/C** — per-slot tracker/scheduling changes only if timing/quality evidence shows real multi-source contention.
+5. **BE-D2.C** — deeper sub-splits (watchdog/detection/llm internals) only when maintainability ROI is clear.
+6. **BE-D1.C + BE-D6 Phase 4** — remove legacy compatibility paths only after FE migration is fully complete.
 
 **What this sequencing demonstrates:**
 
@@ -641,24 +672,20 @@ BE-D2.C (watchdog + detection + llm sub-splits - all pure relocations) -> BE-D9.
 
 ## 8. Sprint 0 — Verification Prerequisites
 
-**None of the structural work in Plan A can safely land without this.** The existing `.venv` is broken and `pytest` is not runnable in this workspace; at the time of writing, no backend test can be executed locally. That means *every* refactor PR is unverified by the existing test suite.
+Sprint 0 prerequisites are now considered **satisfied** in the active workspace.
 
-Sprint 0 is the cost of admission:
+Current baseline:
 
-1. **Repair backend test tooling.** Rebuild `.venv` (`python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`); verify `pytest tests/ -v` green on `main`.
-2. **Wire `make lint` to add `ruff check` + `ruff format --check` + `mypy backend/core backend/services backend/integrations`.** Permissive mode on `server.py` until BE-D2.B.
-3. **Smoke scenarios (scriptable fallbacks if pytest isn't green yet).** Minimum bar every refactor PR must pass before merge:
-   - `python start.py --skip-tests --no-browser` boots; `/api/live/status` returns 200 within 30s.
-   - `curl /stream/events` receives at least one keepalive within 20s.
-   - `curl -X POST /api/live/sources` with a test HLS URL → slot becomes `running` within 15s; `detect_frame` runs at least once (metric visible).
-   - Shutdown (`SIGINT`) completes within 10s; no orphaned threads (verified via `ps`).
-   - Retention loop runs once without exception (advance mock clock by 1h).
-4. **Record the above as `scripts/smoke.sh`** runnable from CI. Block merges on failure.
-5. **Sprint 0 exit criterion:** `pytest tests/ -v` passes locally + in CI; `scripts/smoke.sh` passes; `make lint` passes. Only then does BE-D2.A merge.
+1. **Backend tests runnable:** `pytest` executes successfully in `.venv`.
+2. **Grouped test targets available:** `make test-be`, `make test-fe`, `make test-all`.
+3. **Typecheck target available and green:** `make typecheck` (`pyright`) passes.
 
-**Verification notes for this audit itself.**
-- This audit is source-inspection-based; no backend tests were executed because of the tooling gap above - this is itself the strongest argument for Sprint 0.
-- Frontend build succeeded (`npm run build`).
+Recommended ongoing merge bar (carry forward):
+
+- `make test-all` green.
+- `make typecheck` green.
+- `make lint` green.
+- Critical runtime smoke (`python start.py --skip-tests --no-browser` + `/api/live/status` 200) on refactor-heavy PRs.
 
 ## 9. Contract Migration Plan (shared with FE-D7)
 
@@ -683,6 +710,28 @@ Cross-doc execution plan for BE-D6 ↔ FE-D7. The FE audit references this secti
 ## 10. Execution Matrix
 
 One row per actionable decision. **Owner** = BE or FE. **Depends-on** = prerequisite decisions. **Accept** = pointer to the decision's acceptance criteria.
+
+### Current status overlay
+
+| ID | Current status |
+|---|---|
+| S0 | Done |
+| BE-D12 | Done |
+| BE-D13 | Done |
+| BE-D14 | Done |
+| BE-D15 | Done |
+| BE-D2.A/B | Done |
+| BE-D6 Phase 1 | Done |
+| BE-D7 | Done |
+| BE-D8 | Done |
+| BE-D4 | Done |
+| BE-D5.A | Done |
+| BE-D16 | Partial |
+| BE-D11 | Open |
+| BE-D3 | Open |
+| BE-D10 | Open |
+| BE-D9.B/C | Open (evidence-gated) |
+| BE-D1.C + BE-D6 Phase 4 | Open (FE-gated) |
 
 | ID | Decision | Owner | Effort | Depends-on | Accept | Sprint |
 |---|---|---|---|---|---|---|

@@ -1,12 +1,28 @@
 /**
- * useLiveSources — list + lifecycle for perception sources.
+ * useLiveSources — **thin aggregator kept for source-compat.**
  *
- * Polls `/api/live/sources` via TanStack Query and exposes optimistic
- * `start`/`pause`/`setDetection`/`add`/`remove` mutators that write
- * through the cache.
+ * Composes `useLiveSourcesList`, `useStreamRegistry`, and a tiny inline
+ * layer of per-id legacy wrappers so existing consumers (AdminPage,
+ * SettingsPage) keep working without a prop-surface change.
+ *
+ * New consumers should import the narrower hooks directly:
+ *   - `useLiveSourcesList(pollMs?)` — just the list + refresh.
+ *   - `useStreamControl(sourceId)` — per-source start/pause/detection,
+ *     mounted inside a tile component. Derives `busy` from the
+ *     mutation's `isPending`.
+ *   - `useStreamRegistry()` — add / remove / restartAll.
+ *
+ * The per-id `start` / `pause` / `setDetection` / `remove` helpers exposed
+ * here are intentionally coarse — they fire one-shot mutations through
+ * the shared `adminApi` and invalidate the sources list on settle. That
+ * matches the new mutation-centric model but can't share React Query's
+ * `isPending` tracking across components (each invocation is a fresh
+ * closure), which is why they don't fill in `busyById` anymore. Tiles
+ * that care about per-slot busy state should mount `useStreamControl`
+ * directly instead of reading `busyById` through here.
  */
-import { useCallback, useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { dialog } from "../../../shared/ui";
 import type {
@@ -15,8 +31,10 @@ import type {
 } from "../../../shared/types/common";
 
 import { adminApi, adminQueryKeys } from "../api";
+import { useLiveSourcesList } from "./useLiveSourcesList";
+import { useStreamRegistry } from "./useStreamRegistry";
 
-/** Action a slot is currently performing — drives in-flight button labels. */
+/** Legacy busy union, re-exported for callers that still type against it. */
 export type BusyAction = "starting" | "pausing" | "removing";
 
 export interface UseLiveSourcesResult {
@@ -34,55 +52,37 @@ export interface UseLiveSourcesResult {
   }) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string) => Promise<void>;
   restartAll: () => Promise<void>;
-  /** Monotonically-increasing counter bumped every time restartAll() is
-   *  invoked. The map hook watches this to reset its local playhead back
-   *  to the start of the GPS track (since the server's uptime reset alone
-   *  is intentionally ignored by the map — see useDemoTrack). */
+  /** Monotonically-increasing counter bumped on every successful
+   *  `restartAll()`. Kept for source-compat; see `useStreamRegistry`. */
   restartAllToken: number;
   restartingAll: boolean;
+  /** Legacy busy-map. Populated only for `remove` (via registry) now;
+   *  `start` / `pause` busy state is no longer tracked here — mount
+   *  `useStreamControl(id)` inside a tile if you need it. */
   busyById: Record<string, BusyAction | null>;
 }
 
-export function useLiveSources(refetchIntervalMs = 5000): UseLiveSourcesResult {
+export function useLiveSources(refetchIntervalMs = 5_000): UseLiveSourcesResult {
   const qc = useQueryClient();
-  const { data, error, refetch, isLoading } = useQuery<LiveSourcesResponse>({
-    queryKey: adminQueryKeys.liveSources,
-    queryFn: adminApi.getLiveSources,
-    refetchInterval: refetchIntervalMs,
-    staleTime: 2_000,
-  });
+  const list = useLiveSourcesList(refetchIntervalMs);
+  const registry = useStreamRegistry();
 
-  const [busyById, setBusyById] = useState<Record<string, BusyAction | null>>({});
+  // Track the ids whose legacy start/pause wrappers are mid-flight so
+  // `busyById` keeps reporting "starting" / "pausing" for callers that
+  // still read it through the aggregator. Tiles that render through
+  // `useStreamControl` read the authoritative `isPending` directly and
+  // ignore this map entirely.
+  const [legacyBusy, setLegacyBusy] = useState<
+    Record<string, "starting" | "pausing" | null>
+  >({});
+  const setLegacy = (id: string, v: "starting" | "pausing" | null) =>
+    setLegacyBusy((prev) => ({ ...prev, [id]: v }));
 
-  const refresh = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
+  const invalidateList = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: adminQueryKeys.liveSources });
+  }, [qc]);
 
-  const mark = useCallback((id: string, v: BusyAction | null) => {
-    setBusyById((prev) => ({ ...prev, [id]: v }));
-  }, []);
-
-  // Safety belt: any slot stuck in busy for > 8s gets force-cleared.
-  useEffect(() => {
-    const stuck = Object.entries(busyById).filter(([, v]) => !!v);
-    if (stuck.length === 0) return;
-    const t = window.setTimeout(() => {
-      setBusyById((prev) => {
-        const next: Record<string, BusyAction | null> = { ...prev };
-        let changed = false;
-        for (const [id] of stuck) {
-          if (next[id]) {
-            next[id] = null;
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    }, 8000);
-    return () => window.clearTimeout(t);
-  }, [busyById]);
-
-  const setRunningOptimistic = useCallback(
+  const patchRunning = useCallback(
     (id: string, running: boolean) => {
       qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
         prev
@@ -98,153 +98,99 @@ export function useLiveSources(refetchIntervalMs = 5000): UseLiveSourcesResult {
     [qc],
   );
 
+  const patchDetection = useCallback(
+    (id: string, enabled: boolean) => {
+      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
+        prev
+          ? {
+              ...prev,
+              sources: prev.sources.map((s) =>
+                s.id === id ? { ...s, detection_enabled: enabled } : s,
+              ),
+            }
+          : prev,
+      );
+    },
+    [qc],
+  );
+
   const start = useCallback(
     async (id: string) => {
-      mark(id, "starting");
-      setRunningOptimistic(id, true);
+      setLegacy(id, "starting");
+      patchRunning(id, true);
       try {
         await adminApi.startLiveSource(id);
       } catch (exc) {
-        setRunningOptimistic(id, false);
+        patchRunning(id, false);
         void dialog.alert({
           title: "Start stream failed",
           message: (exc as Error)?.message ?? "unknown error",
           variant: "danger",
         });
       } finally {
-        mark(id, null);
-        await refresh();
+        setLegacy(id, null);
+        invalidateList();
       }
     },
-    [mark, refresh, setRunningOptimistic],
+    [invalidateList, patchRunning],
   );
 
   const pause = useCallback(
     async (id: string) => {
-      mark(id, "pausing");
-      setRunningOptimistic(id, false);
+      setLegacy(id, "pausing");
+      patchRunning(id, false);
       try {
         await adminApi.pauseLiveSource(id);
       } catch (exc) {
-        setRunningOptimistic(id, true);
+        patchRunning(id, true);
         void dialog.alert({
           title: "Pause stream failed",
           message: (exc as Error)?.message ?? "unknown error",
           variant: "danger",
         });
       } finally {
-        mark(id, null);
-        await refresh();
+        setLegacy(id, null);
+        invalidateList();
       }
     },
-    [mark, refresh, setRunningOptimistic],
+    [invalidateList, patchRunning],
   );
 
   const setDetection = useCallback(
     async (id: string, enabled: boolean) => {
-      qc.setQueryData<LiveSourcesResponse>(
-        adminQueryKeys.liveSources,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                sources: prev.sources.map((s) =>
-                  s.id === id ? { ...s, detection_enabled: enabled } : s,
-                ),
-              }
-            : prev,
-      );
+      patchDetection(id, enabled);
       try {
         await adminApi.setLiveSourceDetection(id, enabled);
       } finally {
-        await refresh();
+        invalidateList();
       }
     },
-    [qc, refresh],
+    [invalidateList, patchDetection],
   );
 
-  const add = useCallback(
-    async (input: { url: string; name?: string }) => {
-      try {
-        const res = await adminApi.addLiveSource({ ...input, autostart: true });
-        await refresh();
-        return { ok: !!res.ok, error: res.error };
-      } catch (exc) {
-        await refresh();
-        return { ok: false, error: (exc as Error).message };
-      }
-    },
-    [refresh],
-  );
-
-  const remove = useCallback(
-    async (id: string) => {
-      mark(id, "removing");
-      qc.setQueryData<LiveSourcesResponse>(
-        adminQueryKeys.liveSources,
-        (prev) =>
-          prev
-            ? { ...prev, sources: prev.sources.filter((s) => s.id !== id) }
-            : prev,
-      );
-      try {
-        await adminApi.removeLiveSource(id);
-      } finally {
-        mark(id, null);
-        await refresh();
-      }
-    },
-    [qc, mark, refresh],
-  );
-
-  const [restartingAll, setRestartingAll] = useState(false);
-  const [restartAllToken, setRestartAllToken] = useState(0);
-
-  const restartAll = useCallback(async () => {
-    setRestartingAll(true);
-    try {
-      const res = await adminApi.restartAllLiveSources();
-      // Bump the token only on success so the map doesn't snap back on a
-      // failed restart (the backend left the slots as they were).
-      if (res.ok) {
-        setRestartAllToken((n) => n + 1);
-      }
-      const failed = (res.results ?? []).filter((r) => !r.ok);
-      if (failed.length) {
-        void dialog.alert({
-          title: "Some streams failed to restart",
-          message: failed
-            .map((f) => `${f.name || f.id}: ${f.error ?? "unknown error"}`)
-            .join("\n"),
-          variant: "danger",
-        });
-      }
-    } catch (exc) {
-      void dialog.alert({
-        title: "Restart all failed",
-        message: (exc as Error)?.message ?? "unknown error",
-        variant: "danger",
-      });
-    } finally {
-      setRestartingAll(false);
-      await refresh();
-    }
-  }, [refresh]);
+  // Compose the busy map from the two sources we still care about here.
+  const busyById: Record<string, BusyAction | null> = {};
+  for (const [id, v] of Object.entries(legacyBusy)) {
+    if (v) busyById[id] = v;
+  }
+  for (const id of Object.keys(registry.removingById)) {
+    if (registry.removingById[id]) busyById[id] = "removing";
+  }
 
   return {
-    sources: data?.sources ?? [],
-    primaryId: data?.primary_id ?? null,
-    loading: isLoading,
-    error: error ? (error as Error).message : null,
-    refresh,
+    sources: list.sources,
+    primaryId: list.primaryId,
+    loading: list.loading,
+    error: list.error,
+    refresh: list.refresh,
     start,
     pause,
     setDetection,
-    add,
-    remove,
-    restartAll,
-    restartAllToken,
-    restartingAll,
+    add: registry.add,
+    remove: registry.remove,
+    restartAll: registry.restartAll,
+    restartAllToken: registry.restartAllToken,
+    restartingAll: registry.restartingAll,
     busyById,
   };
 }

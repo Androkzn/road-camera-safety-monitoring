@@ -128,7 +128,6 @@ export function AdminPage() {
       <div className={styles.main}>
         <div className={styles.leftCol}>
           <MultiSourceGrid
-            liveSources={liveSources}
             focusedId={focusedId}
             onFocusChange={setFocusedId}
             onRestart={handleRestart}

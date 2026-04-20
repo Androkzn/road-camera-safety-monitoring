@@ -23,6 +23,9 @@ export { Skeleton } from "./Skeleton";
 
 export { EmptyState } from "./EmptyState";
 
+export { ErrorList } from "./ErrorList";
+export type { ErrorListItem } from "./ErrorList";
+
 export { Spinner } from "./Spinner";
 
 export { ErrorBoundary } from "./ErrorBoundary";
