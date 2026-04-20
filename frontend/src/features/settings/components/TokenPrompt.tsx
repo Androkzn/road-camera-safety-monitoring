@@ -42,8 +42,8 @@ export function TokenPrompt({
             <h2 className={styles.pageTitle}>Settings Console</h2>
             {error && <ErrorList errors={[error]} />}
             <p className={styles.subtle}>
-              Settings is admin-tier. Paste your <code>ROAD_ADMIN_TOKEN</code>{" "}
-              (kept in <code>sessionStorage</code>, cleared on tab close).
+              Settings is admin-tier. Paste your <code>ROAD_ADMIN_TOKEN</code> (kept in{" "}
+              <code>sessionStorage</code>, cleared on tab close).
             </p>
             <div className={styles.tokenPrompt}>
               <input
@@ -53,8 +53,7 @@ export function TokenPrompt({
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && tokenInput.trim())
-                    onSave(tokenInput.trim());
+                  if (e.key === "Enter" && tokenInput.trim()) onSave(tokenInput.trim());
                 }}
                 autoFocus
               />

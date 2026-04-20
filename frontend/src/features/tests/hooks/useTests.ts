@@ -7,10 +7,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  POLL_INTERVAL_MS,
-  STALE_TIME_MS,
-} from "../../../shared/config/runtime";
+import { POLL_INTERVAL_MS, STALE_TIME_MS } from "../../../shared/config/runtime";
 import { testsApi, testsQueryKeys } from "../api";
 import type { TestStatus } from "../../../shared/types/common";
 

@@ -59,9 +59,7 @@ let _dialogApi: DialogApi | null = null;
 export const dialog: DialogApi = {
   alert: (opts) => {
     if (!_dialogApi) {
-      window.alert(
-        typeof opts.message === "string" ? opts.message : (opts.title ?? ""),
-      );
+      window.alert(typeof opts.message === "string" ? opts.message : (opts.title ?? ""));
       return Promise.resolve();
     }
     return _dialogApi.alert(opts);
@@ -114,10 +112,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
         }),
       confirm: (opts) =>
         new Promise<boolean>((resolve) => {
-          setQueue((q) => [
-            ...q,
-            { id: ++_entryCounter, kind: "confirm", opts, resolve },
-          ]);
+          setQueue((q) => [...q, { id: ++_entryCounter, kind: "confirm", opts, resolve }]);
         }),
     }),
     [],
@@ -174,9 +169,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       <dialog ref={dialogRef} className={`${styles.dialog} ${variantClass}`}>
         {current && (
           <form method="dialog" onSubmit={(e) => e.preventDefault()}>
-            {current.opts.title && (
-              <h2 className={styles.title}>{current.opts.title}</h2>
-            )}
+            {current.opts.title && <h2 className={styles.title}>{current.opts.title}</h2>}
             <div className={styles.body}>
               {typeof current.opts.message === "string" ? (
                 <p>{current.opts.message}</p>
@@ -186,11 +179,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
             </div>
             <div className={styles.actions}>
               {current.kind === "confirm" && (
-                <button
-                  type="button"
-                  className={styles.btnGhost}
-                  onClick={() => dismiss(false)}
-                >
+                <button type="button" className={styles.btnGhost} onClick={() => dismiss(false)}>
                   {current.opts.cancelLabel ?? "Cancel"}
                 </button>
               )}
@@ -206,8 +195,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 }
                 onClick={() => dismiss(true)}
               >
-                {current.opts.okLabel ??
-                  (current.kind === "confirm" ? "OK" : "Got it")}
+                {current.opts.okLabel ?? (current.kind === "confirm" ? "OK" : "Got it")}
               </button>
             </div>
           </form>

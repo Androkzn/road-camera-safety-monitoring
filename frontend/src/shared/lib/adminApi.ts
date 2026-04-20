@@ -36,9 +36,7 @@ interface AdminTokenBroadcastMessage {
 // extensions) we gracefully fall back to the same-tab dispatch only.
 const _channel: BroadcastChannel | null = (() => {
   try {
-    return typeof BroadcastChannel !== "undefined"
-      ? new BroadcastChannel(CHANNEL_NAME)
-      : null;
+    return typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CHANNEL_NAME) : null;
   } catch {
     return null;
   }
@@ -63,9 +61,7 @@ function _tokenFromCustomEvent(ev: Event): string | null | undefined {
 /** Notify listeners (current tab + other same-origin tabs) that the token changed. */
 function _notifyTokenChanged(token: string | null): void {
   try {
-    window.dispatchEvent(
-      new CustomEvent("admin-token-changed", { detail: { token } }),
-    );
+    window.dispatchEvent(new CustomEvent("admin-token-changed", { detail: { token } }));
   } catch {
     /* ignore */
   }
@@ -171,10 +167,7 @@ function buildErrorMessage(
   return base;
 }
 
-export async function adminFetch<T>(
-  url: string,
-  init?: RequestInit,
-): Promise<T> {
+export async function adminFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, withAdminAuth(init));
   if (res.ok) {
     return (await res.json()) as T;
@@ -187,12 +180,8 @@ export async function adminFetch<T>(
   }
   const retryHeader = res.headers.get("Retry-After");
   const retryAfterSec =
-    retryHeader != null && /^\d+$/.test(retryHeader.trim())
-      ? parseInt(retryHeader, 10)
-      : undefined;
-  const err = new Error(
-    buildErrorMessage(res.status, body, retryAfterSec),
-  ) as AdminApiError;
+    retryHeader != null && /^\d+$/.test(retryHeader.trim()) ? parseInt(retryHeader, 10) : undefined;
+  const err = new Error(buildErrorMessage(res.status, body, retryAfterSec)) as AdminApiError;
   err.status = res.status;
   err.body = body;
   err.retryAfterSec = retryAfterSec;

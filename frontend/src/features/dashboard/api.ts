@@ -5,10 +5,8 @@ import { fetchJson, postJson } from "../../shared/lib/fetchClient";
 import type { DriftReport, SceneContext } from "../../shared/types/common";
 
 export const dashboardApi = {
-  getScene: (signal?: AbortSignal) =>
-    fetchJson<SceneContext>("/api/live/scene", { signal }),
-  getDrift: (signal?: AbortSignal) =>
-    fetchJson<DriftReport>("/api/drift", { signal }),
+  getScene: (signal?: AbortSignal) => fetchJson<SceneContext>("/api/live/scene", { signal }),
+  getDrift: (signal?: AbortSignal) => fetchJson<DriftReport>("/api/drift", { signal }),
   chat: (query: string) => postJson<{ answer: string }>("/chat", { query }),
 };
 

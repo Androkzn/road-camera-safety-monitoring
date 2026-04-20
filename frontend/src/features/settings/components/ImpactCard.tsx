@@ -2,13 +2,7 @@
  * ImpactCard — before/after deltas + ops + severity bars + recommendation.
  */
 import { useUptimeTicker } from "../../../shared/hooks/useUptimeTicker";
-import {
-  fmt,
-  humanize,
-  metricLabel,
-  reasonLabel,
-  tierClass,
-} from "../utils/formatting";
+import { fmt, humanize, metricLabel, reasonLabel, tierClass } from "../utils/formatting";
 import type { ImpactReport } from "../types";
 
 import { OpsDeltas } from "./OpsDeltas";
@@ -23,12 +17,7 @@ interface ImpactCardProps {
   onRefresh: () => void;
 }
 
-export function ImpactCard({
-  report: r,
-  refreshing,
-  lastUpdatedTs,
-  onRefresh,
-}: ImpactCardProps) {
+export function ImpactCard({ report: r, refreshing, lastUpdatedTs, onRefresh }: ImpactCardProps) {
   // Tick once a second so the "Xs ago" label stays live between polls.
   // `lastUpdatedTs` is epoch-millis; convert to the unix-seconds shape
   // useUptimeTicker expects so the hook's "seconds since" math matches
@@ -54,17 +43,15 @@ export function ImpactCard({
     <div className={styles.card}>
       <div className={styles.cardHeader}>
         <h3 className={styles.cardTitle}>Impact ({humanize(r.state)})</h3>
-        <span
-          className={`${styles.confidenceTier} ${tierClass(r.confidence_tier)}`}
-        >
+        <span className={`${styles.confidenceTier} ${tierClass(r.confidence_tier)}`}>
           {humanize(r.confidence_tier)}
         </span>
       </div>
 
       {r.changed_keys.length > 0 && (
         <div className={styles.subtle} style={{ fontSize: 11 }}>
-          {r.changed_keys.length} key{r.changed_keys.length === 1 ? "" : "s"}{" "}
-          changed: {r.changed_keys.slice(0, 2).map(humanize).join(", ")}
+          {r.changed_keys.length} key{r.changed_keys.length === 1 ? "" : "s"} changed:{" "}
+          {r.changed_keys.slice(0, 2).map(humanize).join(", ")}
           {r.changed_keys.length > 2 ? "…" : ""}
         </div>
       )}
@@ -84,30 +71,20 @@ export function ImpactCard({
           <div className={styles.deltaList}>
             <span>{metricLabel("event_rate_per_min")}</span>
             <span>
-              {fmt(r.baseline.event_rate_per_min)} →{" "}
-              {fmt(r.after_window.event_rate_per_min)}
+              {fmt(r.baseline.event_rate_per_min)} → {fmt(r.after_window.event_rate_per_min)}
             </span>
             <span
-              className={
-                (r.deltas.event_rate_per_min ?? 0) > 0
-                  ? styles.deltaNeg
-                  : styles.deltaPos
-              }
+              className={(r.deltas.event_rate_per_min ?? 0) > 0 ? styles.deltaNeg : styles.deltaPos}
             >
               {fmt(r.deltas.event_rate_per_min, 1)}%
             </span>
 
             <span>{metricLabel("confidence_p50")}</span>
             <span>
-              {fmt(r.baseline.confidence_p50)} →{" "}
-              {fmt(r.after_window.confidence_p50)}
+              {fmt(r.baseline.confidence_p50)} → {fmt(r.after_window.confidence_p50)}
             </span>
             <span
-              className={
-                (r.deltas.confidence_p50 ?? 0) > 0
-                  ? styles.deltaPos
-                  : styles.deltaNeg
-              }
+              className={(r.deltas.confidence_p50 ?? 0) > 0 ? styles.deltaPos : styles.deltaNeg}
             >
               {fmt(r.deltas.confidence_p50, 1)}%
             </span>
@@ -116,11 +93,7 @@ export function ImpactCard({
             <span>
               {fmt(r.baseline.ttc_p95)} → {fmt(r.after_window.ttc_p95)}
             </span>
-            <span
-              className={
-                (r.deltas.ttc_p95 ?? 0) > 0 ? styles.deltaPos : styles.deltaNeg
-              }
-            >
+            <span className={(r.deltas.ttc_p95 ?? 0) > 0 ? styles.deltaPos : styles.deltaNeg}>
               {fmt(r.deltas.ttc_p95, 1)}%
             </span>
 
@@ -131,33 +104,20 @@ export function ImpactCard({
             <span></span>
           </div>
 
-          <OpsDeltas
-            baseline={r.baseline}
-            after={r.after_window}
-            deltas={r.deltas}
-          />
+          <OpsDeltas baseline={r.baseline} after={r.after_window} deltas={r.deltas} />
 
-          <SeverityBars
-            label="Severity (after-change)"
-            counts={r.after_window.severity_counts}
-          />
+          <SeverityBars label="Severity (after-change)" counts={r.after_window.severity_counts} />
         </>
       )}
 
       {r.narrative && (
         <div className={styles.narrative}>
-          <strong>{(r.recommendation ?? "monitor").toUpperCase()}</strong>:{" "}
-          {r.narrative}
+          <strong>{(r.recommendation ?? "monitor").toUpperCase()}</strong>: {r.narrative}
         </div>
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <button
-          type="button"
-          className={styles.btn}
-          onClick={onRefresh}
-          disabled={refreshing}
-        >
+        <button type="button" className={styles.btn} onClick={onRefresh} disabled={refreshing}>
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
         <span className={styles.subtle} style={{ fontSize: 11 }}>
@@ -167,8 +127,8 @@ export function ImpactCard({
 
       {r.lagging_metrics.length > 0 && (
         <div className={styles.subtle} style={{ fontSize: 10 }}>
-          Lagging metrics ({r.lagging_metrics.map(metricLabel).join(", ")}) need
-          operator feedback before they populate.
+          Lagging metrics ({r.lagging_metrics.map(metricLabel).join(", ")}) need operator feedback
+          before they populate.
         </div>
       )}
     </div>

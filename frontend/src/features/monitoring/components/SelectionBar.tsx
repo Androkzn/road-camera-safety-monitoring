@@ -26,18 +26,10 @@ export function SelectionBar({
     <div className={styles.selectionBar}>
       <div className={styles.selectionInfo}>
         <span>{selectedCount} incident groups selected</span>
-        <button
-          type="button"
-          className={styles.selBarBtn}
-          onClick={onSelectAll}
-        >
+        <button type="button" className={styles.selBarBtn} onClick={onSelectAll}>
           Select all ({filteredCount})
         </button>
-        <button
-          type="button"
-          className={styles.selBarBtn}
-          onClick={onDeselectAll}
-        >
+        <button type="button" className={styles.selBarBtn} onClick={onDeselectAll}>
           Deselect all
         </button>
       </div>

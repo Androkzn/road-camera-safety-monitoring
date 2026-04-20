@@ -53,8 +53,7 @@ export function AdminPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (focusedId)
-      window.localStorage.setItem("road_admin_focused_id", focusedId);
+    if (focusedId) window.localStorage.setItem("road_admin_focused_id", focusedId);
     else window.localStorage.removeItem("road_admin_focused_id");
     // LivePreviewCard on SettingsPage subscribes to this CustomEvent to
     // mirror the focused stream selection when both pages are open in the
@@ -89,10 +88,7 @@ export function AdminPage() {
 
   const [showLowEvents, setShowLowEvents] = useState(false);
   const visibleEvents = useMemo(
-    () =>
-      showLowEvents
-        ? liveEvents
-        : liveEvents.filter((ev) => ev.risk_level !== "low"),
+    () => (showLowEvents ? liveEvents : liveEvents.filter((ev) => ev.risk_level !== "low")),
     [liveEvents, showLowEvents],
   );
   const hiddenLowCount = liveEvents.length - visibleEvents.length;
@@ -106,8 +102,7 @@ export function AdminPage() {
         connected={connected}
         testBadge={
           <Pill style={{ marginLeft: 8 }}>
-            uptime{" "}
-            <strong style={{ marginLeft: 4 }}>{formatUptime(uptimeSec)}</strong>
+            uptime <strong style={{ marginLeft: 4 }}>{formatUptime(uptimeSec)}</strong>
           </Pill>
         }
       />
@@ -140,9 +135,7 @@ export function AdminPage() {
                   <>
                     Events{" "}
                     {evtCount > 0 && (
-                      <span style={{ fontSize: "10px", color: "var(--muted)" }}>
-                        ({evtCount})
-                      </span>
+                      <span style={{ fontSize: "10px", color: "var(--muted)" }}>({evtCount})</span>
                     )}
                   </>
                 ),
@@ -156,9 +149,7 @@ export function AdminPage() {
                           onChange={(e) => setShowLowEvents(e.target.checked)}
                         />
                         Show low risk
-                        {hiddenLowCount > 0 && !showLowEvents
-                          ? ` (${hiddenLowCount} hidden)`
-                          : ""}
+                        {hiddenLowCount > 0 && !showLowEvents ? ` (${hiddenLowCount} hidden)` : ""}
                       </label>
                     </div>
                     <div className={styles.evtList}>
@@ -169,9 +160,7 @@ export function AdminPage() {
                             : "No events match the current filter"}
                         </div>
                       ) : (
-                        visibleEvents.map((ev) => (
-                          <AdminEventCard key={ev.event_id} event={ev} />
-                        ))
+                        visibleEvents.map((ev) => <AdminEventCard key={ev.event_id} event={ev} />)
                       )}
                     </div>
                   </>

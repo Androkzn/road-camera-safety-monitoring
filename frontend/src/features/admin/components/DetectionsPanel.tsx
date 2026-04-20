@@ -126,23 +126,17 @@ export function DetectionsPanel({ frames }: DetectionsPanelProps) {
                        string. Combining a base class with a
                        conditional modifier class is the CSS-Modules
                        equivalent of the `classnames` library. */}
-                  <span
-                    className={`${styles.detCls} ${isPerson ? styles.person : styles.vehicle}`}
-                  >
+                  <span className={`${styles.detCls} ${isPerson ? styles.person : styles.vehicle}`}>
                     {o.cls}
                   </span>
-                  <span className={styles.detConf}>
-                    {(o.conf * 100).toFixed(0)}%
-                  </span>
+                  <span className={styles.detConf}>{(o.conf * 100).toFixed(0)}%</span>
                   {/* TEACH: `{cond && <X/>}` — the `&&` short-circuit
                        renders <X/> only when `cond` is truthy.
                        IMPORTANT gotcha: if `cond` is the number 0 React
                        will render "0" instead of nothing. Using an
                        explicit `!= null` comparison (as here) avoids
                        that. */}
-                  {o.track_id != null && (
-                    <span className={styles.detTrack}>#{o.track_id}</span>
-                  )}
+                  {o.track_id != null && <span className={styles.detTrack}>#{o.track_id}</span>}
                   {o.distance_m != null && (
                     <span
                       className={styles.detDist}
@@ -157,8 +151,7 @@ export function DetectionsPanel({ frames }: DetectionsPanelProps) {
                           : "Longitudinal range — distance from the host vehicle's nearest body edge"
                       }
                     >
-                      {o.distance_m.toFixed(1)} m
-                      {o.distance_axis === "lateral" ? " lat" : ""}
+                      {o.distance_m.toFixed(1)} m{o.distance_axis === "lateral" ? " lat" : ""}
                     </span>
                   )}
                   <span className={styles.detBbox}>

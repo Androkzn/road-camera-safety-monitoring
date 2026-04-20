@@ -39,12 +39,47 @@ This section records what has actually landed after the original audit snapshot.
 - Shared runtime constants introduced in `shared/config/runtime.ts` for polling intervals, stale times, delays, backoff, and list limits.
 - Event stream context split into data/connection/actions so status-only consumers (e.g. Monitoring) avoid unnecessary event-buffer rerenders.
 
+### Post-Audit Quality Pass
+
+A follow-up review of hooks usage, magic numbers, reusable component adoption, and business-logic/view separation found and fixed the following:
+
+**Hooks correctness:**
+- `useChat` module-level `msgCounter` (shared across instances → ID collisions) moved to `useRef`, scoped per hook instance.
+
+**Magic numbers eliminated:**
+- New `THRESHOLDS` object in `shared/config/runtime.ts` centralises `ttcWarnSec` (1.5), `defaultWatchdogIntervalSec` (60), `clipWindowSec` (3).
+- `EventCard` / `AdminEventCard`: TTC warn threshold `1.5` → `THRESHOLDS.ttcWarnSec`.
+- `MetaGrid` / `WatchdogDrawer`: fallback interval `?? 60` → `THRESHOLDS.defaultWatchdogIntervalSec`.
+- `EventDialog`: clip URL `before=3&after=3` and hint copy → `THRESHOLDS.clipWindowSec`.
+- `useHistory`: inline `limit: 200` → `LIMITS.liveEventsDefaultLimit`.
+
+**`cx` adoption in shared/ui:**
+- All 8 shared primitives (`Button`, `Input`, `Card`, `Section`, `Tabs`, `Skeleton`, `EmptyState`, `Spinner`) converted from `.filter(Boolean).join(" ")` to the project's own `cx()` utility.
+
+**`RiskBadge` adoption:**
+- `EventDialog`: replaced inline `.pill` + `styles[risk]` with `<RiskBadge>` for consistent risk colouring.
+- `EventRow` (validation): replaced inline `riskPill` span with `<RiskBadge level compact>` and adopted `cx` for class composition.
+
+**`ErrorList` adoption:**
+- `SettingsPage` schema-load error block converted from ad-hoc `<div className={styles.errorList}>` to `<ErrorList>`.
+- `HistoryPanel` error display converted from inline-styled `<div>` to `<ErrorList>`.
+
+**Business-logic / view separation:**
+- `DashboardPage`: extracted `handleClearEvents` (direct `adminFetch` + watchdog coordination) into `useClearEvents` hook. Page no longer makes raw API calls.
+- `MonitoringPage`: extracted filtering, selection, severity counts, and bulk delete/clear orchestration into `useMonitoringIncidents` hook. Page dropped from 206 → ~125 LOC of pure composition.
+
+**Shared formatting helpers:**
+- `EventDialog`'s local `humanize`, `fmtNum`, `fmtPct`, `fmtTime` helpers moved to `shared/lib/format.ts` so any component can reuse them.
+
+**Dead code removed:**
+- `TabBar.tsx` + `TabBar.module.css` deleted (duplicated `shared/ui/Tabs`, never imported by `AdminPage`). Barrel export removed. Stale doc comments in `HistoryPanel`, `DetectionsPanel`, `VideoFeed` updated.
+
 ### Still Open / Dependent
 
 - **D2.D+** and **DSec** depend on backend signed/bulk endpoints (`BE-D13`, `BE-D16`).
 - **D7** (generated FE types from OpenAPI) remains pending backend contract rollout.
 - **D4.C** and **D1.B** remain conditional follow-ons (not required for current correctness/perf goals).
-- **D9** remains a drive-by category; exhaustive-deps and minor cleanup opportunities still exist as surrounding files evolve.
+- **D9** remains a drive-by category; minor cleanup opportunities still exist as surrounding files evolve.
 
 ### Additional Gaps Identified In Follow-Up Review
 
@@ -722,12 +757,11 @@ One row per actionable FE decision. **Depends-on** cites backend IDs where cross
 
 ## 8.1 Current Status Snapshot
 
-Status as of implementation update:
+Status as of post-audit quality pass:
 
 | Bucket | Items |
 |---|---|
-| Done | D1.A, D2.A, D2.B, D2.C, D2.D (FE-only), D3, D4.A, D4.B, D5.A, D6, D8, D10, DV1 |
-| In progress / drive-by | D9 |
+| Done | D1.A, D2.A, D2.B, D2.C, D2.D (FE-only), D3, D4.A (full `cx`+`RiskBadge`+`ErrorList` adoption), D4.B, D5.A, D6, D8, D9 (dead TabBar + stale comments), D10, DV1, quality pass (magic numbers, `useChat` fix, `useClearEvents`, `useMonitoringIncidents`, shared formatters) |
 | Newly identified follow-ons | D11, D12, D13, D14 |
 | Waiting on backend | D2.D+, DSec, D7 Ph2+ |
 | Conditional / later | D4.C, D1.B, D7.B fallback |

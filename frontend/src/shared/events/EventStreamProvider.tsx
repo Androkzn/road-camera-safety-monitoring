@@ -19,14 +19,7 @@
  *   pages that do not read `events` at all.
  */
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 import { LIMITS } from "../config/runtime";
 import { useSSE } from "../hooks/useSSE";
@@ -86,17 +79,12 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
     () => ({ events, perception }),
     [events, perception],
   );
-  const actionsValue = useMemo<EventStreamActionsCtx>(
-    () => ({ clearEvents }),
-    [clearEvents],
-  );
+  const actionsValue = useMemo<EventStreamActionsCtx>(() => ({ clearEvents }), [clearEvents]);
 
   return (
     <DataCtx.Provider value={dataValue}>
       <ConnectionCtx.Provider value={connected}>
-        <ActionsCtx.Provider value={actionsValue}>
-          {children}
-        </ActionsCtx.Provider>
+        <ActionsCtx.Provider value={actionsValue}>{children}</ActionsCtx.Provider>
       </ConnectionCtx.Provider>
     </DataCtx.Provider>
   );

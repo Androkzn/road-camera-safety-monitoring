@@ -34,18 +34,12 @@ export function useChat() {
       const userId = `msg-${++msgCounter.current}`;
       const botId = `msg-${++msgCounter.current}`;
 
-      setMessages((prev) => [
-        ...prev,
-        { id: userId, role: "user", text: trimmed },
-      ]);
+      setMessages((prev) => [...prev, { id: userId, role: "user", text: trimmed }]);
       setLoading(true);
 
       try {
         const { answer } = await dashboardApi.chat(trimmed);
-        setMessages((prev) => [
-          ...prev,
-          { id: botId, role: "bot", text: answer || "(no answer)" },
-        ]);
+        setMessages((prev) => [...prev, { id: botId, role: "bot", text: answer || "(no answer)" }]);
       } catch (err) {
         setMessages((prev) => [
           ...prev,

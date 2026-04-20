@@ -8,14 +8,10 @@
 import { fetchJson } from "../../shared/lib/fetchClient";
 import { adminFetch } from "../../shared/lib/adminApi";
 import { LIMITS } from "../../shared/config/runtime";
-import type {
-  WatchdogFinding,
-  WatchdogStatus,
-} from "../../shared/types/common";
+import type { WatchdogFinding, WatchdogStatus } from "../../shared/types/common";
 
 export const watchdogApi = {
-  getStatus: (signal?: AbortSignal) =>
-    fetchJson<WatchdogStatus>("/api/watchdog", { signal }),
+  getStatus: (signal?: AbortSignal) => fetchJson<WatchdogStatus>("/api/watchdog", { signal }),
   getRecent: (n = LIMITS.watchdogRecent, signal?: AbortSignal) =>
     fetchJson<WatchdogFinding[]>(`/api/watchdog/recent?n=${n}`, { signal }),
   deleteFindings: (keys: string[]) =>

@@ -35,12 +35,7 @@ function normalize(entry: ErrorEntry): ErrorListItem {
   return typeof entry === "string" ? { reason: entry } : entry;
 }
 
-export function ErrorList({
-  errors,
-  title,
-  variant = "danger",
-  className,
-}: ErrorListProps) {
+export function ErrorList({ errors, title, variant = "danger", className }: ErrorListProps) {
   if (errors.length === 0) return null;
 
   const variantClass = variant === "warning" ? styles.warning : styles.danger;

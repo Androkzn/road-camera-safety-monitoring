@@ -44,8 +44,7 @@ export interface TunableHelp {
 export const TUNABLE_HELP: Record<string, TunableHelp> = {
   CONF_THRESHOLD: {
     what: "Minimum YOLO confidence required for a vehicle detection to enter the pipeline.",
-    affects:
-      "Detection ingest funnel — applied per-frame before any TTC, distance or pair gate.",
+    affects: "Detection ingest funnel — applied per-frame before any TTC, distance or pair gate.",
     increase:
       "Fewer detections; reduces false positives from billboards / shadows / odd-shaped trash. May miss distant or low-contrast vehicles.",
     decrease:
@@ -61,8 +60,7 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
   },
   VEHICLE_PAIR_CONF_FLOOR: {
     what: "Mean of two detection confidences required before a vehicle-vehicle pair becomes an event candidate.",
-    affects:
-      "Vehicle ↔ vehicle close-interaction events (pedestrian pairs are unaffected).",
+    affects: "Vehicle ↔ vehicle close-interaction events (pedestrian pairs are unaffected).",
     increase:
       "Fewer car-on-car alerts; kills the 'two low-confidence blobs that happen to overlap' false positive — historically the largest alert-fatigue source.",
     decrease:
@@ -72,15 +70,13 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
     what: "Minimum bounding-box area in square pixels for a vehicle detection to count.",
     affects:
       "Vehicle ingest filter — pedestrians have their own (smaller) PERSON_MIN_BBOX_AREA constant.",
-    increase:
-      "Rejects far-field tiny vehicles. Lower compute load, less far-field reach.",
+    increase: "Rejects far-field tiny vehicles. Lower compute load, less far-field reach.",
     decrease:
       "Catches more distant vehicles but admits jitter / noise blobs that the geometry gates have to clean up.",
   },
   TTC_HIGH_SEC: {
     what: "Time-to-collision threshold (in seconds) at or below which an interaction is classified HIGH risk.",
-    affects:
-      "Risk tier of every emitted event; high-tier events trigger Slack pings.",
+    affects: "Risk tier of every emitted event; high-tier events trigger Slack pings.",
     increase:
       "More events classified HIGH. At 1.0s anything within one second of contact is high; at 0.5s it's essentially 'already colliding'.",
     decrease:
@@ -90,30 +86,25 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
     what: "Time-to-collision threshold at or below which an interaction is classified MEDIUM (above HIGH).",
     affects:
       "Dashboard highlight tier; medium events accumulate into the hourly Slack digest, not real-time pings.",
-    increase:
-      "More events promoted to MEDIUM rather than logged silently as LOW.",
+    increase: "More events promoted to MEDIUM rather than logged silently as LOW.",
     decrease: "Tighter MEDIUM band; more events demoted to LOW.",
   },
   DIST_HIGH_M: {
     what: "Inter-object 3D distance (in metres) at or below which an interaction is classified HIGH risk.",
-    affects:
-      "Same risk-tier cascade as TTC_HIGH_SEC, but using the depth-prior distance estimate.",
+    affects: "Same risk-tier cascade as TTC_HIGH_SEC, but using the depth-prior distance estimate.",
     increase:
       "More events classified HIGH purely on proximity. At 5m nearly any two vehicles in the same frame trip the gate.",
-    decrease:
-      "Only very close interactions (within arm's reach) trigger HIGH on distance alone.",
+    decrease: "Only very close interactions (within arm's reach) trigger HIGH on distance alone.",
   },
   DIST_MED_M: {
     what: "Inter-object distance threshold for MEDIUM risk (above DIST_HIGH_M).",
-    affects:
-      "Medium-tier dashboard signal; combined with TTC_MED_SEC by worst-signal-wins.",
+    affects: "Medium-tier dashboard signal; combined with TTC_MED_SEC by worst-signal-wins.",
     increase: "More events in the MEDIUM band on proximity.",
     decrease: "Tighter MEDIUM proximity threshold.",
   },
   MIN_SCALE_GROWTH: {
     what: "Minimum bounding-box scale-expansion ratio over the trailing window before TTC will publish a value.",
-    affects:
-      "TTC computation — the 'is this object actually approaching' gate.",
+    affects: "TTC computation — the 'is this object actually approaching' gate.",
     increase:
       "Stricter approach evidence; kills 'jittery stationary box' false TTC alerts. Risks missing slow approaches.",
     decrease:
@@ -143,8 +134,7 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
       "QualityMonitor degradation; below the threshold YOLO recall drops sharply on COCO classes.",
     increase:
       "Stricter light requirement; degrades into low-light suppression earlier (more events suppressed at dusk / under bridges).",
-    decrease:
-      "Tolerates darker scenes; risks acting on noisy detections from a dim sensor.",
+    decrease: "Tolerates darker scenes; risks acting on noisy detections from a dim sensor.",
   },
   LLM_BUCKET_CAPACITY: {
     what: "Burst capacity (whole tokens) of the shared LLM rate-limit bucket. Each enrichment costs 2 tokens, each narration costs 1.",
@@ -167,8 +157,7 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
     what: "Peak event confidence required before a HIGH-risk event becomes a Slack high-tier ping.",
     affects:
       "Slack #high channel — operator paging tier. Medium / low events go to digests instead.",
-    increase:
-      "Fewer real-time Slack pings; only the most confident HIGH events page operators.",
+    increase: "Fewer real-time Slack pings; only the most confident HIGH events page operators.",
     decrease:
       "More real-time pings. If your model has been drifting noisy, lowering this risks alert fatigue on the responder team.",
   },
@@ -195,15 +184,13 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
     what: "Capacity of the in-memory ring buffer of recent events.",
     affects:
       "How much history the dashboard, agents and impact engine can see without going to disk.",
-    increase:
-      "Longer event history available to UI and impact comparisons. More RAM (linearly).",
+    increase: "Longer event history available to UI and impact comparisons. More RAM (linearly).",
     decrease:
       "Smaller footprint. Less history for the impact engine, agents and the SSE replay-on-connect.",
   },
   TARGET_FPS: {
     what: "Perception-loop tick rate. Drives how often YOLO runs per stream second.",
-    affects:
-      "Latency to detect short-lived collisions versus CPU / GPU / LLM cost.",
+    affects: "Latency to detect short-lived collisions versus CPU / GPU / LLM cost.",
     increase:
       "Faster reaction to motorbike cut-ins and other short TTC windows. Higher CPU and LLM budget burn.",
     decrease:

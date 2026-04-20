@@ -208,11 +208,7 @@
 .narrate {
   padding: 12px 14px;
   border-radius: 10px;
-  background: linear-gradient(
-    90deg,
-    rgba(167, 139, 250, 0.1),
-    rgba(167, 139, 250, 0.02)
-  );
+  background: linear-gradient(90deg, rgba(167, 139, 250, 0.1), rgba(167, 139, 250, 0.02));
   border: 1px solid rgba(167, 139, 250, 0.18);
   color: var(--text);
   font-size: 12.5px;

@@ -27,12 +27,7 @@ export function SettingsHeader({
         <span className={styles.dirtyCount}>
           {dirtyCount} pending change{dirtyCount === 1 ? "" : "s"}
         </span>
-        <button
-          type="button"
-          className={styles.btn}
-          disabled={!dirtyCount}
-          onClick={onDiscard}
-        >
+        <button type="button" className={styles.btn} disabled={!dirtyCount} onClick={onDiscard}>
           Discard
         </button>
         <button
@@ -49,9 +44,7 @@ export function SettingsHeader({
           disabled={!dirtyCount || submitting}
           onClick={onApply}
         >
-          {submitting
-            ? "Applying…"
-            : `Apply${dirtyCount ? ` (${dirtyCount})` : ""}`}
+          {submitting ? "Applying…" : `Apply${dirtyCount ? ` (${dirtyCount})` : ""}`}
         </button>
       </div>
     </div>

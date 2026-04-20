@@ -6,10 +6,7 @@
  *
  * No JSX, no React imports, no side effects — strict TS.
  */
-import type {
-  SafetyEvent,
-  WatchdogFinding,
-} from "../../../shared/types/common";
+import type { SafetyEvent, WatchdogFinding } from "../../../shared/types/common";
 
 export const VERIFY_GRACE_MS = 5_000;
 
@@ -32,10 +29,7 @@ export function humanize(value: string | undefined): string {
   return value.replace(/_/g, " ");
 }
 
-export function evidenceGet(
-  f: WatchdogFinding,
-  label: string,
-): string | undefined {
+export function evidenceGet(f: WatchdogFinding, label: string): string | undefined {
   return f.evidence?.find((e) => e.label === label)?.value;
 }
 
@@ -48,8 +42,7 @@ export function parseDispute(f: WatchdogFinding): DisputeInfo {
   return {
     kind,
     primary: evidenceGet(f, "primary_label") ?? evidenceGet(f, "primary_risk"),
-    secondary:
-      evidenceGet(f, "secondary_label") ?? evidenceGet(f, "secondary_risk"),
+    secondary: evidenceGet(f, "secondary_label") ?? evidenceGet(f, "secondary_risk"),
   };
 }
 
@@ -147,7 +140,5 @@ export function formatObjects(objects: string[] | undefined): string {
  * Format confidence as a percentage string, or em-dash when missing.
  */
 export function formatConfidencePct(confidence: number | undefined): string {
-  return typeof confidence === "number"
-    ? `${Math.round(confidence * 100)}%`
-    : "—";
+  return typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "—";
 }

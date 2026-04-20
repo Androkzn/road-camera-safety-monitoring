@@ -13,23 +13,13 @@ interface SectionProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   actions?: ReactNode;
 }
 
-export function Section({
-  title,
-  actions,
-  className,
-  children,
-  ...rest
-}: SectionProps) {
+export function Section({ title, actions, className, children, ...rest }: SectionProps) {
   const cls = cx(styles.section, className);
   return (
     <section className={cls} {...rest}>
       {(title || actions) && (
         <header className={styles.header}>
-          {typeof title === "string" ? (
-            <h4 className={styles.title}>{title}</h4>
-          ) : (
-            title
-          )}
+          {typeof title === "string" ? <h4 className={styles.title}>{title}</h4> : title}
           {actions}
         </header>
       )}

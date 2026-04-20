@@ -11,21 +11,18 @@ import type {
 } from "../../shared/types/common";
 
 export const adminApi = {
-  getHealth: (signal?: AbortSignal) =>
-    fetchJson<HealthData>("/api/admin/health", { signal }),
+  getHealth: (signal?: AbortSignal) => fetchJson<HealthData>("/api/admin/health", { signal }),
 
   getLiveSources: (signal?: AbortSignal) =>
     fetchJson<LiveSourcesResponse>("/api/live/sources", { signal }),
   startLiveSource: (id: string) =>
-    fetchJson<LiveSourceStatus>(
-      `/api/live/sources/${encodeURIComponent(id)}/start`,
-      { method: "POST" },
-    ),
+    fetchJson<LiveSourceStatus>(`/api/live/sources/${encodeURIComponent(id)}/start`, {
+      method: "POST",
+    }),
   pauseLiveSource: (id: string) =>
-    fetchJson<LiveSourceStatus>(
-      `/api/live/sources/${encodeURIComponent(id)}/pause`,
-      { method: "POST" },
-    ),
+    fetchJson<LiveSourceStatus>(`/api/live/sources/${encodeURIComponent(id)}/pause`, {
+      method: "POST",
+    }),
   restartAllLiveSources: () =>
     fetchJson<{
       ok: boolean;
@@ -36,25 +33,16 @@ export const adminApi = {
       `/api/live/sources/${encodeURIComponent(id)}/detection?enabled=${enabled}`,
       { method: "POST" },
     ),
-  addLiveSource: (body: {
-    url: string;
-    name?: string;
-    id?: string;
-    autostart?: boolean;
-  }) =>
-    fetchJson<LiveSourceStatus & { ok: boolean; error?: string }>(
-      "/api/live/sources",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    ),
+  addLiveSource: (body: { url: string; name?: string; id?: string; autostart?: boolean }) =>
+    fetchJson<LiveSourceStatus & { ok: boolean; error?: string }>("/api/live/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   removeLiveSource: (id: string) =>
-    fetchJson<{ ok: boolean; removed: string }>(
-      `/api/live/sources/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-    ),
+    fetchJson<{ ok: boolean; removed: string }>(`/api/live/sources/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 
   getLiveEvents: (
     params?: {

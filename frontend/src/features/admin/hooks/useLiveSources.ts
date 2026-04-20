@@ -26,10 +26,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 import { dialog } from "../../../shared/ui";
-import type {
-  LiveSourceStatus,
-  LiveSourcesResponse,
-} from "../../../shared/types/common";
+import type { LiveSourceStatus, LiveSourcesResponse } from "../../../shared/types/common";
 
 import { adminApi, adminQueryKeys } from "../api";
 import { useLiveSourcesList } from "./useLiveSourcesList";
@@ -47,10 +44,7 @@ export interface UseLiveSourcesResult {
   start: (id: string) => Promise<void>;
   pause: (id: string) => Promise<void>;
   setDetection: (id: string, enabled: boolean) => Promise<void>;
-  add: (input: {
-    url: string;
-    name?: string;
-  }) => Promise<{ ok: boolean; error?: string }>;
+  add: (input: { url: string; name?: string }) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string) => Promise<void>;
   restartAll: () => Promise<void>;
   /** Monotonically-increasing counter bumped on every successful
@@ -75,9 +69,7 @@ export function useLiveSources(
   // still read it through the aggregator. Tiles that render through
   // `useStreamControl` read the authoritative `isPending` directly and
   // ignore this map entirely.
-  const [legacyBusy, setLegacyBusy] = useState<
-    Record<string, "starting" | "pausing" | null>
-  >({});
+  const [legacyBusy, setLegacyBusy] = useState<Record<string, "starting" | "pausing" | null>>({});
   const setLegacy = (id: string, v: "starting" | "pausing" | null) =>
     setLegacyBusy((prev) => ({ ...prev, [id]: v }));
 
@@ -87,17 +79,13 @@ export function useLiveSources(
 
   const patchRunning = useCallback(
     (id: string, running: boolean) => {
-      qc.setQueryData<LiveSourcesResponse>(
-        adminQueryKeys.liveSources,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                sources: prev.sources.map((s) =>
-                  s.id === id ? { ...s, running } : s,
-                ),
-              }
-            : prev,
+      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
+        prev
+          ? {
+              ...prev,
+              sources: prev.sources.map((s) => (s.id === id ? { ...s, running } : s)),
+            }
+          : prev,
       );
     },
     [qc],
@@ -105,17 +93,15 @@ export function useLiveSources(
 
   const patchDetection = useCallback(
     (id: string, enabled: boolean) => {
-      qc.setQueryData<LiveSourcesResponse>(
-        adminQueryKeys.liveSources,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                sources: prev.sources.map((s) =>
-                  s.id === id ? { ...s, detection_enabled: enabled } : s,
-                ),
-              }
-            : prev,
+      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
+        prev
+          ? {
+              ...prev,
+              sources: prev.sources.map((s) =>
+                s.id === id ? { ...s, detection_enabled: enabled } : s,
+              ),
+            }
+          : prev,
       );
     },
     [qc],

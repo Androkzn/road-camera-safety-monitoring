@@ -20,12 +20,7 @@ interface TestDrawerProps {
   onRerun: () => void;
 }
 
-export function TestDrawer({
-  open,
-  onClose,
-  status,
-  onRerun,
-}: TestDrawerProps) {
+export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) {
   const d = status;
   const total = d?.total ?? 0;
   const passed = d?.passed ?? 0;
@@ -38,15 +33,9 @@ export function TestDrawer({
   let progressLabel = "Waiting to start…";
   if (state === "running") progressLabel = `Running… ${progress}/${total}`;
   else if (state === "passed") progressLabel = `All ${total} tests passed`;
-  else if (state === "failed")
-    progressLabel = `${failed} test${failed !== 1 ? "s" : ""} failed`;
+  else if (state === "failed") progressLabel = `${failed} test${failed !== 1 ? "s" : ""} failed`;
 
-  const barClass =
-    state === "passed"
-      ? styles.donePass
-      : state === "failed"
-        ? styles.doneFail
-        : "";
+  const barClass = state === "passed" ? styles.donePass : state === "failed" ? styles.doneFail : "";
 
   const byFile: Record<string, TestResult[]> = {};
   if (d?.results) {
@@ -59,19 +48,11 @@ export function TestDrawer({
 
   return (
     <>
-      <div
-        className={`${styles.overlay} ${open ? styles.open : ""}`}
-        onClick={onClose}
-      />
+      <div className={`${styles.overlay} ${open ? styles.open : ""}`} onClick={onClose} />
       <aside className={`${styles.drawer} ${open ? styles.open : ""}`}>
         <div className={styles.head}>
           <h2>Test Suite</h2>
-          <button
-            type="button"
-            className={styles.closeBtn}
-            onClick={onClose}
-            title="Close"
-          >
+          <button type="button" className={styles.closeBtn} onClick={onClose} title="Close">
             &times;
           </button>
         </div>
@@ -85,16 +66,11 @@ export function TestDrawer({
 
         <div className={styles.progress}>
           <div className={styles.barWrap}>
-            <div
-              className={`${styles.barFill} ${barClass}`}
-              style={{ width: `${pct}%` }}
-            />
+            <div className={`${styles.barFill} ${barClass}`} style={{ width: `${pct}%` }} />
           </div>
           <div className={styles.progressLabels}>
             <span>{progressLabel}</span>
-            <span>
-              {d && d.elapsed_sec > 0 ? `${d.elapsed_sec.toFixed(1)}s` : ""}
-            </span>
+            <span>{d && d.elapsed_sec > 0 ? `${d.elapsed_sec.toFixed(1)}s` : ""}</span>
           </div>
         </div>
 
@@ -106,9 +82,7 @@ export function TestDrawer({
           )}
           {Object.entries(byFile).map(([file, tests]) => {
             const allPassed = tests.every((t) => t.outcome === "passed");
-            const anyFailed = tests.some(
-              (t) => t.outcome === "failed" || t.outcome === "error",
-            );
+            const anyFailed = tests.some((t) => t.outcome === "failed" || t.outcome === "error");
             const fileIcon = anyFailed ? "✗" : allPassed ? "✓" : "○";
             const fileColor = anyFailed
               ? "var(--high)"
@@ -124,23 +98,17 @@ export function TestDrawer({
                 {tests.map((t) => (
                   <div key={t.node_id}>
                     <div className={styles.testItem}>
-                      <span
-                        className={`${styles.testIcon} ${styles[t.outcome]}`}
-                      >
+                      <span className={`${styles.testIcon} ${styles[t.outcome]}`}>
                         {ICONS[t.outcome] ?? "?"}
                       </span>
                       <span className={styles.testName} title={t.node_id}>
                         {t.name}
                       </span>
                       <span className={styles.testDur}>
-                        {t.duration_ms > 0
-                          ? `${t.duration_ms.toFixed(0)}ms`
-                          : ""}
+                        {t.duration_ms > 0 ? `${t.duration_ms.toFixed(0)}ms` : ""}
                       </span>
                     </div>
-                    {t.message && (
-                      <div className={styles.testError}>{t.message}</div>
-                    )}
+                    {t.message && <div className={styles.testError}>{t.message}</div>}
                   </div>
                 ))}
               </div>
@@ -149,11 +117,7 @@ export function TestDrawer({
         </div>
 
         <div className={styles.actions}>
-          <button
-            type="button"
-            onClick={onRerun}
-            disabled={state === "running"}
-          >
+          <button type="button" onClick={onRerun} disabled={state === "running"}>
             Re-run Tests
           </button>
           <span className={styles.elapsed}>

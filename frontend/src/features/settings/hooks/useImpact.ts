@@ -43,8 +43,7 @@ export function useImpact(token: string | null): ImpactState {
     refetchInterval: POLL_INTERVAL_MS.settingsImpact,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
-    retry: (_count, err) =>
-      !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
+    retry: (_count, err) => !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
   });
 
   // Drop the cached admin token on auth failure so SettingsPage flips

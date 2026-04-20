@@ -14,8 +14,7 @@ export function isPrivacyConfirmRequired(exc: unknown): boolean {
     (exc as AdminApiError).status === 400 &&
     (exc as AdminApiError).body !== null &&
     typeof (exc as AdminApiError).body === "object" &&
-    ((exc as AdminApiError).body as { error?: string }).error ===
-      "privacy_confirm_required"
+    ((exc as AdminApiError).body as { error?: string }).error === "privacy_confirm_required"
   );
 }
 

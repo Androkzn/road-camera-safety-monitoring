@@ -109,12 +109,7 @@ export interface LiveStatus {
  *  - `webcam`       — OS webcam device (`cv2.VideoCapture("0")`).
  *  - `unknown`      — empty / unrecognised (no badge).
  */
-export type StreamType =
-  | "dashcam_file"
-  | "live_yt"
-  | "live_hls"
-  | "webcam"
-  | "unknown";
+export type StreamType = "dashcam_file" | "live_yt" | "live_hls" | "webcam" | "unknown";
 
 export interface LiveSourceStatus {
   id: string;

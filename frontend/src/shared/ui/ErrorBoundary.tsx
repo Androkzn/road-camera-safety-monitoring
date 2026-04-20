@@ -29,10 +29,7 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
@@ -57,19 +54,13 @@ export class ErrorBoundary extends Component<
   }
 }
 
-function DefaultFallback({
-  error,
-  reset,
-}: {
-  error: Error;
-  reset: () => void;
-}) {
+function DefaultFallback({ error, reset }: { error: Error; reset: () => void }) {
   return (
     <div className={styles.root} role="alert">
       <h1 className={styles.title}>Something broke on this page</h1>
       <p className={styles.message}>
-        The error has been logged. You can try again, reload the page, or
-        navigate away — the rest of the app is unaffected.
+        The error has been logged. You can try again, reload the page, or navigate away — the rest
+        of the app is unaffected.
       </p>
       <pre className={styles.details}>{error.message}</pre>
       <div className={styles.actions}>

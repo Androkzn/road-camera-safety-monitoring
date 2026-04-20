@@ -22,12 +22,7 @@ export interface EventDialogProps {
   onClose: () => void;
 }
 
-export function EventDialog({
-  event,
-  disputeLabel,
-  disputeBody,
-  onClose,
-}: EventDialogProps) {
+export function EventDialog({ event, disputeLabel, disputeBody, onClose }: EventDialogProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [clipFailed, setClipFailed] = useState(false);
 
@@ -80,12 +75,10 @@ export function EventDialog({
               />
             ) : (
               <div className={styles.videoFallback}>
-                {event.thumbnail ? (
-                  <img src={`/${event.thumbnail}`} alt="event thumbnail" />
-                ) : null}
+                {event.thumbnail ? <img src={`/${event.thumbnail}`} alt="event thumbnail" /> : null}
                 <span>
-                  No seekable clip available — the source is a live stream or
-                  the file is not accessible server-side.
+                  No seekable clip available — the source is a live stream or the file is not
+                  accessible server-side.
                 </span>
               </div>
             )}
@@ -126,34 +119,22 @@ export function EventDialog({
           <div className={styles.body}>
             <div className={styles.pillRow}>
               <RiskBadge level={event.risk_level} />
-              {event.risk_demoted && (
-                <span className={styles.pill}>demoted</span>
+              {event.risk_demoted && <span className={styles.pill}>demoted</span>}
+              {event.peak_risk_level && event.peak_risk_level !== event.risk_level && (
+                <span className={styles.pill}>peak {event.peak_risk_level}</span>
               )}
-              {event.peak_risk_level &&
-                event.peak_risk_level !== event.risk_level && (
-                  <span className={styles.pill}>
-                    peak {event.peak_risk_level}
-                  </span>
-                )}
               {event.scene_context?.label && (
-                <span className={styles.pill}>
-                  {humanize(event.scene_context.label)}
-                </span>
+                <span className={styles.pill}>{humanize(event.scene_context.label)}</span>
               )}
-              {event.perception_state &&
-                event.perception_state !== "nominal" && (
-                  <span className={styles.pill}>{event.perception_state}</span>
-                )}
+              {event.perception_state && event.perception_state !== "nominal" && (
+                <span className={styles.pill}>{event.perception_state}</span>
+              )}
             </div>
 
             {(disputeLabel || disputeBody) && (
               <div className={styles.dispute}>
-                {disputeLabel && (
-                  <span className={styles.disputeLabel}>{disputeLabel}</span>
-                )}
-                {disputeBody && (
-                  <span className={styles.disputeBody}>{disputeBody}</span>
-                )}
+                {disputeLabel && <span className={styles.disputeLabel}>{disputeLabel}</span>}
+                {disputeBody && <span className={styles.disputeBody}>{disputeBody}</span>}
               </div>
             )}
 
@@ -177,10 +158,7 @@ export function EventDialog({
                 <Cell label="Objects" value={objects} />
                 <Cell label="Confidence" value={fmtPct(event.confidence)} />
                 <Cell label="TTC" value={fmtNum(event.ttc_sec, " s", 1)} />
-                <Cell
-                  label="Distance"
-                  value={fmtNum(event.distance_m, " m", 1)}
-                />
+                <Cell label="Distance" value={fmtNum(event.distance_m, " m", 1)} />
                 <Cell
                   label="Distance (px)"
                   value={
@@ -189,15 +167,10 @@ export function EventDialog({
                       : "—"
                   }
                 />
-                <Cell
-                  label="Episode"
-                  value={fmtNum(event.episode_duration_sec, " s", 2)}
-                />
+                <Cell label="Episode" value={fmtNum(event.episode_duration_sec, " s", 2)} />
                 <Cell
                   label="Track IDs"
-                  value={
-                    event.track_ids?.length ? event.track_ids.join(" · ") : "—"
-                  }
+                  value={event.track_ids?.length ? event.track_ids.join(" · ") : "—"}
                 />
                 <Cell label="Event ID" value={event.event_id} />
               </div>
@@ -213,26 +186,16 @@ export function EventDialog({
                         label="Scene"
                         value={`${humanize(event.scene_context.label)} (${fmtPct(event.scene_context.confidence)})`}
                       />
-                      <Cell
-                        label="Scene reason"
-                        value={event.scene_context.reason || "—"}
-                      />
+                      <Cell label="Scene reason" value={event.scene_context.reason || "—"} />
                     </>
                   )}
                   {event.ego_flow && (
                     <>
                       <Cell
                         label="Ego speed proxy"
-                        value={fmtNum(
-                          event.ego_flow.speed_proxy_mps,
-                          " m/s",
-                          2,
-                        )}
+                        value={fmtNum(event.ego_flow.speed_proxy_mps, " m/s", 2)}
                       />
-                      <Cell
-                        label="Ego flow conf"
-                        value={fmtPct(event.ego_flow.confidence)}
-                      />
+                      <Cell label="Ego flow conf" value={fmtPct(event.ego_flow.confidence)} />
                     </>
                   )}
                 </div>

@@ -4,10 +4,7 @@
 
 import { useState } from "react";
 
-import {
-  MissingAdminTokenError,
-  type AdminApiError,
-} from "../../../shared/lib/adminApi";
+import { MissingAdminTokenError, type AdminApiError } from "../../../shared/lib/adminApi";
 
 import { settingsApi } from "../api";
 
@@ -17,10 +14,7 @@ interface BaselineCardProps {
   onCaptured: () => void;
 }
 
-type Status =
-  | { kind: "ok"; auditId: string }
-  | { kind: "err"; message: string }
-  | null;
+type Status = { kind: "ok"; auditId: string } | { kind: "err"; message: string } | null;
 
 export function BaselineCard({ onCaptured }: BaselineCardProps) {
   const [busy, setBusy] = useState(false);
@@ -32,8 +26,7 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
         <h3 className={styles.cardTitle}>Baseline</h3>
       </div>
       <p className={styles.subtle} style={{ margin: 0 }}>
-        Snapshot the current event buffer. Future changes' impact is computed
-        against this baseline.
+        Snapshot the current event buffer. Future changes' impact is computed against this baseline.
       </p>
       <button
         type="button"
@@ -50,8 +43,7 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
             if (exc instanceof MissingAdminTokenError) {
               setStatus({
                 kind: "err",
-                message:
-                  "Admin token missing. Reload the page and paste your ROAD_ADMIN_TOKEN.",
+                message: "Admin token missing. Reload the page and paste your ROAD_ADMIN_TOKEN.",
               });
               return;
             }
@@ -67,11 +59,7 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
               detail?: string;
               error?: string;
             } | null;
-            const detail =
-              body?.detail ||
-              body?.error ||
-              (exc as Error).message ||
-              "unknown error";
+            const detail = body?.detail || body?.error || (exc as Error).message || "unknown error";
             setStatus({ kind: "err", message: `Capture failed: ${detail}` });
             console.error("baseline capture failed", exc);
           } finally {
@@ -83,8 +71,8 @@ export function BaselineCard({ onCaptured }: BaselineCardProps) {
       </button>
       {status?.kind === "ok" && (
         <div className={styles.warnings} style={{ marginBottom: 0 }}>
-          Baseline captured — session <code>{status.auditId.slice(0, 18)}</code>
-          . The Impact card will populate as new events arrive.
+          Baseline captured — session <code>{status.auditId.slice(0, 18)}</code>. The Impact card
+          will populate as new events arrive.
         </div>
       )}
       {status?.kind === "err" && (

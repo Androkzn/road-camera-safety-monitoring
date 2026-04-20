@@ -40,10 +40,7 @@ function unitFromTail(tokens: string[]): {
   if (tokens.length === 0) return { unit: null, consume: 0 };
   const last = (tokens[tokens.length - 1] ?? "").toUpperCase();
   // PER + time unit composes into "per <unit>"
-  if (
-    tokens.length >= 2 &&
-    (tokens[tokens.length - 2] ?? "").toUpperCase() === "PER"
-  ) {
+  if (tokens.length >= 2 && (tokens[tokens.length - 2] ?? "").toUpperCase() === "PER") {
     if (last === "MIN") return { unit: "per minute", consume: 2 };
     if (last === "SEC") return { unit: "per second", consume: 2 };
     if (last === "HOUR") return { unit: "per hour", consume: 2 };

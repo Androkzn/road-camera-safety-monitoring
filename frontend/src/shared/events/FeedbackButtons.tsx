@@ -94,12 +94,8 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
         </svg>
         False alarm
       </button>
-      {state.submitted && (
-        <span className={`${styles.ack} ${styles.ok}`}>&#10003; thanks</span>
-      )}
-      {state.error && (
-        <span className={`${styles.ack} ${styles.err}`}>(retry)</span>
-      )}
+      {state.submitted && <span className={`${styles.ack} ${styles.ok}`}>&#10003; thanks</span>}
+      {state.error && <span className={`${styles.ack} ${styles.err}`}>(retry)</span>}
     </div>
   );
 }

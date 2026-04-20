@@ -29,17 +29,12 @@ export function SummaryHeader({
       <div>
         <h1>Error Monitoring</h1>
         <p className={styles.subtitle}>
-          Grouped into actionable incidents with impact, evidence, and next
-          debugging moves.
+          Grouped into actionable incidents with impact, evidence, and next debugging moves.
         </p>
       </div>
       <div className={styles.headerActions}>
         {!selectMode && filteredCount > 0 && (
-          <button
-            type="button"
-            className={styles.actionBtn}
-            onClick={onEnterSelect}
-          >
+          <button type="button" className={styles.actionBtn} onClick={onEnterSelect}>
             Select
           </button>
         )}

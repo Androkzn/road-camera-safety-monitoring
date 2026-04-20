@@ -60,11 +60,7 @@ interface TunableRootProps extends TunableContextValue {
 export function Tunable(props: TunableRootProps) {
   const { children, ...ctx } = props;
   const dirty = ctx.draft !== ctx.effective;
-  const cls = [
-    styles.tunable,
-    dirty ? styles.dirty : "",
-    ctx.errorReason ? styles.error : "",
-  ]
+  const cls = [styles.tunable, dirty ? styles.dirty : "", ctx.errorReason ? styles.error : ""]
     .filter(Boolean)
     .join(" ");
   return (
@@ -102,11 +98,7 @@ function Label() {
     if (!helpOpen) return;
     const onDown = (e: MouseEvent) => {
       const tgt = e.target as Node | null;
-      if (
-        tgt &&
-        !popoverRef.current?.contains(tgt) &&
-        !triggerRef.current?.contains(tgt)
-      ) {
+      if (tgt && !popoverRef.current?.contains(tgt) && !triggerRef.current?.contains(tgt)) {
         setHelpOpen(false);
       }
     };
@@ -137,8 +129,7 @@ function Label() {
       let top = r.bottom + 10;
       let left = r.left - 10;
       if (left + POPOVER_W > vw - 8) left = Math.max(8, vw - POPOVER_W - 8);
-      if (top + POPOVER_H_EST > vh - 8)
-        top = Math.max(8, r.top - POPOVER_H_EST - 10);
+      if (top + POPOVER_H_EST > vh - 8) top = Math.max(8, r.top - POPOVER_H_EST - 10);
       setPopoverPos({ top, left });
     };
     update();
@@ -228,10 +219,7 @@ function Control() {
   if (spec.type === "enum" && spec.enum) {
     return (
       <div className={styles.controlCol}>
-        <select
-          value={String(draft)}
-          onChange={(e) => onChange(e.target.value)}
-        >
+        <select value={String(draft)} onChange={(e) => onChange(e.target.value)}>
           {spec.enum.map((v) => (
             <option key={v} value={v}>
               {humanize(v)}
@@ -244,11 +232,7 @@ function Control() {
   if (spec.type === "bool") {
     return (
       <div className={styles.controlCol}>
-        <input
-          type="checkbox"
-          checked={!!draft}
-          onChange={(e) => onChange(e.target.checked)}
-        />
+        <input type="checkbox" checked={!!draft} onChange={(e) => onChange(e.target.checked)} />
       </div>
     );
   }
@@ -260,8 +244,7 @@ function Control() {
       const n = spec.type === "int" ? parseInt(s, 10) : parseFloat(s);
       if (!Number.isFinite(n)) return spec.type === "int" ? 0 : 0;
       const snapped = Math.round((n - min) / step) * step + min;
-      const digits =
-        step >= 1 ? 0 : Math.min(6, Math.max(0, -Math.floor(Math.log10(step))));
+      const digits = step >= 1 ? 0 : Math.min(6, Math.max(0, -Math.floor(Math.log10(step))));
       return Number(snapped.toFixed(digits));
     };
     return (
@@ -287,11 +270,7 @@ function Control() {
   }
   return (
     <div className={styles.controlCol}>
-      <input
-        type="text"
-        value={String(draft)}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <input type="text" value={String(draft)} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
@@ -314,9 +293,7 @@ function Meta() {
         Reset to {String(spec.default)}
       </button>
       {spec.mutability === "read_only" && (
-        <span className={`${styles.badge} ${styles.badgeReadonly}`}>
-          read-only
-        </span>
+        <span className={`${styles.badge} ${styles.badgeReadonly}`}>read-only</span>
       )}
     </div>
   );

@@ -29,11 +29,7 @@ import type { SafetyEvent } from "../../../shared/types/common";
 import { RiskBadge, Tag } from "../../../shared/ui";
 import { THRESHOLDS } from "../../../shared/config/runtime";
 import { cx } from "../../../shared/lib/cx";
-import {
-  formatWallTime,
-  humanEventType,
-  normalizeThumbnail,
-} from "../../../shared/lib/format";
+import { formatWallTime, humanEventType, normalizeThumbnail } from "../../../shared/lib/format";
 import styles from "./AdminEventCard.module.css";
 // TEACH: `import type { ... }` imports ONLY the TypeScript type. The compiler
 // erases it at build time (no runtime cost). Use this for pure-type imports.
@@ -80,12 +76,9 @@ export function AdminEventCard({ event: e, onSelect }: AdminEventCardProps) {
   // accept either of two optional string fields.
   const narr = e.narration || e.summary || "";
   const orientation = orientationLabel(e);
-  const taxonomy =
-    e.event_taxonomy && e.event_taxonomy !== "NONE" ? e.event_taxonomy : null;
+  const taxonomy = e.event_taxonomy && e.event_taxonomy !== "NONE" ? e.event_taxonomy : null;
   // Map taxonomy family → CSS class for a subtle per-family tint.
-  const taxonomyClass = taxonomy
-    ? (styles[`taxonomy_${taxonomy}`] ?? styles.taxonomyBadge)
-    : "";
+  const taxonomyClass = taxonomy ? (styles[`taxonomy_${taxonomy}`] ?? styles.taxonomyBadge) : "";
 
   // Card is keyboard-accessible only when an onSelect handler is wired —
   // otherwise it stays a plain div so screen-readers don't announce a
@@ -109,11 +102,7 @@ export function AdminEventCard({ event: e, onSelect }: AdminEventCardProps) {
             }
           : undefined
       }
-      aria-label={
-        interactive
-          ? `Open details for ${humanEventType(e.event_type)}`
-          : undefined
-      }
+      aria-label={interactive ? `Open details for ${humanEventType(e.event_type)}` : undefined}
     >
       {/* Thumbnail area. */}
       <div className={styles.thumb}>
@@ -143,13 +132,9 @@ export function AdminEventCard({ event: e, onSelect }: AdminEventCardProps) {
           {/* TEACH: Child components receive data via props just like HTML
               attributes. `compact` is a boolean prop (shorthand for compact={true}). */}
           <RiskBadge level={e.risk_level} compact />
-          {orientation && (
-            <span className={styles.orientationBadge}>{orientation}</span>
-          )}
+          {orientation && <span className={styles.orientationBadge}>{orientation}</span>}
           {taxonomy && (
-            <span className={`${styles.taxonomyBadge} ${taxonomyClass}`}>
-              {taxonomy}
-            </span>
+            <span className={`${styles.taxonomyBadge} ${taxonomyClass}`}>{taxonomy}</span>
           )}
           <span className={styles.type}>{humanEventType(e.event_type)}</span>
           <span className={styles.time}>{formatWallTime(e.wall_time)}</span>
@@ -159,15 +144,11 @@ export function AdminEventCard({ event: e, onSelect }: AdminEventCardProps) {
           {/* TEACH: `e.ttc_sec != null` checks for both `null` and `undefined`
               in one go. Using `!=` rather than `!==` is intentional here. */}
           {e.ttc_sec != null && (
-            <Tag
-              variant={e.ttc_sec <= THRESHOLDS.ttcWarnSec ? "kin-warn" : "kin"}
-            >
+            <Tag variant={e.ttc_sec <= THRESHOLDS.ttcWarnSec ? "kin-warn" : "kin"}>
               TTC {Number(e.ttc_sec).toFixed(1)}s
             </Tag>
           )}
-          {e.distance_m != null && (
-            <Tag variant="kin">{Number(e.distance_m).toFixed(1)}m</Tag>
-          )}
+          {e.distance_m != null && <Tag variant="kin">{Number(e.distance_m).toFixed(1)}m</Tag>}
           {e.distance_px != null && <Tag>{Math.round(e.distance_px)}px</Tag>}
           {/* TEACH: `arr?.length` uses optional chaining — returns `undefined`
               if `arr` itself is undefined, else the length. Combined with `?`

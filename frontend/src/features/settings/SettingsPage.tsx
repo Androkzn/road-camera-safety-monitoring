@@ -55,19 +55,13 @@ export function SettingsPage() {
   // pill — not a second-by-second indicator. Drop the poll frequency from
   // 5 s to 15 s on this page. Other pages that mount these hooks keep
   // their defaults.
-  const { data: live, error: liveError } = useLiveStatus(
-    POLL_INTERVAL_MS.liveStatusSettings,
-  );
+  const { data: live, error: liveError } = useLiveStatus(POLL_INTERVAL_MS.liveStatusSettings);
   const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSourcesSettings);
   const { status: wdStatus } = useWatchdogCtx();
   const driftCount = useDriftCount();
   const dialog = useDialog();
 
-  const connected: boolean | undefined = live
-    ? !!live.running
-    : liveError
-      ? false
-      : undefined;
+  const connected: boolean | undefined = live ? !!live.running : liveError ? false : undefined;
   const sourceName = live?.source ? shortSource(live.source) : "—";
   const errorCount = wdStatus?.by_severity?.error ?? 0;
 
@@ -136,22 +130,13 @@ export function SettingsPage() {
             onApply={apply}
           />
 
-          {validationErrors.length > 0 && (
-            <ErrorList errors={validationErrors} />
-          )}
-          {warnings.length > 0 && (
-            <ErrorList errors={warnings} variant="warning" />
-          )}
-          <ApplyResultBanner
-            result={applyResult}
-            onDismiss={dismissApplyResult}
-          />
+          {validationErrors.length > 0 && <ErrorList errors={validationErrors} />}
+          {warnings.length > 0 && <ErrorList errors={warnings} variant="warning" />}
+          <ApplyResultBanner result={applyResult} onDismiss={dismissApplyResult} />
 
           {settings.error && !settings.schema && (
-            <div className={styles.errorList}>
-              <div>
-                <strong>Failed to load settings.</strong> {settings.error}
-              </div>
+            <>
+              <ErrorList errors={[`Failed to load settings. ${settings.error}`]} />
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                 <button
                   type="button"
@@ -170,7 +155,7 @@ export function SettingsPage() {
                   Forget token
                 </button>
               </div>
-            </div>
+            </>
           )}
 
           {settings.schema && settings.effective && (
@@ -179,17 +164,13 @@ export function SettingsPage() {
               effective={settings.effective}
               draft={draft}
               errorByKey={errorByKey}
-              onChange={(key, value) =>
-                setDraft((prev) => ({ ...prev, [key]: value }))
-              }
+              onChange={(key, value) => setDraft((prev) => ({ ...prev, [key]: value }))}
             />
           )}
 
           {!settings.schema && !settings.error && (
             <p className={styles.subtle}>
-              {settings.loading
-                ? "Loading settings…"
-                : "Settings not loaded yet."}
+              {settings.loading ? "Loading settings…" : "Settings not loaded yet."}
             </p>
           )}
         </section>
@@ -201,11 +182,7 @@ export function SettingsPage() {
             onApply={applyTemplate}
             onCreate={async (name, description) => {
               if (!settings.effective) return;
-              await templates.create(
-                name,
-                description,
-                settings.effective.values,
-              );
+              await templates.create(name, description, settings.effective.values);
             }}
             onDelete={async (id) => templates.remove(id)}
           />

@@ -32,10 +32,7 @@ export function useMonitoringIncidents({
     () => (findings ?? []).filter((f) => f.category !== "validator"),
     [findings],
   );
-  const incidents = useMemo(
-    () => buildIncidents(systemFindings),
-    [systemFindings],
-  );
+  const incidents = useMemo(() => buildIncidents(systemFindings), [systemFindings]);
   const filtered = useMemo(() => {
     let list = incidents;
     if (!showLow && filter !== "info") {
@@ -54,8 +51,7 @@ export function useMonitoringIncidents({
   const repeatingIncidents = incidents.filter((i) => i.count > 1).length;
   const actionQueue = filtered.filter((i) => i.severity !== "info").slice(0, 3);
 
-  const toggle = (sev: SevFilter) =>
-    setFilter((prev) => (prev === sev ? "all" : sev));
+  const toggle = (sev: SevFilter) => setFilter((prev) => (prev === sev ? "all" : sev));
 
   const exitSelectMode = useCallback(() => {
     setSelectMode(false);

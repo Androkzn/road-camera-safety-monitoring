@@ -30,14 +30,9 @@ interface MultiSourceGridProps {
   onRestart?: () => Promise<void> | void;
 }
 
-export function MultiSourceGrid({
-  focusedId,
-  onFocusChange,
-  onRestart,
-}: MultiSourceGridProps) {
+export function MultiSourceGrid({ focusedId, onFocusChange, onRestart }: MultiSourceGridProps) {
   const { sources, loading, error } = useLiveSourcesList();
-  const { restartAll, restartingAll, bulkSetRunning, bulkBusy } =
-    useStreamRegistry();
+  const { restartAll, restartingAll, bulkSetRunning, bulkBusy } = useStreamRegistry();
 
   // Esc exits focus mode — common expectation for "maximized" UI.
   useEffect(() => {
@@ -72,17 +67,10 @@ export function MultiSourceGrid({
       sources.filter((s) => s.running).map((s) => s.id),
     );
 
-  const focusedSource = focusedId
-    ? (sources.find((s) => s.id === focusedId) ?? null)
-    : null;
-  const minimizedSources = focusedSource
-    ? sources.filter((s) => s.id !== focusedSource.id)
-    : [];
+  const focusedSource = focusedId ? (sources.find((s) => s.id === focusedId) ?? null) : null;
+  const minimizedSources = focusedSource ? sources.filter((s) => s.id !== focusedSource.id) : [];
 
-  const renderTile = (
-    s: LiveSourceStatus,
-    opts: { focused: boolean; minimized: boolean },
-  ) => (
+  const renderTile = (s: LiveSourceStatus, opts: { focused: boolean; minimized: boolean }) => (
     <StreamTile
       key={s.id}
       source={s}
@@ -142,8 +130,8 @@ export function MultiSourceGrid({
       </div>
       {sources.length === 0 ? (
         <div className={styles.empty}>
-          No streams yet. Set <code>ROAD_STREAM_SOURCES</code> in{" "}
-          <code>.env</code> and restart the server.
+          No streams yet. Set <code>ROAD_STREAM_SOURCES</code> in <code>.env</code> and restart the
+          server.
         </div>
       ) : focusedSource ? (
         <div className={styles.focusedLayout}>
@@ -152,17 +140,13 @@ export function MultiSourceGrid({
           </div>
           {minimizedSources.length > 0 && (
             <div className={styles.miniStrip}>
-              {minimizedSources.map((s) =>
-                renderTile(s, { focused: false, minimized: true }),
-              )}
+              {minimizedSources.map((s) => renderTile(s, { focused: false, minimized: true }))}
             </div>
           )}
         </div>
       ) : (
         <div className={styles.grid}>
-          {sources.map((s) =>
-            renderTile(s, { focused: false, minimized: false }),
-          )}
+          {sources.map((s) => renderTile(s, { focused: false, minimized: false }))}
         </div>
       )}
     </div>

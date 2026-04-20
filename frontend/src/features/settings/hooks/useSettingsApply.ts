@@ -26,17 +26,11 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import {
-  type AdminApiError,
-  MissingAdminTokenError,
-} from "../../../shared/lib/adminApi";
+import { type AdminApiError, MissingAdminTokenError } from "../../../shared/lib/adminApi";
 import type { DialogApi } from "../../../shared/ui";
 
 import type { ApplyResultPayloadView } from "../components/ApplyResultBanner";
-import {
-  extractValidationErrors,
-  isPrivacyConfirmRequired,
-} from "../utils/validation";
+import { extractValidationErrors, isPrivacyConfirmRequired } from "../utils/validation";
 import type { ApplyResultPayload, DraftValue } from "../types";
 
 import type { SettingsState } from "./useSettings";
@@ -90,14 +84,12 @@ export function useSettingsApply({
   dialog,
 }: UseSettingsApplyArgs): UseSettingsApplyResult {
   const [draft, setDraft] = useState<Record<string, DraftValue>>({});
-  const [validationErrors, setValidationErrors] = useState<
-    Array<{ key: string; reason: string }>
-  >([]);
+  const [validationErrors, setValidationErrors] = useState<Array<{ key: string; reason: string }>>(
+    [],
+  );
   const [warnings, setWarnings] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [applyResult, setApplyResult] = useState<ApplyResultPayloadView | null>(
-    null,
-  );
+  const [applyResult, setApplyResult] = useState<ApplyResultPayloadView | null>(null);
 
   // Re-seed the draft from effective values whenever they appear and the
   // operator hasn't started editing.
@@ -109,21 +101,14 @@ export function useSettingsApply({
 
   const dirtyKeys = useMemo(() => {
     if (!settings.effective) return [];
-    return Object.keys(draft).filter(
-      (k) => draft[k] !== settings.effective!.values[k],
-    );
+    return Object.keys(draft).filter((k) => draft[k] !== settings.effective!.values[k]);
   }, [draft, settings.effective]);
 
   const doApply = useCallback(
-    async function doApply(
-      opts: { confirmPrivacy?: boolean } = {},
-    ): Promise<void> {
+    async function doApply(opts: { confirmPrivacy?: boolean } = {}): Promise<void> {
       if (!dirtyKeys.length || !settings.effective) return;
       const diff: Record<string, DraftValue> = {};
-      const beforeAfter: Record<
-        string,
-        { before: DraftValue; after: DraftValue }
-      > = {};
+      const beforeAfter: Record<string, { before: DraftValue; after: DraftValue }> = {};
       for (const k of dirtyKeys) {
         const v = draft[k];
         if (v !== undefined) {
@@ -136,9 +121,7 @@ export function useSettingsApply({
       }
       // Structured console log for operators tuning from DevTools.
 
-      console.groupCollapsed(
-        `[settings] apply → ${Object.keys(diff).length} key(s)`,
-      );
+      console.groupCollapsed(`[settings] apply → ${Object.keys(diff).length} key(s)`);
 
       console.table(beforeAfter);
 
@@ -203,8 +186,7 @@ export function useSettingsApply({
         if (kind === "rate_limited") {
           await dialog.alert({
             title: "Apply rate-limited",
-            message:
-              "Too many applies in quick succession. Wait a few seconds and try again.",
+            message: "Too many applies in quick succession. Wait a few seconds and try again.",
             variant: "warning",
           });
           return;

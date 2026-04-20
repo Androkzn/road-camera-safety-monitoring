@@ -13,13 +13,7 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cx } from "../lib/cx";
 import styles from "./Button.module.css";
 
-export type ButtonVariant =
-  | "default"
-  | "primary"
-  | "danger"
-  | "warning"
-  | "ghost"
-  | "subtle";
+export type ButtonVariant = "default" | "primary" | "danger" | "warning" | "ghost" | "subtle";
 
 export type ButtonSize = "sm" | "md" | "lg";
 
@@ -46,39 +40,32 @@ const sizeClass: Record<ButtonSize, string> = {
   lg: styles.sizeLg ?? "",
 };
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  function Button(
-    {
-      variant = "default",
-      size = "md",
-      iconOnly,
-      leftIcon,
-      rightIcon,
-      className,
-      children,
-      type = "button",
-      ...rest
-    },
-    ref,
-  ) {
-    const cls = cx(
-      styles.btn,
-      variantClass[variant],
-      sizeClass[size],
-      iconOnly && styles.iconOnly,
-      className,
-    );
-    return (
-      <button
-        ref={ref}
-        type={type === "submit" ? "submit" : "button"}
-        className={cls}
-        {...rest}
-      >
-        {leftIcon}
-        {children}
-        {rightIcon}
-      </button>
-    );
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = "default",
+    size = "md",
+    iconOnly,
+    leftIcon,
+    rightIcon,
+    className,
+    children,
+    type = "button",
+    ...rest
   },
-);
+  ref,
+) {
+  const cls = cx(
+    styles.btn,
+    variantClass[variant],
+    sizeClass[size],
+    iconOnly && styles.iconOnly,
+    className,
+  );
+  return (
+    <button ref={ref} type={type === "submit" ? "submit" : "button"} className={cls} {...rest}>
+      {leftIcon}
+      {children}
+      {rightIcon}
+    </button>
+  );
+});

@@ -35,10 +35,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
   useEffect(() => {
     if (!isNew) return;
-    const t = setTimeout(
-      () => setFlash(false),
-      POLL_INTERVAL_MS.eventCardFlash,
-    );
+    const t = setTimeout(() => setFlash(false), POLL_INTERVAL_MS.eventCardFlash);
     return () => clearTimeout(t);
   }, [isNew]);
 
@@ -56,17 +53,11 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
     perception_degraded: "ALPR skipped — image quality too low",
     low_risk_event: "ALPR skipped — low-risk (batch review)",
   };
-  const skipNote = e.enrichment_skipped
-    ? skipLabel[e.enrichment_skipped]
-    : undefined;
+  const skipNote = e.enrichment_skipped ? skipLabel[e.enrichment_skipped] : undefined;
 
   return (
     <div
-      className={cx(
-        styles.card,
-        flash && styles.flash,
-        interactive && (styles.interactive ?? ""),
-      )}
+      className={cx(styles.card, flash && styles.flash, interactive && (styles.interactive ?? ""))}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
       onClick={interactive ? () => onSelect?.(e) : undefined}
@@ -80,11 +71,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
             }
           : undefined
       }
-      aria-label={
-        interactive
-          ? `Open details for ${humanEventType(e.event_type)}`
-          : undefined
-      }
+      aria-label={interactive ? `Open details for ${humanEventType(e.event_type)}` : undefined}
     >
       <div className={styles.thumb}>
         {thumb ? (
@@ -93,8 +80,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
             alt=""
             onError={(ev) => {
               (ev.target as HTMLImageElement).style.display = "none";
-              (ev.target as HTMLImageElement).parentElement!.textContent =
-                "no preview";
+              (ev.target as HTMLImageElement).parentElement!.textContent = "no preview";
             }}
           />
         ) : (
@@ -108,11 +94,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
           <span className={styles.meta}>
             <span>{formatWallTime(e.wall_time)}</span>
             <span className={styles.sep}>•</span>
-            <span>
-              {e.timestamp_sec != null
-                ? `T+${Number(e.timestamp_sec).toFixed(1)}s`
-                : ""}
-            </span>
+            <span>{e.timestamp_sec != null ? `T+${Number(e.timestamp_sec).toFixed(1)}s` : ""}</span>
           </span>
         </div>
 
@@ -122,15 +104,11 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
           <span>conf {formatConfidence(e.confidence)}</span>
         </div>
 
-        {(e.ttc_sec != null ||
-          e.distance_m != null ||
-          e.distance_px != null) && (
+        {(e.ttc_sec != null || e.distance_m != null || e.distance_px != null) && (
           <div className={styles.meta}>
             {e.ttc_sec != null && (
               <Tag
-                variant={
-                  e.ttc_sec <= THRESHOLDS.ttcWarnSec ? "kin-warn" : "kin"
-                }
+                variant={e.ttc_sec <= THRESHOLDS.ttcWarnSec ? "kin-warn" : "kin"}
                 title="time-to-collision"
               >
                 TTC {Number(e.ttc_sec).toFixed(1)}s
@@ -154,9 +132,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
         {skipNote && <div className={styles.skipNote}>{skipNote}</div>}
 
         <div className={styles.row3}>
-          {e.track_ids?.length ? (
-            <Tag variant="track">#{e.track_ids.join(" / #")}</Tag>
-          ) : null}
+          {e.track_ids?.length ? <Tag variant="track">#{e.track_ids.join(" / #")}</Tag> : null}
           {e.episode_duration_sec != null && (
             <Tag>ep {Number(e.episode_duration_sec).toFixed(1)}s</Tag>
           )}
@@ -171,9 +147,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
             <Tag variant="muted">plate {enr.readability}</Tag>
           )}
           {(enr?.vehicle_color || enr?.vehicle_type) && (
-            <Tag>
-              {[enr.vehicle_color, enr.vehicle_type].filter(Boolean).join(" ")}
-            </Tag>
+            <Tag>{[enr.vehicle_color, enr.vehicle_type].filter(Boolean).join(" ")}</Tag>
           )}
         </div>
 
@@ -184,10 +158,7 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
 
         {/* stopPropagation keeps thumbs-up/down from bubbling into the
             card-level click handler that opens the event-detail dialog. */}
-        <div
-          onClick={(ev) => ev.stopPropagation()}
-          onKeyDown={(ev) => ev.stopPropagation()}
-        >
+        <div onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => ev.stopPropagation()}>
           <FeedbackButtons eventId={e.event_id} />
         </div>
       </div>

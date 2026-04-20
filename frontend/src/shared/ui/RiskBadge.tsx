@@ -32,10 +32,6 @@ export function RiskBadge({ level, compact }: RiskBadgeProps) {
     ? { padding: "1px 6px", fontSize: "9.5px", letterSpacing: "0.4px" }
     : {};
   return (
-    <span
-      style={{ ...base, ...(colors[lower] ?? colors.low), ...sizeOverride }}
-    >
-      {lower}
-    </span>
+    <span style={{ ...base, ...(colors[lower] ?? colors.low), ...sizeOverride }}>{lower}</span>
   );
 }

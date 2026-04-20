@@ -30,17 +30,14 @@ export interface SettingsTemplatesState {
   ) => Promise<ApplyResultPayload>;
 }
 
-export function useSettingsTemplates(
-  token: string | null,
-): SettingsTemplatesState {
+export function useSettingsTemplates(token: string | null): SettingsTemplatesState {
   const qc = useQueryClient();
 
   const templatesQuery = useQuery({
     queryKey: settingsQueryKeys.templates,
     queryFn: ({ signal }) => settingsApi.listTemplates({ signal }),
     enabled: !!token,
-    retry: (_count, err) =>
-      !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
+    retry: (_count, err) => !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
   });
 
   useEffect(() => {
@@ -49,8 +46,7 @@ export function useSettingsTemplates(
     }
   }, [templatesQuery.error]);
 
-  const invalidateTemplates = () =>
-    qc.invalidateQueries({ queryKey: settingsQueryKeys.templates });
+  const invalidateTemplates = () => qc.invalidateQueries({ queryKey: settingsQueryKeys.templates });
 
   const createMutation = useMutation({
     mutationFn: ({
@@ -81,13 +77,8 @@ export function useSettingsTemplates(
   });
 
   const applyTemplateMutation = useMutation({
-    mutationFn: ({
-      id,
-      opts,
-    }: {
-      id: string;
-      opts?: { confirm_privacy_change?: boolean };
-    }) => settingsApi.applyTemplate(id, opts),
+    mutationFn: ({ id, opts }: { id: string; opts?: { confirm_privacy_change?: boolean } }) =>
+      settingsApi.applyTemplate(id, opts),
     onSuccess: () => {
       // Template application mutates both the template metadata access path
       // and the effective settings snapshot displayed on this page.
@@ -107,11 +98,7 @@ export function useSettingsTemplates(
   }, [token, templatesQuery]);
 
   const create = useCallback(
-    async (
-      name: string,
-      description: string,
-      payload: Record<string, unknown>,
-    ) => {
+    async (name: string, description: string, payload: Record<string, unknown>) => {
       return createMutation.mutateAsync({ name, description, payload });
     },
     [createMutation],

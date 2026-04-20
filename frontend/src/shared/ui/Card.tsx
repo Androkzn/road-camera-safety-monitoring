@@ -32,19 +32,8 @@ const padClass: Record<CardPad, string> = {
   lg: styles.padLg ?? "",
 };
 
-export function Card({
-  pad = "md",
-  elevated,
-  className,
-  children,
-  ...rest
-}: CardProps) {
-  const cls = cx(
-    styles.card,
-    padClass[pad],
-    elevated && styles.elevated,
-    className,
-  );
+export function Card({ pad = "md", elevated, className, children, ...rest }: CardProps) {
+  const cls = cx(styles.card, padClass[pad], elevated && styles.elevated, className);
   return (
     <div className={cls} {...rest}>
       {children}
@@ -56,11 +45,7 @@ function CardHeader({ title, actions, className, style }: HeaderProps) {
   const cls = cx(styles.header, className);
   return (
     <div className={cls} style={style}>
-      {typeof title === "string" ? (
-        <h3 className={styles.title}>{title}</h3>
-      ) : (
-        title
-      )}
+      {typeof title === "string" ? <h3 className={styles.title}>{title}</h3> : title}
       {actions}
     </div>
   );

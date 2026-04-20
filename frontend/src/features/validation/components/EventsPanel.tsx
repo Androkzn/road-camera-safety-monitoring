@@ -18,10 +18,7 @@
 import { useMemo, useState } from "react";
 
 import { EventDialog } from "../../../shared/events";
-import type {
-  SafetyEvent,
-  WatchdogFinding,
-} from "../../../shared/types/common";
+import type { SafetyEvent, WatchdogFinding } from "../../../shared/types/common";
 import {
   buildDisputesByEventId,
   classifyEvent,
@@ -40,11 +37,7 @@ interface EventsPanelProps {
   validatorEnabled: boolean;
 }
 
-export function EventsPanel({
-  events,
-  findings,
-  validatorEnabled,
-}: EventsPanelProps) {
+export function EventsPanel({ events, findings, validatorEnabled }: EventsPanelProps) {
   const [openEvent, setOpenEvent] = useState<{
     ev: SafetyEvent;
     dispute?: DisputeInfo;
@@ -69,16 +62,11 @@ export function EventsPanel({
 
   const panelEvents: PanelEvent[] = useMemo(() => {
     const now = Date.now();
-    return visibleEvents.map((ev) =>
-      classifyEvent(ev, disputesByEventId, validatorEnabled, now),
-    );
+    return visibleEvents.map((ev) => classifyEvent(ev, disputesByEventId, validatorEnabled, now));
   }, [visibleEvents, disputesByEventId, validatorEnabled]);
 
   const shadowOnly = useMemo(
-    () =>
-      validatorFindings.filter((f) =>
-        (f.fingerprint ?? "").endsWith("false-negative"),
-      ),
+    () => validatorFindings.filter((f) => (f.fingerprint ?? "").endsWith("false-negative")),
     [validatorFindings],
   );
 
@@ -89,9 +77,9 @@ export function EventsPanel({
           <div className={styles.titleBlock}>
             <h2>Detection events</h2>
             <p>
-              Live events from the primary detector. Each row shows the
-              validator's verdict — verified, disputed, or pending. Disputed
-              rows expand with the secondary detector's reading.
+              Live events from the primary detector. Each row shows the validator's verdict —
+              verified, disputed, or pending. Disputed rows expand with the secondary detector's
+              reading.
             </p>
           </div>
           <label className={styles.showLow}>
@@ -101,9 +89,7 @@ export function EventsPanel({
               onChange={(e) => setShowLow(e.target.checked)}
             />
             Show low risk
-            {hiddenLowCount > 0 && !showLow
-              ? ` (${hiddenLowCount} hidden)`
-              : ""}
+            {hiddenLowCount > 0 && !showLow ? ` (${hiddenLowCount} hidden)` : ""}
           </label>
         </header>
 
@@ -131,8 +117,8 @@ export function EventsPanel({
           <div className={styles.titleBlock}>
             <h2>Shadow-only detections</h2>
             <p>
-              Events the shadow validator flagged but the primary detector
-              missed. Surface them to catch false negatives.
+              Events the shadow validator flagged but the primary detector missed. Surface them to
+              catch false negatives.
             </p>
           </div>
         </header>
@@ -146,15 +132,10 @@ export function EventsPanel({
         ) : (
           <div className={styles.list}>
             {shadowOnly.map((f) => (
-              <div
-                key={`${f.snapshot_id}_${f.ts}`}
-                className={styles.shadowRow}
-              >
+              <div key={`${f.snapshot_id}_${f.ts}`} className={styles.shadowRow}>
                 <div className={styles.shadowTop}>
                   <span className={styles.shadowTitle}>{f.title}</span>
-                  <span className={`${styles.badge} ${styles.badgeDisputed}`}>
-                    Shadow flag
-                  </span>
+                  <span className={`${styles.badge} ${styles.badgeDisputed}`}>Shadow flag</span>
                 </div>
                 <div className={styles.shadowMeta}>
                   {formatTime(f.ts)} · {f.detail}
@@ -168,9 +149,7 @@ export function EventsPanel({
       <EventDialog
         event={openEvent?.ev ?? null}
         disputeLabel={openEvent?.dispute?.kind}
-        disputeBody={
-          openEvent?.dispute ? disputeDetail(openEvent.dispute) : undefined
-        }
+        disputeBody={openEvent?.dispute ? disputeDetail(openEvent.dispute) : undefined}
         onClose={() => setOpenEvent(null)}
       />
     </div>

@@ -64,18 +64,14 @@ export function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
         <div className={styles.meta}>
           {objects || "—"}
           {ev.vehicle_id ? ` · ${humanize(ev.vehicle_id)}` : ""}
-          {typeof ev.ttc_sec === "number"
-            ? ` · TTC ${ev.ttc_sec.toFixed(1)}s`
-            : ""}
+          {typeof ev.ttc_sec === "number" ? ` · TTC ${ev.ttc_sec.toFixed(1)}s` : ""}
         </div>
       </div>
       <div className={styles.conf}>
         <span className={styles.confLabel}>Conf</span>
         <span className={styles.confValue}>{conf}</span>
       </div>
-      <span className={cx(styles.badge, badgeClass)}>
-        {verdictLabel(verdict)}
-      </span>
+      <span className={cx(styles.badge, badgeClass)}>{verdictLabel(verdict)}</span>
 
       {verdict === "disputed" && dispute && (
         <div className={styles.dispute}>

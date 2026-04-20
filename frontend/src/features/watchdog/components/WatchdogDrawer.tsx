@@ -6,10 +6,7 @@
 import { useState, useCallback } from "react";
 
 import { THRESHOLDS } from "../../../shared/config/runtime";
-import type {
-  WatchdogFinding,
-  WatchdogStatus,
-} from "../../../shared/types/common";
+import type { WatchdogFinding, WatchdogStatus } from "../../../shared/types/common";
 import { useDialog } from "../../../shared/ui";
 
 import styles from "./WatchdogDrawer.module.css";
@@ -55,8 +52,7 @@ export function WatchdogDrawer({
   const total = status?.total_findings ?? 0;
   const lastAgo = status?.last_run_ago_sec;
 
-  const toggle = (sev: SevFilter) =>
-    setFilter((prev) => (prev === sev ? "all" : sev));
+  const toggle = (sev: SevFilter) => setFilter((prev) => (prev === sev ? "all" : sev));
 
   const allFindings = [...(findings ?? [])].sort((a, b) => {
     const sevDiff = (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9);
@@ -65,9 +61,7 @@ export function WatchdogDrawer({
   });
 
   const filtered =
-    filter === "all"
-      ? allFindings
-      : allFindings.filter((f) => f.severity === filter);
+    filter === "all" ? allFindings : allFindings.filter((f) => f.severity === filter);
 
   const byCategory: Record<string, WatchdogFinding[]> = {};
   for (const f of filtered) {
@@ -130,10 +124,7 @@ export function WatchdogDrawer({
 
   return (
     <>
-      <div
-        className={`${styles.overlay} ${open ? styles.open : ""}`}
-        onClick={onClose}
-      />
+      <div className={`${styles.overlay} ${open ? styles.open : ""}`} onClick={onClose} />
       <aside className={`${styles.drawer} ${open ? styles.open : ""}`}>
         <div className={styles.head}>
           <h2>Error Monitoring</h2>
@@ -159,12 +150,7 @@ export function WatchdogDrawer({
                 {deleting ? "Clearing…" : "Clear All"}
               </button>
             )}
-            <button
-              type="button"
-              className={styles.closeBtn}
-              onClick={onClose}
-              title="Close"
-            >
+            <button type="button" className={styles.closeBtn} onClick={onClose} title="Close">
               &times;
             </button>
           </div>
@@ -174,11 +160,7 @@ export function WatchdogDrawer({
           <div className={styles.selectionBar}>
             <div className={styles.selectionInfo}>
               <span>{selected.size} selected</span>
-              <button
-                type="button"
-                className={styles.selBarBtn}
-                onClick={selectAll}
-              >
+              <button type="button" className={styles.selBarBtn} onClick={selectAll}>
                 Select all ({filtered.length})
               </button>
               <button
@@ -198,11 +180,7 @@ export function WatchdogDrawer({
               >
                 {deleting ? "Deleting…" : `Delete (${selected.size})`}
               </button>
-              <button
-                type="button"
-                className={styles.selBarBtn}
-                onClick={exitSelectMode}
-              >
+              <button type="button" className={styles.selBarBtn} onClick={exitSelectMode}>
                 Cancel
               </button>
             </div>
@@ -245,11 +223,7 @@ export function WatchdogDrawer({
             Checks: {status?.run_count ?? 0} | Interval:{" "}
             {status?.interval_sec ?? THRESHOLDS.defaultWatchdogIntervalSec}s
           </span>
-          <span>
-            {lastAgo != null
-              ? `Last check: ${Math.round(lastAgo)}s ago`
-              : "Waiting…"}
-          </span>
+          <span>{lastAgo != null ? `Last check: ${Math.round(lastAgo)}s ago` : "Waiting…"}</span>
         </div>
 
         <div className={styles.filterLabel}>
@@ -282,15 +256,11 @@ export function WatchdogDrawer({
                   >
                     <div className={styles.findingTop}>
                       {selectMode && (
-                        <span
-                          className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}
-                        >
+                        <span className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}>
                           {isSelected ? "✓" : ""}
                         </span>
                       )}
-                      <span
-                        className={`${styles.sevIcon} ${styles[f.severity]}`}
-                      >
+                      <span className={`${styles.sevIcon} ${styles[f.severity]}`}>
                         {SEV_ICON[f.severity] ?? "?"}
                       </span>
                       <span className={styles.findingTitle}>{f.title}</span>
@@ -312,11 +282,7 @@ export function WatchdogDrawer({
                       )}
                     </div>
                     <div className={styles.findingDetail}>{f.detail}</div>
-                    {f.suggestion && (
-                      <div className={styles.findingSuggestion}>
-                        {f.suggestion}
-                      </div>
-                    )}
+                    {f.suggestion && <div className={styles.findingSuggestion}>{f.suggestion}</div>}
                   </div>
                 );
               })}

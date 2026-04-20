@@ -18,8 +18,7 @@ export function WatchdogBadge({ status, onClick }: WatchdogBadgeProps) {
   const warnings = status.by_severity?.warning ?? 0;
   const total = status.total_findings;
 
-  const severity =
-    errors > 0 ? "error" : warnings > 0 ? "warning" : total > 0 ? "info" : "ok";
+  const severity = errors > 0 ? "error" : warnings > 0 ? "warning" : total > 0 ? "info" : "ok";
 
   return (
     <div

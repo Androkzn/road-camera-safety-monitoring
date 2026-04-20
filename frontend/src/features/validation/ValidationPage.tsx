@@ -26,22 +26,15 @@ export function ValidationPage() {
   const { status: wdStatus, findings } = useWatchdogCtx();
   const { status: validatorStatus } = useValidator();
 
-  const validatorActive =
-    !!validatorStatus?.enabled && !validatorStatus?.paused;
+  const validatorActive = !!validatorStatus?.enabled && !validatorStatus?.paused;
   const driftCount = useDriftCount();
   const sourceName = liveStatus?.source ?? "—";
 
   const { disputed, shadowOnly } = useMemo(() => {
-    const validator = (findings ?? []).filter(
-      (f) => f.category === "validator",
-    );
+    const validator = (findings ?? []).filter((f) => f.category === "validator");
     return {
-      disputed: validator.filter(
-        (f) => !(f.fingerprint ?? "").endsWith("false-negative"),
-      ).length,
-      shadowOnly: validator.filter((f) =>
-        (f.fingerprint ?? "").endsWith("false-negative"),
-      ).length,
+      disputed: validator.filter((f) => !(f.fingerprint ?? "").endsWith("false-negative")).length,
+      shadowOnly: validator.filter((f) => (f.fingerprint ?? "").endsWith("false-negative")).length,
     };
   }, [findings]);
 
@@ -59,9 +52,9 @@ export function ValidationPage() {
           <div className={styles.titleRow}>
             <h1>Validation</h1>
             <p className={styles.subtitle}>
-              A second, heavier detector runs in the background and cross-checks
-              every primary finding. Disagreements and misses surface here so
-              you can spot drift without gating live alerts.
+              A second, heavier detector runs in the background and cross-checks every primary
+              finding. Disagreements and misses surface here so you can spot drift without gating
+              live alerts.
             </p>
           </div>
 
@@ -72,8 +65,8 @@ export function ValidationPage() {
                 {disputed.toLocaleString()}
               </span>
               <span className={styles.statHint}>
-                Primary detector's verdict the secondary disagrees with (false
-                positive or class mismatch).
+                Primary detector's verdict the secondary disagrees with (false positive or class
+                mismatch).
               </span>
             </div>
             <div className={styles.statCard}>
@@ -82,8 +75,7 @@ export function ValidationPage() {
                 {shadowOnly.toLocaleString()}
               </span>
               <span className={styles.statHint}>
-                Events the shadow model flagged but the primary missed —
-                candidate false negatives.
+                Events the shadow model flagged but the primary missed — candidate false negatives.
               </span>
             </div>
             <div className={styles.statCard}>
@@ -91,9 +83,7 @@ export function ValidationPage() {
               <span className={`${styles.statValue} ${styles.drift}`}>
                 {driftCount.toLocaleString()}
               </span>
-              <span className={styles.statHint}>
-                Combined drift count shown on the nav bubble.
-              </span>
+              <span className={styles.statHint}>Combined drift count shown on the nav bubble.</span>
             </div>
           </div>
 

@@ -31,12 +31,7 @@ export interface StreamTileProps {
   onFocusToggle: () => void;
 }
 
-export function StreamTile({
-  source,
-  focused,
-  minimized,
-  onFocusToggle,
-}: StreamTileProps) {
+export function StreamTile({ source, focused, minimized, onFocusToggle }: StreamTileProps) {
   const [imgError, setImgError] = useState(false);
   const dialog = useDialog();
   const { setDetection } = useStreamControl(source.id);
@@ -57,10 +52,7 @@ export function StreamTile({
   // restores the live feed without operator action.
   useEffect(() => {
     if (!imgError || !running) return;
-    const id = window.setTimeout(
-      () => setImgError(false),
-      POLL_INTERVAL_MS.streamTileRetry,
-    );
+    const id = window.setTimeout(() => setImgError(false), POLL_INTERVAL_MS.streamTileRetry);
     return () => window.clearTimeout(id);
   }, [imgError, running]);
 
@@ -104,25 +96,15 @@ export function StreamTile({
               className={styles.video}
               onError={() => setImgError(true)}
             />
-            {!running && !source.last_error && (
-              <span className={styles.pausedBadge}>Paused</span>
-            )}
+            {!running && !source.last_error && <span className={styles.pausedBadge}>Paused</span>}
           </>
         ) : (
           <div className={styles.placeholder}>
-            {source.last_error
-              ? `Error: ${source.last_error}`
-              : running
-                ? "Connecting…"
-                : "Paused"}
+            {source.last_error ? `Error: ${source.last_error}` : running ? "Connecting…" : "Paused"}
           </div>
         )}
-        <span
-          className={`${styles.statusDot} ${running ? styles.dotRunning : styles.dotPaused}`}
-        />
-        {!detection && running && (
-          <span className={styles.detectionBadge}>detection off</span>
-        )}
+        <span className={`${styles.statusDot} ${running ? styles.dotRunning : styles.dotPaused}`} />
+        {!detection && running && <span className={styles.detectionBadge}>detection off</span>}
         {focused && (
           <span className={styles.focusedBadge} aria-hidden="true">
             Tap to restore

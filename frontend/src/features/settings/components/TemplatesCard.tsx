@@ -51,9 +51,7 @@ export function TemplatesCard({
               </div>
               <span className={styles.subtle}>r{t.latest_revision_no}</span>
             </div>
-            {t.description && (
-              <span className={styles.templateDesc}>{t.description}</span>
-            )}
+            {t.description && <span className={styles.templateDesc}>{t.description}</span>}
             <div className={styles.templateActions}>
               <button
                 type="button"

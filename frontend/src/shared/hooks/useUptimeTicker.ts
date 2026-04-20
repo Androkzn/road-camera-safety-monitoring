@@ -17,9 +17,7 @@ import { useEffect, useState } from "react";
 
 import { POLL_INTERVAL_MS } from "../config/runtime";
 
-function toEpochSec(
-  startedAt: string | number | null | undefined,
-): number | null {
+function toEpochSec(startedAt: string | number | null | undefined): number | null {
   if (startedAt === null || startedAt === undefined) return null;
   if (typeof startedAt === "number") {
     return Number.isFinite(startedAt) ? startedAt : null;
@@ -42,8 +40,7 @@ export function useUptimeTicker(
       setElapsed(0);
       return;
     }
-    const tick = () =>
-      setElapsed(Math.max(0, Math.floor(Date.now() / 1000 - epoch)));
+    const tick = () => setElapsed(Math.max(0, Math.floor(Date.now() / 1000 - epoch)));
     tick();
     const id = window.setInterval(tick, intervalMs);
     return () => window.clearInterval(id);

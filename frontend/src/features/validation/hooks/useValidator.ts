@@ -8,10 +8,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  POLL_INTERVAL_MS,
-  STALE_TIME_MS,
-} from "../../../shared/config/runtime";
+import { POLL_INTERVAL_MS, STALE_TIME_MS } from "../../../shared/config/runtime";
 import { fetchJson, postJson } from "../../../shared/lib/fetchClient";
 
 export interface ValidatorStatusPayload {
@@ -39,22 +36,17 @@ export function useValidator(refetchMs: number = POLL_INTERVAL_MS.validator) {
 
   const status = useQuery<ValidatorStatusPayload>({
     queryKey: VALIDATOR_QUERY_KEY,
-    queryFn: ({ signal }) =>
-      fetchJson<ValidatorStatusPayload>("/api/validator/status", { signal }),
+    queryFn: ({ signal }) => fetchJson<ValidatorStatusPayload>("/api/validator/status", { signal }),
     refetchInterval: refetchMs,
     staleTime: STALE_TIME_MS.validator,
   });
 
   const toggle = useMutation({
     mutationFn: (enabled: boolean) =>
-      postJson<ValidatorStatusPayload, { enabled: boolean }>(
-        "/api/validator/toggle",
-        { enabled },
-      ),
+      postJson<ValidatorStatusPayload, { enabled: boolean }>("/api/validator/toggle", { enabled }),
     onMutate: async (enabled) => {
       await qc.cancelQueries({ queryKey: VALIDATOR_QUERY_KEY });
-      const previous =
-        qc.getQueryData<ValidatorStatusPayload>(VALIDATOR_QUERY_KEY);
+      const previous = qc.getQueryData<ValidatorStatusPayload>(VALIDATOR_QUERY_KEY);
       if (previous) {
         qc.setQueryData<ValidatorStatusPayload>(VALIDATOR_QUERY_KEY, {
           ...previous,

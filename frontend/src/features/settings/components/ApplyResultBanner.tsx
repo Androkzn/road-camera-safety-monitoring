@@ -20,10 +20,7 @@ interface ApplyResultBannerProps {
   onDismiss: () => void;
 }
 
-export function ApplyResultBanner({
-  result,
-  onDismiss,
-}: ApplyResultBannerProps) {
+export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps) {
   if (!result) return null;
   const diffCount = Object.keys(result.diff).length;
   return (
@@ -65,8 +62,8 @@ export function ApplyResultBanner({
         {result.audit_id && (
           <>
             {" "}
-            Impact session <code>{result.audit_id.slice(0, 18)}</code> started —
-            watch the card on the right.
+            Impact session <code>{result.audit_id.slice(0, 18)}</code> started — watch the card on
+            the right.
           </>
         )}
       </div>
@@ -74,8 +71,7 @@ export function ApplyResultBanner({
         <div className={styles.subtle} style={{ fontSize: 11 }}>
           {Object.entries(result.diff).map(([k, ba]) => (
             <div key={k}>
-              <code>{humanize(k)}</code>: {String(ba.before)} →{" "}
-              {String(ba.after)}
+              <code>{humanize(k)}</code>: {String(ba.before)} → {String(ba.after)}
             </div>
           ))}
         </div>

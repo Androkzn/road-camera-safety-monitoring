@@ -23,11 +23,7 @@ import {
 import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 
 import { settingsApi, settingsQueryKeys } from "../api";
-import type {
-  ApplyResultPayload,
-  EffectiveSettings,
-  SettingsSchema,
-} from "../types";
+import type { ApplyResultPayload, EffectiveSettings, SettingsSchema } from "../types";
 
 interface ApplyOptions {
   expected_revision_hash?: string;
@@ -43,10 +39,7 @@ export interface SettingsState {
   error: string | null;
   needsToken: boolean;
   refresh: () => Promise<void>;
-  apply: (
-    diff: Record<string, unknown>,
-    opts?: ApplyOptions,
-  ) => Promise<ApplyResultPayload>;
+  apply: (diff: Record<string, unknown>, opts?: ApplyOptions) => Promise<ApplyResultPayload>;
   rollback: () => Promise<ApplyResultPayload>;
   validate: (diff: Record<string, unknown>) => Promise<unknown>;
 }
@@ -83,8 +76,7 @@ export function useSettings(token: string | null): SettingsState {
     queryFn: ({ signal }) => settingsApi.getSchema({ signal }),
     enabled: !!token,
     staleTime: Infinity,
-    retry: (_count, err) =>
-      !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
+    retry: (_count, err) => !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
   });
 
   // Effective values drive the "live baseline" column and are what the
@@ -98,8 +90,7 @@ export function useSettings(token: string | null): SettingsState {
     refetchInterval: POLL_INTERVAL_MS.settingsEffective,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
-    retry: (_count, err) =>
-      !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
+    retry: (_count, err) => !(err instanceof MissingAdminTokenError) && !isAdminAuthFailure(err),
   });
 
   // Drop the cached token as soon as either query reports an admin-auth
@@ -134,8 +125,7 @@ export function useSettings(token: string | null): SettingsState {
   const apply = useCallback(
     async (diff: Record<string, unknown>, opts: ApplyOptions = {}) => {
       const result = await settingsApi.apply(diff, {
-        expected_revision_hash:
-          opts.expected_revision_hash ?? effective?.revision_hash,
+        expected_revision_hash: opts.expected_revision_hash ?? effective?.revision_hash,
         confirm_privacy_change: !!opts.confirm_privacy_change,
         operator_label: opts.operator_label ?? null,
         note: opts.note ?? null,

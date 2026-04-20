@@ -61,7 +61,5 @@
    * picks the first one the OS has installed. ui-monospace is a modern
    * alias for "whatever the OS uses as its native monospace font". */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }

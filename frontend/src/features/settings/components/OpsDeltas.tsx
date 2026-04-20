@@ -57,9 +57,7 @@ const ROWS: Row[] = [
 ];
 
 export function OpsDeltas({ baseline, after, deltas }: OpsDeltasProps) {
-  const visible = ROWS.filter(
-    (r) => baseline[r.key] != null || after[r.key] != null,
-  );
+  const visible = ROWS.filter((r) => baseline[r.key] != null || after[r.key] != null);
   if (!visible.length) return null;
   return (
     <>
@@ -72,20 +70,15 @@ export function OpsDeltas({ baseline, after, deltas }: OpsDeltasProps) {
           const a = after[r.key] as number | null | undefined;
           const d = deltas[r.key];
           const isUp = (d ?? 0) > 0;
-          const good =
-            d == null || d === 0 ? null : r.goodWhen === "up" ? isUp : !isUp;
-          const deltaClass =
-            good == null ? "" : good ? styles.deltaPos : styles.deltaNeg;
+          const good = d == null || d === 0 ? null : r.goodWhen === "up" ? isUp : !isUp;
+          const deltaClass = good == null ? "" : good ? styles.deltaPos : styles.deltaNeg;
           return (
             <Fragment key={String(r.key)}>
               <span>{r.label}</span>
               <span>
-                {fmt(b ?? null, r.digits ?? 2)} →{" "}
-                {fmt(a ?? null, r.digits ?? 2)}
+                {fmt(b ?? null, r.digits ?? 2)} → {fmt(a ?? null, r.digits ?? 2)}
               </span>
-              <span className={deltaClass}>
-                {d != null ? `${fmt(d, 1)}%` : ""}
-              </span>
+              <span className={deltaClass}>{d != null ? `${fmt(d, 1)}%` : ""}</span>
             </Fragment>
           );
         })}

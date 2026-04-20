@@ -20,19 +20,14 @@ export function TestBadge({ status, onClick }: TestBadgeProps) {
 
   if (state === "running") {
     label = "Running";
-    const pct =
-      status && status.total > 0
-        ? Math.round((status.progress / status.total) * 100)
-        : 0;
+    const pct = status && status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
     countsContent = <span>{pct}%</span>;
   } else if (state === "passed" || state === "failed") {
     label = state === "passed" ? "Passed" : "Failed";
     countsContent = (
       <>
         <span className={styles.cntPass}>{status?.passed ?? 0}</span>
-        {(status?.failed ?? 0) > 0 && (
-          <span className={styles.cntFail}>{status?.failed}</span>
-        )}
+        {(status?.failed ?? 0) > 0 && <span className={styles.cntFail}>{status?.failed}</span>}
       </>
     );
   }

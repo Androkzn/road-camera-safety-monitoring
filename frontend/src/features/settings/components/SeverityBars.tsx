@@ -28,14 +28,9 @@ export function SeverityBars({ label, counts }: SeverityBarsProps) {
             return (
               <div className={styles.barRow} key={k}>
                 <div>
-                  <div style={{ fontSize: 10, color: "var(--muted)" }}>
-                    {severityLabel(k)}
-                  </div>
+                  <div style={{ fontSize: 10, color: "var(--muted)" }}>{severityLabel(k)}</div>
                   <div className={styles.bar}>
-                    <div
-                      className={styles.barFill}
-                      style={{ width: `${(v / total) * 100}%` }}
-                    />
+                    <div className={styles.barFill} style={{ width: `${(v / total) * 100}%` }} />
                   </div>
                 </div>
                 <span className={styles.subtle}>{v}</span>
@@ -47,14 +42,9 @@ export function SeverityBars({ label, counts }: SeverityBarsProps) {
           .map(([k, v]) => (
             <div className={styles.barRow} key={k}>
               <div>
-                <div style={{ fontSize: 10, color: "var(--muted)" }}>
-                  {severityLabel(k)}
-                </div>
+                <div style={{ fontSize: 10, color: "var(--muted)" }}>{severityLabel(k)}</div>
                 <div className={styles.bar}>
-                  <div
-                    className={styles.barFill}
-                    style={{ width: `${(v / total) * 100}%` }}
-                  />
+                  <div className={styles.barFill} style={{ width: `${(v / total) * 100}%` }} />
                 </div>
               </div>
               <span className={styles.subtle}>{v}</span>

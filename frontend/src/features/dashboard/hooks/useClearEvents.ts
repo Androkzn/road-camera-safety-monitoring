@@ -13,11 +13,7 @@ interface UseClearEventsOpts {
   hasFindings: boolean;
 }
 
-export function useClearEvents({
-  clearEvents,
-  clearAllFindings,
-  hasFindings,
-}: UseClearEventsOpts) {
+export function useClearEvents({ clearEvents, clearAllFindings, hasFindings }: UseClearEventsOpts) {
   const [clearing, setClearing] = useState(false);
   const dialog = useDialog();
 

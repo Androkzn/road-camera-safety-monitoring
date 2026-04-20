@@ -22,13 +22,7 @@ interface EmptyStateProps {
   className?: string;
 }
 
-export function EmptyState({
-  title,
-  message,
-  icon,
-  actions,
-  className,
-}: EmptyStateProps) {
+export function EmptyState({ title, message, icon, actions, className }: EmptyStateProps) {
   const cls = cx(styles.root, className);
   return (
     <div className={cls} role="status">

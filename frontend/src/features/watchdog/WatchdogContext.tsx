@@ -4,29 +4,13 @@
  * Context. Consumers (`useWatchdogCtx`) get deduplicated reads; the
  * provider owns mutations + admin-token error handling.
  */
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  type AdminApiError,
-  MissingAdminTokenError,
-} from "../../shared/lib/adminApi";
-import {
-  LIMITS,
-  POLL_INTERVAL_MS,
-  STALE_TIME_MS,
-} from "../../shared/config/runtime";
+import { type AdminApiError, MissingAdminTokenError } from "../../shared/lib/adminApi";
+import { LIMITS, POLL_INTERVAL_MS, STALE_TIME_MS } from "../../shared/config/runtime";
 import { dialog } from "../../shared/ui";
-import type {
-  WatchdogFinding,
-  WatchdogStatus,
-} from "../../shared/types/common";
+import type { WatchdogFinding, WatchdogStatus } from "../../shared/types/common";
 
 import { watchdogApi, watchdogQueryKeys } from "./api";
 
@@ -63,8 +47,7 @@ function handleWatchdogAdminError(exc: unknown, action: string): void {
   if (exc instanceof MissingAdminTokenError) {
     void dialog.alert({
       title: `${action} requires admin token`,
-      message:
-        "Open the Settings page and paste your ROAD_ADMIN_TOKEN, then try again.",
+      message: "Open the Settings page and paste your ROAD_ADMIN_TOKEN, then try again.",
       variant: "warning",
     });
     return;
@@ -104,14 +87,12 @@ export function WatchdogProvider({ children }: { children: ReactNode }) {
 
   const deleteMutation = useMutation({
     mutationFn: (keys: string[]) => watchdogApi.deleteFindings(keys),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
   });
 
   const clearMutation = useMutation({
     mutationFn: () => watchdogApi.clearAll(),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: watchdogQueryKeys.combined }),
   });
 
   const deleteFindings = useCallback(

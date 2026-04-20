@@ -6,11 +6,7 @@
  */
 
 export type SettingType = "float" | "int" | "bool" | "str" | "enum";
-export type Mutability =
-  | "hot_apply"
-  | "warm_reload"
-  | "restart_required"
-  | "read_only";
+export type Mutability = "hot_apply" | "warm_reload" | "restart_required" | "read_only";
 
 export interface SettingSpec {
   key: string;

@@ -53,11 +53,7 @@ export function Tabs({ tabs, defaultTab, onChange, className }: TabsProps) {
           );
         })}
       </div>
-      <div
-        role="tabpanel"
-        id={`tab-panel-${current?.id ?? ""}`}
-        className={styles.panel}
-      >
+      <div role="tabpanel" id={`tab-panel-${current?.id ?? ""}`} className={styles.panel}>
         {current?.content}
       </div>
     </div>

@@ -13,11 +13,7 @@ interface MetaGridProps {
   repeatingIncidents: number;
 }
 
-export function MetaGrid({
-  status,
-  filteredCount,
-  repeatingIncidents,
-}: MetaGridProps) {
+export function MetaGrid({ status, filteredCount, repeatingIncidents }: MetaGridProps) {
   const lastAgo = status?.last_run_ago_sec;
   return (
     <div className={styles.metaGrid}>
@@ -25,9 +21,7 @@ export function MetaGrid({
         <span className={styles.metaLabel}>Watchdog</span>
         <strong>{status?.run_count ?? 0} runs</strong>
         <span>
-          {lastAgo != null
-            ? `Last check ${Math.round(lastAgo)}s ago`
-            : "Waiting for first check"}
+          {lastAgo != null ? `Last check ${Math.round(lastAgo)}s ago` : "Waiting for first check"}
         </span>
       </div>
       <div className={styles.metaCard}>
@@ -37,10 +31,7 @@ export function MetaGrid({
       </div>
       <div className={styles.metaCard}>
         <span className={styles.metaLabel}>Cadence</span>
-        <strong>
-          {status?.interval_sec ?? THRESHOLDS.defaultWatchdogIntervalSec}s
-          interval
-        </strong>
+        <strong>{status?.interval_sec ?? THRESHOLDS.defaultWatchdogIntervalSec}s interval</strong>
         <span>Grouped by incident fingerprint, not raw line count</span>
       </div>
     </div>

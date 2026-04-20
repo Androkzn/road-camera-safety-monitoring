@@ -56,11 +56,7 @@ export function MonitoringPage() {
 
   return (
     <>
-      <PageChrome
-        page="monitoring"
-        sourceName={sourceName}
-        connected={connected}
-      />
+      <PageChrome page="monitoring" sourceName={sourceName} connected={connected} />
 
       <div className={styles.page}>
         <div className={styles.header}>

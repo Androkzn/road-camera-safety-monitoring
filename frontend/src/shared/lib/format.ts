@@ -14,9 +14,7 @@ export function formatWallTime(ts?: string | number): string {
 
 /** "lane_change" → "Lane change". */
 export function humanEventType(t?: string): string {
-  return (t || "event")
-    .replace(/_/g, " ")
-    .replace(/^\w/, (c) => c.toUpperCase());
+  return (t || "event").replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
 /** "2h 07m" or "04:22" depending on duration. */
@@ -40,11 +38,7 @@ export function humanize(value: string | undefined | null): string {
 }
 
 /** Format a number with units, returning "—" for null/undefined/NaN. */
-export function fmtNum(
-  v: number | undefined | null,
-  unit = "",
-  digits = 2,
-): string {
+export function fmtNum(v: number | undefined | null, unit = "", digits = 2): string {
   if (v === null || v === undefined || Number.isNaN(v)) return "—";
   return `${v.toFixed(digits)}${unit}`;
 }

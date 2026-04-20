@@ -46,16 +46,12 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
   const qc = useQueryClient();
 
   const patchRunning = (running: boolean): OptimisticCtx => {
-    const previous = qc.getQueryData<LiveSourcesResponse>(
-      adminQueryKeys.liveSources,
-    );
+    const previous = qc.getQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources);
     qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
       prev
         ? {
             ...prev,
-            sources: prev.sources.map((s) =>
-              s.id === sourceId ? { ...s, running } : s,
-            ),
+            sources: prev.sources.map((s) => (s.id === sourceId ? { ...s, running } : s)),
           }
         : prev,
     );
@@ -63,9 +59,7 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
   };
 
   const patchDetection = (enabled: boolean): OptimisticCtx => {
-    const previous = qc.getQueryData<LiveSourcesResponse>(
-      adminQueryKeys.liveSources,
-    );
+    const previous = qc.getQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources);
     qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
       prev
         ? {
@@ -117,15 +111,12 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
     onSettled: invalidateList,
   });
 
-  const detectionMutation = useMutation<unknown, Error, boolean, OptimisticCtx>(
-    {
-      mutationFn: (enabled) =>
-        adminApi.setLiveSourceDetection(sourceId, enabled),
-      onMutate: (enabled) => patchDetection(enabled),
-      onError: (_exc, _v, ctx) => rollback(ctx),
-      onSettled: invalidateList,
-    },
-  );
+  const detectionMutation = useMutation<unknown, Error, boolean, OptimisticCtx>({
+    mutationFn: (enabled) => adminApi.setLiveSourceDetection(sourceId, enabled),
+    onMutate: (enabled) => patchDetection(enabled),
+    onError: (_exc, _v, ctx) => rollback(ctx),
+    onSettled: invalidateList,
+  });
 
   const busy: StreamBusyAction = startMutation.isPending
     ? "starting"

@@ -12,14 +12,8 @@
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  POLL_INTERVAL_MS,
-  STALE_TIME_MS,
-} from "../../../shared/config/runtime";
-import type {
-  LiveSourceStatus,
-  LiveSourcesResponse,
-} from "../../../shared/types/common";
+import { POLL_INTERVAL_MS, STALE_TIME_MS } from "../../../shared/config/runtime";
+import type { LiveSourceStatus, LiveSourcesResponse } from "../../../shared/types/common";
 
 import { adminApi, adminQueryKeys } from "../api";
 

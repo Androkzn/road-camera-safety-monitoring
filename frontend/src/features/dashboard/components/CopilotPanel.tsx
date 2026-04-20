@@ -58,8 +58,7 @@ export function CopilotPanel() {
       <div className={styles.head}>
         <div>
           <h2 className={styles.title}>
-            Copilot{" "}
-            <span className={styles.sub}>RAG over statutes + live events</span>
+            Copilot <span className={styles.sub}>RAG over statutes + live events</span>
           </h2>
         </div>
       </div>
@@ -88,11 +87,7 @@ export function CopilotPanel() {
         ))}
       </div>
 
-      <form
-        className={styles.compose}
-        onSubmit={handleSubmit}
-        autoComplete="off"
-      >
+      <form className={styles.compose} onSubmit={handleSubmit} autoComplete="off">
         <textarea
           ref={textareaRef}
           placeholder="Ask Copilot… (Enter to send, Shift+Enter = newline)"

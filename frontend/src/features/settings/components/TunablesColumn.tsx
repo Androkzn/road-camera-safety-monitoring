@@ -32,8 +32,7 @@ export function TunablesColumn({
       {groupedSpecs.map(([cat, specs]) => (
         <details key={cat} className={styles.category} open>
           <summary>
-            {humanize(cat)}{" "}
-            <span style={{ float: "right", fontSize: 10 }}>{specs.length}</span>
+            {humanize(cat)} <span style={{ float: "right", fontSize: 10 }}>{specs.length}</span>
           </summary>
           <div className={styles.categoryBody}>
             {specs.map((spec) => {

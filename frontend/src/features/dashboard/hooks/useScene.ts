@@ -9,9 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 import { dashboardApi, dashboardQueryKeys } from "../api";
 
-export function useScene(
-  refetchIntervalMs: number = POLL_INTERVAL_MS.dashboardScene,
-) {
+export function useScene(refetchIntervalMs: number = POLL_INTERVAL_MS.dashboardScene) {
   return useQuery({
     queryKey: dashboardQueryKeys.scene,
     queryFn: ({ signal }) => dashboardApi.getScene(signal),

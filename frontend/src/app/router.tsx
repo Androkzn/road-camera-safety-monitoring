@@ -15,9 +15,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { RouteFallback } from "../shared/layout/PageLayout";
 import { ErrorBoundary } from "../shared/ui";
 
-const AdminPage = lazy(() =>
-  import("../features/admin").then((m) => ({ default: m.AdminPage })),
-);
+const AdminPage = lazy(() => import("../features/admin").then((m) => ({ default: m.AdminPage })));
 const DashboardPage = lazy(() =>
   import("../features/dashboard").then((m) => ({ default: m.DashboardPage })),
 );
@@ -31,18 +29,10 @@ const SettingsPage = lazy(() =>
   import("../features/settings").then((m) => ({ default: m.SettingsPage })),
 );
 
-function RouteShell({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function RouteShell({ label, children }: { label: string; children: ReactNode }) {
   return (
     <ErrorBoundary>
-      <Suspense fallback={<RouteFallback label={`Loading ${label}…`} />}>
-        {children}
-      </Suspense>
+      <Suspense fallback={<RouteFallback label={`Loading ${label}…`} />}>{children}</Suspense>
     </ErrorBoundary>
   );
 }

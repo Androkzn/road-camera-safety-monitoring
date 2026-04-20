@@ -12,12 +12,7 @@ interface SummaryTilesProps {
   uptimeSec?: number | null;
 }
 
-export function SummaryTiles({
-  total,
-  high,
-  medium,
-  uptimeSec,
-}: SummaryTilesProps) {
+export function SummaryTiles({ total, high, medium, uptimeSec }: SummaryTilesProps) {
   return (
     <div className={styles.summary}>
       <div className={styles.tile}>

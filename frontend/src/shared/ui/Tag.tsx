@@ -8,14 +8,7 @@
  */
 import type { CSSProperties, ReactNode } from "react";
 
-type TagVariant =
-  | "default"
-  | "plate"
-  | "hash"
-  | "muted"
-  | "kin"
-  | "kin-warn"
-  | "track";
+type TagVariant = "default" | "plate" | "hash" | "muted" | "kin" | "kin-warn" | "track";
 
 const base: CSSProperties = {
   display: "inline-block",

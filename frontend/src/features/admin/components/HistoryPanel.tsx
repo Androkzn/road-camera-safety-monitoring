@@ -38,6 +38,7 @@ import { useEffect, useState } from "react";
 
 import { EventDialog } from "../../../shared/events";
 import type { SafetyEvent } from "../../../shared/types/common";
+import { ErrorList } from "../../../shared/ui";
 // TEACH: `useHistory` is a *custom hook* — a plain function whose name
 //        starts with `use` and which calls other hooks. Encapsulates
 //        "fetch + filter + reload" logic so pages can just consume it.
@@ -55,8 +56,7 @@ export function HistoryPanel() {
   // TEACH: The custom hook returns a big object of state + callbacks.
   //        We destructure everything we need in one line. If you want
   //        to know what each field is, open hooks/useHistory.ts.
-  const { events, loading, error, filters, updateFilters, refresh } =
-    useHistory();
+  const { events, loading, error, filters, updateFilters, refresh } = useHistory();
   // Event-detail modal: clicking any AdminEventCard pops the same dialog
   // the validation page uses, so admins can scrub the annotated clip
   // straight from the history list.
@@ -126,15 +126,7 @@ export function HistoryPanel() {
              Order matters: loading wins over error which wins over
              empty which wins over the populated list. */}
         {loading && <div className={styles.empty}>Loading&hellip;</div>}
-        {error && (
-          // TEACH: Inline `style` prop takes an object (not a string).
-          //        Keys are camelCased DOM style names. Using a CSS
-          //        variable here (`var(--high)`) so the colour still
-          //        comes from the design tokens in index.css.
-          <div className={styles.empty} style={{ color: "var(--high)" }}>
-            Failed to load: {error}
-          </div>
-        )}
+        {error && <ErrorList errors={[`Failed to load: ${error}`]} />}
         {!loading && !error && events.length === 0 && (
           <div className={styles.empty}>No events found</div>
         )}
@@ -143,17 +135,10 @@ export function HistoryPanel() {
              keys here: the list can reorder when filters change. */}
         {!loading &&
           events.map((ev) => (
-            <AdminEventCard
-              key={ev.event_id}
-              event={ev}
-              onSelect={setSelectedEvent}
-            />
+            <AdminEventCard key={ev.event_id} event={ev} onSelect={setSelectedEvent} />
           ))}
       </div>
-      <EventDialog
-        event={selectedEvent}
-        onClose={() => setSelectedEvent(null)}
-      />
+      <EventDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     </div>
   );
 }

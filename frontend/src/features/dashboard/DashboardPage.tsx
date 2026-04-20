@@ -52,13 +52,11 @@ export function DashboardPage() {
   const { status: testStatus, rerun: rerunTests } = useTests();
   const { findings, clearAll: clearAllFindings } = useWatchdogCtx();
   const hasFindings = (findings?.length ?? 0) > 0;
-  const { clear: handleClearEvents, clearing: clearingEvents } = useClearEvents(
-    {
-      clearEvents,
-      clearAllFindings,
-      hasFindings,
-    },
-  );
+  const { clear: handleClearEvents, clearing: clearingEvents } = useClearEvents({
+    clearEvents,
+    clearAllFindings,
+    hasFindings,
+  });
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const prevTestStatus = useRef<string>("idle");
@@ -73,11 +71,7 @@ export function DashboardPage() {
 
   // Auto-open the TestDrawer when tests flip running → failed.
   useEffect(() => {
-    if (
-      testStatus?.status === "failed" &&
-      prevTestStatus.current === "running" &&
-      !drawerOpen
-    ) {
+    if (testStatus?.status === "failed" && prevTestStatus.current === "running" && !drawerOpen) {
       setDrawerOpen(true);
     }
     if (testStatus) prevTestStatus.current = testStatus.status;
@@ -115,12 +109,7 @@ export function DashboardPage() {
         page="dashboard"
         sourceName={sourceName}
         connected={connected}
-        testBadge={
-          <TestBadge
-            status={testStatus}
-            onClick={() => setDrawerOpen((o) => !o)}
-          />
-        }
+        testBadge={<TestBadge status={testStatus} onClick={() => setDrawerOpen((o) => !o)} />}
       />
 
       <TestDrawer
@@ -140,10 +129,7 @@ export function DashboardPage() {
           />
           <PerceptionBannerRow perception={mergedPerception} />
           <SceneBannerRow scene={scene ?? null} />
-          <DriftBannerRow
-            drift={drift ?? null}
-            onRefresh={() => refreshDrift()}
-          />
+          <DriftBannerRow drift={drift ?? null} onRefresh={() => refreshDrift()} />
 
           <div className={styles.filterBar}>
             <EventFilterBar
@@ -161,10 +147,7 @@ export function DashboardPage() {
               }}
             />
             <span className={styles.filterCount}>
-              {hasFilters
-                ? `${filtered.length} / ${events.length}`
-                : `${events.length}`}{" "}
-              events
+              {hasFilters ? `${filtered.length} / ${events.length}` : `${events.length}`} events
             </span>
             <button
               type="button"
@@ -178,29 +161,19 @@ export function DashboardPage() {
           </div>
 
           <div className={styles.stream}>
-            {events.length === 0 && (
-              <div className={styles.empty}>Waiting for events…</div>
-            )}
+            {events.length === 0 && <div className={styles.empty}>Waiting for events…</div>}
             {events.length > 0 && filtered.length === 0 && (
               <div className={styles.empty}>No events match filters</div>
             )}
             {filtered.map((ev, i) => (
-              <EventCard
-                key={ev.event_id}
-                event={ev}
-                isNew={i === 0}
-                onSelect={setSelectedEvent}
-              />
+              <EventCard key={ev.event_id} event={ev} isNew={i === 0} onSelect={setSelectedEvent} />
             ))}
           </div>
         </section>
 
         <CopilotPanel />
       </div>
-      <EventDialog
-        event={selectedEvent}
-        onClose={() => setSelectedEvent(null)}
-      />
+      <EventDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     </>
   );
 }

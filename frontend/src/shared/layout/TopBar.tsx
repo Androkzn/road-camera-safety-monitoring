@@ -26,22 +26,12 @@ interface TopBarProps {
   children?: ReactNode;
 }
 
-export function TopBar({
-  connected,
-  errorCount = 0,
-  driftCount = 0,
-  children,
-}: TopBarProps) {
+export function TopBar({ connected, errorCount = 0, driftCount = 0, children }: TopBarProps) {
   const { pathname } = useLocation();
 
-  const statusVariant =
-    connected === true ? "ok" : connected === false ? "bad" : "wait";
+  const statusVariant = connected === true ? "ok" : connected === false ? "bad" : "wait";
   const statusLabel =
-    connected === true
-      ? "live"
-      : connected === false
-        ? "disconnected"
-        : "connecting…";
+    connected === true ? "live" : connected === false ? "disconnected" : "connecting…";
 
   return (
     <header className={styles.topbar}>
@@ -65,10 +55,7 @@ export function TopBar({
         <Link to="/" className={pathname === "/" ? styles.active : ""}>
           Admin
         </Link>
-        <Link
-          to="/dashboard"
-          className={pathname === "/dashboard" ? styles.active : ""}
-        >
+        <Link to="/dashboard" className={pathname === "/dashboard" ? styles.active : ""}>
           Dashboard
         </Link>
         <Link
@@ -76,9 +63,7 @@ export function TopBar({
           className={`${styles.monLink} ${pathname === "/monitoring" ? styles.active : ""}`}
         >
           Monitoring
-          {errorCount > 0 && (
-            <span className={styles.errorBubble}>{errorCount}</span>
-          )}
+          {errorCount > 0 && <span className={styles.errorBubble}>{errorCount}</span>}
         </Link>
         <Link
           to="/validation"
@@ -94,10 +79,7 @@ export function TopBar({
             </span>
           )}
         </Link>
-        <Link
-          to="/settings"
-          className={pathname === "/settings" ? styles.active : ""}
-        >
+        <Link to="/settings" className={pathname === "/settings" ? styles.active : ""}>
           Settings
         </Link>
       </nav>

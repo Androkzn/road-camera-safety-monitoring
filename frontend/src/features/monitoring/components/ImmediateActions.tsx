@@ -27,16 +27,13 @@ export function ImmediateActions({ incidents }: ImmediateActionsProps) {
               el?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
           >
-            <span className={styles.queueSeverity}>
-              {incident.severity.toUpperCase()}
-            </span>
+            <span className={styles.queueSeverity}>{incident.severity.toUpperCase()}</span>
             <span className={styles.queueTitle}>{incident.title}</span>
             <span className={styles.queueNext}>
               {incident.latest.suggestion || incident.latest.detail}
             </span>
             <span className={styles.queueMeta}>
-              {incident.owner || incident.category} • last seen{" "}
-              {formatRelative(incident.lastSeen)}
+              {incident.owner || incident.category} • last seen {formatRelative(incident.lastSeen)}
             </span>
           </button>
         ))}

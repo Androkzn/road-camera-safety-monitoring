@@ -65,10 +65,9 @@ export const settingsApi = {
     }),
 
   captureBaseline: () =>
-    adminFetch<{ ok: boolean; audit_id: string }>(
-      "/api/settings/baseline/capture",
-      { method: "POST" },
-    ),
+    adminFetch<{ ok: boolean; audit_id: string }>("/api/settings/baseline/capture", {
+      method: "POST",
+    }),
 
   getImpact: (opts: RequestOptions = {}) =>
     adminFetch<ImpactResponse>("/api/settings/impact", { signal: opts.signal }),
@@ -79,11 +78,7 @@ export const settingsApi = {
       signal: opts.signal,
     }),
 
-  createTemplate: (
-    name: string,
-    description: string,
-    payload: Record<string, unknown>,
-  ) =>
+  createTemplate: (name: string, description: string, payload: Record<string, unknown>) =>
     adminFetch<SettingsTemplate>("/api/settings/templates", {
       method: "POST",
       body: JSON.stringify({ name, description, payload }),
@@ -92,10 +87,7 @@ export const settingsApi = {
   deleteTemplate: (id: string) =>
     adminFetch<unknown>(`/api/settings/templates/${id}`, { method: "DELETE" }),
 
-  applyTemplate: (
-    id: string,
-    opts: { confirm_privacy_change?: boolean } = {},
-  ) =>
+  applyTemplate: (id: string, opts: { confirm_privacy_change?: boolean } = {}) =>
     adminFetch<ApplyResultPayload>(`/api/settings/templates/${id}/apply`, {
       method: "POST",
       body: JSON.stringify({

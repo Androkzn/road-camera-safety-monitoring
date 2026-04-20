@@ -74,15 +74,9 @@ export function useStreamRegistry(): UseStreamRegistryResult {
     mutationFn: (id) => adminApi.removeLiveSource(id),
     onMutate: (id) => {
       setRemovingById((prev) => ({ ...prev, [id]: true }));
-      const previous = qc.getQueryData<LiveSourcesResponse>(
-        adminQueryKeys.liveSources,
-      );
-      qc.setQueryData<LiveSourcesResponse>(
-        adminQueryKeys.liveSources,
-        (prev) =>
-          prev
-            ? { ...prev, sources: prev.sources.filter((s) => s.id !== id) }
-            : prev,
+      const previous = qc.getQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources);
+      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
+        prev ? { ...prev, sources: prev.sources.filter((s) => s.id !== id) } : prev,
       );
       return { previous };
     },
@@ -101,33 +95,22 @@ export function useStreamRegistry(): UseStreamRegistryResult {
     },
   });
 
-  const bulkMutation = useMutation<
-    void,
-    Error,
-    { action: "start" | "pause"; ids: string[] }
-  >({
+  const bulkMutation = useMutation<void, Error, { action: "start" | "pause"; ids: string[] }>({
     mutationFn: async ({ action, ids }) => {
-      const fn =
-        action === "start"
-          ? adminApi.startLiveSource
-          : adminApi.pauseLiveSource;
+      const fn = action === "start" ? adminApi.startLiveSource : adminApi.pauseLiveSource;
       // Parallel fan-out; `allSettled` so one failure doesn't abort the
       // rest. The post-settle invalidation shows which slots flipped.
       await Promise.allSettled(ids.map((id) => fn(id)));
     },
     onMutate: ({ action, ids }) => {
       const running = action === "start";
-      qc.setQueryData<LiveSourcesResponse>(
-        adminQueryKeys.liveSources,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                sources: prev.sources.map((s) =>
-                  ids.includes(s.id) ? { ...s, running } : s,
-                ),
-              }
-            : prev,
+      qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
+        prev
+          ? {
+              ...prev,
+              sources: prev.sources.map((s) => (ids.includes(s.id) ? { ...s, running } : s)),
+            }
+          : prev,
       );
     },
     onSettled: invalidateList,
@@ -149,9 +132,7 @@ export function useStreamRegistry(): UseStreamRegistryResult {
       if (failed.length) {
         void dialog.alert({
           title: "Some streams failed to restart",
-          message: failed
-            .map((f) => `${f.name || f.id}: ${f.error ?? "unknown error"}`)
-            .join("\n"),
+          message: failed.map((f) => `${f.name || f.id}: ${f.error ?? "unknown error"}`).join("\n"),
           variant: "danger",
         });
       }

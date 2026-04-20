@@ -4,11 +4,7 @@
  *   - SceneBannerRow      : scene classifier output
  *   - DriftBannerRow      : model-drift snapshot, clickable to refresh
  */
-import type {
-  DriftReport,
-  PerceptionState,
-  SceneContext,
-} from "../../../shared/types/common";
+import type { DriftReport, PerceptionState, SceneContext } from "../../../shared/types/common";
 
 import styles from "./PerceptionBanner.module.css";
 
@@ -21,8 +17,7 @@ export function PerceptionBannerRow({ perception }: PerceptionBannerProps) {
   const degraded = state !== "nominal";
 
   const metrics: string[] = [];
-  if (perception?.luminance != null)
-    metrics.push(`lum ${Number(perception.luminance).toFixed(0)}`);
+  if (perception?.luminance != null) metrics.push(`lum ${Number(perception.luminance).toFixed(0)}`);
   if (perception?.sharpness != null)
     metrics.push(`sharp ${Number(perception.sharpness).toFixed(0)}`);
   if (perception?.avg_confidence != null)
@@ -74,8 +69,7 @@ export function DriftBannerRow({ drift, onRefresh }: DriftBannerProps) {
   let metricsText = "";
 
   if (drift?.window_size) {
-    stateText =
-      drift.precision != null ? `P=${Number(drift.precision).toFixed(2)}` : "—";
+    stateText = drift.precision != null ? `P=${Number(drift.precision).toFixed(2)}` : "—";
     reasonText = drift.trend ? `trend: ${drift.trend}` : "";
     metricsText = `n=${drift.window_size} · TP=${drift.true_positives} · FP=${drift.false_positives}`;
   }

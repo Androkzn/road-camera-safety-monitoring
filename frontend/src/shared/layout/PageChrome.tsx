@@ -31,12 +31,7 @@ import { useWatchdogCtx } from "../../features/watchdog";
 
 import { TopBar } from "./TopBar";
 
-export type PageKey =
-  | "admin"
-  | "dashboard"
-  | "monitoring"
-  | "settings"
-  | "validation";
+export type PageKey = "admin" | "dashboard" | "monitoring" | "settings" | "validation";
 
 export interface PageChromeProps {
   /** Page identity — reserved for future per-page decoration. */

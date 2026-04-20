@@ -47,8 +47,7 @@ type Transport = "mjpeg" | "poll";
 // 1×1 transparent GIF. Assigning this to `<img>.src` is the canonical way
 // to force the browser to abort an in-flight `multipart/x-mixed-replace`
 // fetch *now* (rather than at GC time). Cheap, valid, no network round-trip.
-const BLANK_GIF =
-  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+const BLANK_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
 function resolveTransport(): Transport {
   // Build-time override beats runtime detection. Useful when the ops team
@@ -80,21 +79,9 @@ interface StreamImageProps {
  */
 export function StreamImage({ source, className, onError }: StreamImageProps) {
   if (VIDEO_TRANSPORT === "mjpeg") {
-    return (
-      <MjpegStreamImage
-        source={source}
-        className={className}
-        onError={onError}
-      />
-    );
+    return <MjpegStreamImage source={source} className={className} onError={onError} />;
   }
-  return (
-    <PollingStreamImage
-      source={source}
-      className={className}
-      onError={onError}
-    />
-  );
+  return <PollingStreamImage source={source} className={className} onError={onError} />;
 }
 
 function MjpegStreamImage({ source, className, onError }: StreamImageProps) {
@@ -144,10 +131,7 @@ function PollingStreamImage({ source, className, onError }: StreamImageProps) {
   // parent (which would unmount the tile and freeze it on "Connecting…").
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    const id = window.setInterval(
-      () => setTick(Date.now()),
-      POLL_INTERVAL_MS.streamImageFrame,
-    );
+    const id = window.setInterval(() => setTick(Date.now()), POLL_INTERVAL_MS.streamImageFrame);
     return () => window.clearInterval(id);
   }, [source.id]);
 
