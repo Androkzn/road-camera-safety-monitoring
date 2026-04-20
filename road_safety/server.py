@@ -1196,7 +1196,13 @@ def _render_annotated_event_clip(
                 "-i", "pipe:",
                 "-c:v", "libx264", "-preset", "veryfast",
                 "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                "-an", str(tmp_path),
+                "-an",
+                # Force MP4 muxer explicitly — ffmpeg can't infer format
+                # from the ``.mp4.tmp`` suffix (it picks muxer by extension
+                # and ``.tmp`` is unknown), so without ``-f mp4`` the encode
+                # fails with "Invalid argument" before a single frame lands.
+                "-f", "mp4",
+                str(tmp_path),
             ],
             stdin=subprocess.PIPE,
             stderr=subprocess.PIPE,

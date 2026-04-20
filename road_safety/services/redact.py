@@ -272,16 +272,17 @@ def write_thumbnails(
     pair_ids = {id(primary), id(secondary)}
     others = [d for d in detections if id(d) not in pair_ids]
     for det in others:
-        # Class-coloured thin box for context detections. Same palette the
-        # live admin tile uses (_render_annotated_frame), dimmed by going
-        # 1-px instead of 2-px so the pair-of-interest still pops.
+        # Class-coloured box for context detections. Same palette the live
+        # admin tile uses (_render_annotated_frame). 2-px thickness because
+        # 1-px lines disappear into the background once JPEG compression
+        # smudges them on a 1920x1080 thumbnail viewed at typical scale.
         color = _CONTEXT_COLOR_MAP.get(det.cls, (180, 180, 180))
-        cv2.rectangle(redacted, (det.x1, det.y1), (det.x2, det.y2), color, 1)
+        cv2.rectangle(redacted, (det.x1, det.y1), (det.x2, det.y2), color, 2)
     for det, color in [(primary, (0, 0, 255)), (secondary, (0, 200, 255))]:
         # OpenCV uses BGR: (0, 0, 255) = red for primary,
-        # (0, 200, 255) = amber for secondary. Line thickness 2 px so the
-        # pair stays visually dominant over the context boxes above.
-        cv2.rectangle(redacted, (det.x1, det.y1), (det.x2, det.y2), color, 2)
+        # (0, 200, 255) = amber for secondary. 3-px thickness keeps the
+        # pair visually dominant over the 2-px context boxes above.
+        cv2.rectangle(redacted, (det.x1, det.y1), (det.x2, det.y2), color, 3)
     # ``cv2.imwrite`` picks encoding by extension. JPEG quality defaults
     # apply; no per-path override here - the on-disk size is dominated by
     # content, not the quality setting.
