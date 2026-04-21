@@ -1,4 +1,4 @@
-.PHONY: install dev test lint run start stop restart status logs docker-build docker-up docker-down clean
+.PHONY: install dev test lint run start start-bg stop restart status logs docker-build docker-up docker-down clean
 
 ROAD_PORT ?= 8000
 PID_FILE := .road_safety.pid
@@ -25,6 +25,18 @@ run-cloud:
 	python start.py --cloud
 
 start:
+	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
+		echo "Already running (PID $$(cat $(PID_FILE)))"; \
+	else \
+		echo "Starting on :$(ROAD_PORT) (logs: $(LOG_FILE))"; \
+		nohup python start.py --skip-tests --no-browser --port $(ROAD_PORT) > $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE); \
+		sleep 1; \
+		echo "PID $$(cat $(PID_FILE))"; \
+	fi
+	@echo "--- streaming $(LOG_FILE) (Ctrl-C to detach; server keeps running) ---"
+	@tail -n +1 -f $(LOG_FILE)
+
+start-bg:
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
 		echo "Already running (PID $$(cat $(PID_FILE)))"; \
 		exit 0; \
