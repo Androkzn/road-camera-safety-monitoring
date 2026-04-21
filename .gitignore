@@ -37,6 +37,8 @@ data/test_suite/results.json
 # Event clip extracts (±3s around each event) — generated at runtime for
 # the EventDialog video player; can be large and not worth versioning.
 data/clips/
+# Stray runtime output if the frontend is started from its own CWD
+frontend/data/
 .test-report.json
 
 # Input video (too large for git)
