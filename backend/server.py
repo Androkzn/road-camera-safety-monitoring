@@ -12,6 +12,8 @@ It should stay the composition root for the edge server and nothing more.
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -37,7 +39,11 @@ from backend.api.settings import mount as mount_settings_routes
 from backend.config import STATIC_DIR, THUMBS_DIR
 from backend.logging import setup as setup_logging
 from backend.perception.emit import find_event as _find_event, on_feedback as _on_feedback
+from backend.services.impact import ImpactMonitor as SettingsImpactMonitor
+from backend.services.llm_obs import observer as llm_observer
+from backend.services.ops_sampler import OpsSampler
 from backend.startup import lifespan
+from backend.state import state
 
 setup_logging()
 
@@ -67,6 +73,36 @@ def _include_feature_routers(app: FastAPI) -> None:
         app.include_router(router)
 
 
+def _aggregate_frames() -> tuple[int, int]:
+    """Sum ``frames_read`` / ``frames_processed`` across all active slots."""
+    total_read = 0
+    total_proc = 0
+    for slot in state.slots.values():
+        reader = slot.reader
+        if reader is not None:
+            total_read += int(getattr(reader, "frames_read", 0) or 0)
+            total_proc += int(getattr(reader, "frames_processed", 0) or 0)
+    return total_read, total_proc
+
+
+def _configure_settings_console(app: FastAPI) -> None:
+    """Wire the settings console and its shared monitors onto ``app``."""
+    state.ops_sampler = OpsSampler(
+        frames_source=_aggregate_frames,
+        llm_stats_fn=llm_observer.stats,
+    )
+    state.settings_impact = SettingsImpactMonitor(
+        events_source=state.recent_events_snapshot,
+        ops_stats_fn=state.ops_sampler.window_stats,
+    )
+    state.settings_impact_subscribers = []
+    mount_settings_routes(
+        app,
+        impact_monitor=state.settings_impact,
+        impact_subscribers=state.settings_impact_subscribers,
+    )
+
+
 def create_app() -> FastAPI:
     """Build and return the FastAPI edge server application."""
     app = FastAPI(title="Live Safety Review", lifespan=lifespan)
@@ -74,7 +110,7 @@ def create_app() -> FastAPI:
     _include_feature_routers(app)
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
     mount_feedback_routes(app, on_feedback=_on_feedback, event_lookup=_find_event)
-    mount_settings_routes(app)
+    _configure_settings_console(app)
     return app
 
 

@@ -19,7 +19,7 @@
 
 This document is the execution handoff from the approved TRD into actual repository implementation.
 
-- The approved TRD is contract-authoritative for behavior, state, API, schema, privacy, and rollout truth.
+- The approved TRD is contract-authoritative for behavior, state, API, auth, schema, privacy, and rollout truth.
 - This document wins for repo-specific execution order, file plan, and implementation sequencing.
 - If conflict exists between this document and the approved TRD → flag as Known Gap, resolve before coding.
 
@@ -35,7 +35,7 @@ This document is the execution handoff from the approved TRD into actual reposit
 
 This document translates approved TRD contracts into repo-specific execution. It does not redefine:
 - Feature scope or non-goals from BRD/TRD
-- Behavior, state, API, schema, or privacy contracts from TRD
+- Behavior, state, API, auth, schema, or privacy contracts from TRD
 - Cross-module boundaries defined in TRD §6.2
 
 Belongs in this document:
@@ -53,12 +53,12 @@ Belongs in this document:
 |---|---|---|---|---|
 | 1 | Core Detection Pipeline | `SHIPPED` | None | Stream, detection, tracking, risk, events, SSE, dashboard |
 | 2 | LLM Enrichment Layer | `SHIPPED` | Phase 1 | Narration, vision enrichment, chat copilot, RAG |
-| 3 | Privacy & Redaction | `SHIPPED` | Phase 1 | Dual thumbnails, plate hashing |
+| 3 | Privacy & Redaction | `SHIPPED` | Phase 1 | Dual thumbnails, plate hashing, DSAR gating |
 | 4 | Edge/Cloud Architecture | `SHIPPED` | Phase 1, 3 | HMAC-signed batched delivery, cloud receiver |
 | 5 | Feedback & Drift Monitoring | `SHIPPED` | Phase 1 | Operator verdicts, rolling precision, active learning |
 | 6 | Alerting & Digest | `SHIPPED` | Phase 1, 2 | Slack notifications, hourly/daily digests |
 | 7 | LLM Observability & Resilience | `SHIPPED` | Phase 2 | Multi-provider failover, rate budget, circuit breaker, cost tracking |
-| 8 | Compliance & Audit | `SHIPPED` | Phase 3, 5 | Audit trail, data retention |
+| 8 | Compliance & Audit | `SHIPPED` | Phase 3, 5 | Audit trail, data retention, DSAR enforcement |
 | 9 | Road Readiness | `SHIPPED` | Phase 1 | Vehicle/driver identity, safety scoring, road-wide aggregation |
 | 10 | AI Agent Orchestration | `SHIPPED` | Phase 2, 5, 9 | Coaching, investigation, report agents |
 | 11 | Evaluation Harness | `SHIPPED` | Phase 1 | Precision/recall eval, suite runner, regression detection |
@@ -178,6 +178,11 @@ road-safety/
 | Vehicle ID | — | Road | `ROAD_VEHICLE_ID` | `""` |
 | Road ID | — | Road | `ROAD_ID` | `""` |
 | Driver ID | — | Road | `ROAD_DRIVER_ID` | `""` |
+| DSAR token | — | Privacy | `ROAD_DSAR_TOKEN` | None (access denied) |
+| Public thumbnail token gate | Off by default | Privacy | `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN` | 0 |
+| Public thumbnail signing secret | Inherits cloud HMAC secret when unset | Privacy | `ROAD_THUMB_SIGNING_SECRET` | `ROAD_CLOUD_HMAC_SECRET` |
+| Admin bearer token | — | Security | — | None (protected endpoints disabled) |
+| Cloud read bearer token | — | Security | `ROAD_CLOUD_READ_TOKEN` | None (cloud reads disabled) |
 | Slack image relay | Off by default | Alerting | `SLACK_ENABLE_IMAGE_RELAY` | 0 |
 | Plate salt | — | Privacy | `ROAD_PLATE_SALT` | Random per process if unset |
 | ALPR policy mode | Off by default | LLM | `ROAD_ALPR_MODE` | `off` |
@@ -300,7 +305,6 @@ road-safety/
 |---|---|---|---|---|
 | 1 | `redact.py` | CREATE | Face blur, plate blur, plate hash, dual thumbnails | §10.2 |
 
-
 ### Implementation Details
 
 **redact.py — Dual Thumbnails:**
@@ -318,8 +322,10 @@ road-safety/
 
 - [x] Every event produces both internal and public thumbnails
 - [x] Public thumbnails have faces and plates blurred
+- [x] Optional signed public-thumbnail mode (`ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`) enforces `exp/token` query params
 - [x] Plate text is hashed with deployment-specific salt
 - [x] Raw plate text never appears in any egress channel
+- [x] Unredacted thumbnails require DSAR token
 
 ---
 
@@ -351,6 +357,7 @@ road-safety/
 - Verifies HMAC signature on each batch
 - Deduplicates on `event_id` (set-based)
 - Persists events to SQLite
+- Read endpoints (`/events`, `/stats`) require `ROAD_CLOUD_READ_TOKEN`
 - Returns 200 on success, 401 on signature mismatch
 
 ### Acceptance Criteria
@@ -461,7 +468,7 @@ road-safety/
 - Each record: `call_type`, `model`, `input_tokens`, `output_tokens`, `latency_ms`, `success`, `error`, `skip_reason`, `event_id`
 - `stats(window_sec)` → total calls, success/error/skip counts, P50/P95 latency, estimated USD cost, error rate
 - `recent(limit)` → last N records as dicts
-- Exposed via `/api/llm/stats` and `/api/llm/recent`
+- Exposed via `/api/llm/stats` and `/api/llm/recent` behind —
 
 **llm.py — Multi-Provider Failover (TRD D-06):**
 - Primary provider: Anthropic (or Azure if configured)
@@ -511,10 +518,12 @@ road-safety/
 - `tail(n)` → last N records
 - `stats()` → action counts
 - Every sensitive operation is audit-logged:
+  - Unredacted thumbnail access (success + denial)
   - Feedback submission
   - Active learning export
   - Chat queries
   - Agent invocations
+- Sensitive operational endpoints are bearer-protected via —
 
 **retention.py:**
 - `sweep_thumbnails(max_age_days)` → deletes old thumbnail files
@@ -743,7 +752,7 @@ print(f"[module_name] descriptive message")
 - [x] No missing imports or circular dependencies
 - [x] `.env.example` documents all environment variables
 - [x] `pyproject.toml` includes all dependencies with version ranges
-- [x] PII isolation verified (redact.py blur, plate hash)
+- [x] PII isolation verified (redact.py blur, plate hash, DSAR gating)
 - [x] Audit trail covers all sensitive operations
 - [x] Retention sweep deletes expired data
 - [x] Episode dedup prevents duplicate emissions
@@ -790,6 +799,7 @@ uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 | # | Area | Issue | Severity | Blocks Phase | Status |
 |---|---|---|---|---|---|
 | 1 | Persistence | In-memory storage resets on restart | Medium | None | Accepted for v1.0 |
+| 2 | Auth | No centralized RBAC or user identity layer; sensitive ops use shared bearer tokens | Medium | None | Accepted for v1.0 |
 | 3 | GPU | CPU-only limits to ~2 fps | Low | None | Future optimization |
 | 4 | Multi-tenant | No tenant isolation | Low | None | Out of scope for v1.0 |
 | 5 | Structured logging | Using print statements instead of structured logger | Low | None | Future improvement |

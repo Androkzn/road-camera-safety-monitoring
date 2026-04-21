@@ -167,7 +167,7 @@ Each function that uses a tunable starts with `cfg = STORE.snapshot()` (one read
 
 ### 1.4 Create [backend/api/settings.py](backend/api/settings.py)
 
-FastAPI router mounted on `server.py` with `app.include_router(settings.router)`. All mutators write one `compliance/audit.py::log()` row.
+FastAPI router mounted on `server.py` with `app.include_router(settings.router)`. All routes guarded by `require_bearer_token(...)`, all mutators write one `compliance/audit.py::log()` row.
 
 | Route | Purpose | Body / Response |
 |---|---|---|
@@ -184,6 +184,7 @@ FastAPI router mounted on `server.py` with `app.include_router(settings.router)`
 | `GET /api/settings/baseline` | Active session baseline | session JSON |
 | `GET /api/settings/impact` | One-shot before/after | session JSON with `narrative` |
 | `GET /api/settings/impact/stream` | SSE | per-15s push (see Phase 3) |
+| `POST /api/settings/impact/ticket` | **▲ v1.1:** Issue single-use 30 s ticket for SSE auth | `{ticket, expires_in}` |
 | `GET /api/settings/impact/history?limit=20` | Archived sessions (reads `data/settings_history.jsonl`) | list |
 | `GET /api/settings/effective` | **▲ v1.1:** Base + scene-multiplied effective values for scene-adapted tunables | `{key: {base, effective, multiplier, scene}}` |
 
@@ -428,6 +429,10 @@ Lib:
 | `lib/api.ts` (extend) | Add `getSettings`, `putSettings`, `previewSettings`, `resetSettings`, `listTemplates`, `createTemplate`, `updateTemplate`, `deleteTemplate`, `applyTemplate`, `revertLast`, `getBaseline`, `getImpact` |
 | `types.ts` (extend) | Add `Tunable`, `SettingsResponse`, `Template`, `BaselineSnapshot`, `ImpactPayload`, `ImpactConfidence`, `Recommendation` |
 
+### 3.4 Authentication (historical)
+
+This POC ships **without** browser-stored secrets. The operator UI calls `/api/settings/*` with plain `fetch`. Re-introduce tickets or bearer checks only when moving beyond lab deployments.
+
 ### 3.5 Optimistic update + debounce
 
 `useSettings` keeps a `lastConfirmedRef` for rollback. Slider drags coalesce into one PUT after 400 ms of quiescence. Each PUT carries a monotonic `requestSeq`; stale responses (older than `latestAckedSeq`) are dropped to avoid races.
@@ -439,7 +444,7 @@ Lib:
 - Pre-after-window-fill → "Gathering data… N/20 events observed" with thin progress bar.
 - PUT failure → row red ring + inline error + toast. No page crash.
 - LLM unavailable → render numbers + "AI analysis unavailable."
-- HTTP errors → inline toast + retry affordances.
+- HTTP errors → inline toast + retry affordances (no credential prompts in POC).
 - SSE drop → fall back to 20 s polling, show "live updates paused" pill.
 
 ### 3.7 Revert flow (per user choice)
@@ -503,7 +508,7 @@ No auto-revert. No timer. Operator stays in control.
 
 ### NEW tests
 - `tests/test_settings_store.py` — apply/reset/atomic-validation/snapshot-isolation/subscribers. **▲ v1.1:** + subscriber-raises-exception → warning surfaced, store still applies; + `TRACK_HISTORY_LEN` deque rebuild preserves tail within new maxlen.
-- `tests/test_settings_api.py` — validation 422, audit row written, preview. **▲ v1.1:** + `GET /api/settings/effective` returns scene-multiplied values.
+- `tests/test_settings_api.py` — auth tier, validation 422, audit row written, preview. **▲ v1.1:** + SSE ticket issuance + single-use consumption + expiry; + `GET /api/settings/effective` returns scene-multiplied values.
 - `tests/test_settings_templates.py` — CRUD, default-template immutability, atomic write. **▲ v1.1:** + apply old template with key dropped by spec → dropped + audit logged; + apply with key missing from template → filled from default; + apply violating new cross-field validator → 422.
 - `tests/test_impact.py` (`@pytest.mark.asyncio`) — baseline lookback expansion, coalescing, percentile math, delta computation, FP proxy fallback, LLM-unavailable degradation, `revert_last` flow. **▲ v1.1:** + coalesce preserves `_last_good` across multiple rapid changes; + session archived after 1 h, revert within 24 h grace works; + scene shift between baseline and after surfaces in `scene_distribution` delta.
 - **▲ v1.1:** `tests/test_privacy_invariant.py` — see verification step 7 (this replaces the fictitious `test_no_plate_leak`).
@@ -522,6 +527,7 @@ No auto-revert. No timer. Operator stays in control.
 | ALPR_MODE flip off→on (privacy) | Endpoint requires `?confirm_privacy_change=1`; distinct `audit.privacy_change` row. |
 | LLM cost runaway | `analyze_settings_impact` caps at 1 token/30 s; shared bucket protects narration/enrichment. Empty bucket → numeric-only impact. |
 | `TARGET_FPS` hot-reload subtlety | Marked `requires_restart=true` in v1; yellow badge in UI. v2 follow-up rebuilds timer. |
+| EventSource cannot set Authorization header | `adminUrl(path)` helper appends `?token=…`; server accepts query-string token on SSE routes only (logged + rate-limited). |
 | Operator abandons monitoring | At 10 min idle, set `session_state="monitoring_unattended"` + advisory banner. Never auto-revert. |
 | **▲ v1.1:** Subscriber raises during apply | Wrap each dispatch in try/except; log `settings.apply.subscriber_failed` audit; surface in `AppliedResult.warnings`; never propagate to a 500. |
 | **▲ v1.1:** Scene drift confounds A/B impact | `WindowStats.scene_distribution` captured for baseline and after; LLM prompt explicitly flags when distribution shifts >20 pp; UI shows scene pie next to comparison chart. |
@@ -545,6 +551,7 @@ No auto-revert. No timer. Operator stays in control.
 6. **End-to-end smoke**
    - `python start.py` (builds FE + runs tests + boots server on :8000).
    - Navigate to `http://localhost:8000/settings`.
+   - First write → token prompt → paste —.
    - Drag `TTC_HIGH_SEC` slider 0.5 → 0.8 → confirm row turns dirty, PUT fires after 400 ms, baseline captures.
    - Wait ~60 s → confirm `<ImpactPanel>` shows numeric deltas.
    - Wait ~5 min or until `≥20` after-window events → confirm AI narrative arrives.
@@ -561,6 +568,7 @@ No auto-revert. No timer. Operator stays in control.
 ## Out of scope (v2 candidates)
 
 - Hot-reload `TARGET_FPS` without restart (timer rebuild).
+- Cookie-based auth (httpOnly) instead of `sessionStorage` bearer.
 - A 6th "Impact Deep Dive" agent (Sonnet, ≤5 tools) for operator-initiated drill-downs — keeps us under the agent tool-cap rule.
 - Cloud receiver mirror of `data/settings_history.jsonl` for fleet-wide settings analytics.
 - Auto-revert with operator-set policy (timer-driven, opt-in).

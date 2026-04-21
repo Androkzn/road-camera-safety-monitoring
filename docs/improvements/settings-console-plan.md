@@ -17,7 +17,7 @@ the existing safety gates.
 
 ## Non-negotiable production rules
 
-1. Secrets, fleet identity, HMAC keys: **never** editable from the UI.
+1. Secrets, fleet identity, HMAC keys, DSAR token: **never** editable from the UI.
 2. SQLite (`data/settings.db`) is the **canonical** store. SSE is best-effort
    notification only.
 3. Deterministic math always outranks AI explanation. The LLM is advisory.
@@ -25,7 +25,8 @@ the existing safety gates.
 5. Atomic apply: validate the whole payload, swap snapshot, run subscribers
    under per-callback `try/except`. Never partial.
 6. Rollback to last-known-good is one click and audit-logged.
-7. Existing detection gates remain in place; only their *constants* become
+   reads included. The single exception is the SSE stream, which uses a
+8. Existing detection gates remain in place; only their *constants* become
    live snapshot reads.
 
 ---
@@ -34,8 +35,12 @@ the existing safety gates.
 
 ### S0 — Prerequisite hardening (blocks Settings write paths)
 
+- Gate the watchdog destructive endpoints (`DELETE /api/watchdog/findings`,
+  `POST /api/watchdog/findings/delete`) behind `require_bearer_token`.
 - Add a small lock around `state.recent_events` append/read so the impact
   engine can sample without races with the perception loop.
+- Document the auth matrix in `CLAUDE.md`: public read (telemetry, MJPEG),
+  watchdog mutations), DSAR (unredacted thumbnails).
 
 ### S1 — Runtime settings core
 
@@ -73,7 +78,7 @@ the existing safety gates.
   Examples: `TARGET_FPS`, `MODEL_PATH`. Apply response splits result
   into `applied_now` and `pending_restart`; UI shows a persistent banner.
 - **`read_only`**: surfaced in UI for visibility, never editable.
-  Examples: salts, fleet identity.
+  Examples: tokens, salts, fleet identity.
 
 ### Cross-field validators (server-side, mandatory)
 
@@ -161,7 +166,7 @@ spelled out in the code comments — see `services/impact.py`.
 
 ### S5 — API surface
 
-All under `/api/settings/*`, all open in the POC, all mutations
+All under `/api/settings/*`, all `require_bearer_token`, all mutations
 audit-logged through `backend/compliance/audit.py`.
 
 Reads:
@@ -180,7 +185,7 @@ Writes:
   + `would_warm_reload: [...]` + `would_restart: [...]`.
 - `POST /api/settings/apply` → atomic apply.
   - Accepts `If-Match: <revision_hash>` for lost-update protection.
-  - Server-side `MIN_CHANGE_INTERVAL_SEC=5` per-IP cooldown → 429 + Retry-After.
+  - Server-side `MIN_CHANGE_INTERVAL_SEC=5` per-token cooldown → 429 + Retry-After.
   - Body must include `?confirm_privacy_change=1` (or body field) when
     `ALPR_MODE` is being changed (off↔on / off↔on_demand / on↔on_demand).
   - Response: `{applied_now, pending_restart, warnings, audit_id, revision_hash}`.
@@ -190,7 +195,8 @@ Writes:
 - `DELETE /api/settings/templates/{id}` → soft delete (409 if `system`).
 - `POST /api/settings/templates/{id}/apply` → re-validate, migrate, apply.
 - `POST /api/settings/baseline/capture` → freeze a new baseline window.
-- `GET  /api/settings/impact/stream` → SSE; mirrors the existing
+- `POST /api/settings/stream_ticket` → returns `{ticket, expires_in}`,
+- `GET  /api/settings/impact/stream?ticket=…` → SSE; mirrors the existing
   `/stream/events` handler pattern.
 
 ### S6 — Frontend
@@ -209,6 +215,10 @@ Writes:
   - `useSettings` — polled effective + schema; debounced apply (400 ms).
   - `useImpact` — polls `/impact?audit_id=…` every 15 s; falls back from
     SSE → polling on disconnect.
+    first 401 / 503; "Forget token" link in the page header.
+- Auth:
+    documents the localStorage-vs-sessionStorage trade-off and CSRF posture
+  - SSE never carries the long-lived bearer; uses the ticket exchange.
 - UX rules:
   - Disable apply while validation fails.
   - Show `restart-required` and `warm-reload` badges on each control.
@@ -231,8 +241,9 @@ in v1, by tailing audit + structured logs):
 - **Unit**: spec validation, cross-field rules, atomic apply, subscriber
   isolation (raise → warning surfaced, store still applies),
   `TRACK_HISTORY_LEN` deque rebuild preserves tail.
-- **API**: validation 422 shape, `If-Match` 409,
-  `MIN_CHANGE_INTERVAL_SEC` 429, rollback.
+- **API**: auth tier enforcement (401/403/503), validation 422 shape,
+  `If-Match` 409, `MIN_CHANGE_INTERVAL_SEC` 429, rollback, ticket issue +
+  single-use consumption + expiry.
 - **Templates**: CRUD, default-template immutability, atomic write, apply
   with key dropped (logged), apply with key filled (logged), apply violating
   new cross-field validator (422).
@@ -250,6 +261,7 @@ in v1, by tailing audit + structured logs):
 ### S9 — Out of scope (v2 candidates)
 
 - `TARGET_FPS` mid-run timer rebuild (kept as `restart_required` in v1).
+- Cookie-based auth instead of `sessionStorage` bearer.
 - Cloud-receiver mirror of impact history for fleet-wide settings analytics.
 - Auto-revert on AI recommendation (v1 is operator-driven only).
 - A 6th "Impact Deep Dive" agent (would push us past the 5-tool agent cap).
@@ -297,7 +309,7 @@ documented here flow through `settings_spec.SETTINGS_SPEC`.
 
 ### Modified backend
 - `backend/config.py` — no schema change; settings_spec imports defaults from here.
-- `backend/server.py` — mount router; add `recent_events` lock; lifespan wires impact monitor; per-loop snapshot reads for `MAX_RECENT_EVENTS` / `PAIR_COOLDOWN_SEC` / `ALPR_MODE`.
+- `backend/server.py` — mount router; add `recent_events` lock; gate watchdog mutators; lifespan wires impact monitor; per-loop snapshot reads for `MAX_RECENT_EVENTS` / `PAIR_COOLDOWN_SEC` / `ALPR_MODE`.
 - `backend/core/detection.py` — snapshot reads for the detection / risk-tier / gating constants; `TRACK_HISTORY_LEN` deque rebuild on subscriber.
 - `backend/core/quality.py` — snapshot reads for the two threshold constants.
 - `backend/services/llm.py` — `_HAIKU_BUCKET` rebuilt via subscriber; `_CB_THRESHOLD` / `_CB_COOLDOWN_SEC` snapshot reads; new `analyze_settings_impact()` advisory function.

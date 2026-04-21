@@ -18,7 +18,7 @@
 | v0.1 | 2026-04-01 | A. Tekhtelev | Initial draft — core detection + narration |
 | v0.5 | 2026-04-08 | A. Tekhtelev | Added edge/cloud, drift, privacy modules |
 | v1.0 | 2026-04-15 | A. Tekhtelev | Added agents, road readiness, LLM observability, retention |
-| v1.1 | 2026-04-15 | A. Tekhtelev | Documentation sync: ALPR policy gate, score-decay scheduler controls |
+| v1.1 | 2026-04-15 | A. Tekhtelev | Documentation sync: ALPR policy gate, signed public-thumbnail option, score-decay scheduler controls |
 
 ---
 
@@ -70,7 +70,7 @@
 |---|---|---|---|
 | Technical | LLM rate limits cause enrichment failures | Degraded narration quality | Circuit breaker + token-bucket rate limiter + multi-provider failover |
 | Technical | YOLO false positives on crowded scenes | Alert fatigue, operator distrust | Scene-adaptive thresholds + episode dedup + operator feedback loop |
-| Compliance | PII leakage through thumbnails or event data | Regulatory fines, reputational damage | Dual-thumbnail architecture, plate hashing, audit trail |
+| Compliance | PII leakage through thumbnails or event data | Regulatory fines, reputational damage | Dual-thumbnail architecture, plate hashing, DSAR gating, audit trail |
 | Operational | Model drift from new camera angles / weather | Silent precision degradation | Rolling precision monitor + Slack alerts + active learning pipeline |
 | Scalability | Single-process architecture limits road growth | Cannot support multi-vehicle roads | Road-ready data model with vehicle/driver identity from day one |
 | AI Agents | Agent hallucination or runaway tool loops | Incorrect coaching / wasted cost | Bounded tool sets (≤5), hard stop at 5 iterations, structured output schema |
@@ -79,6 +79,7 @@
 
 - **TTC:** Time-to-collision — estimated seconds until two objects collide, derived from bbox scale growth
 - **Episode:** A single sustained interaction between two tracked objects (emits once at peak severity)
+- **DSAR:** Data Subject Access Request — GDPR mechanism for individuals to request their data
 - **Active Learning:** ML strategy of selectively labeling the most informative samples for retraining
 - **Decision Boundary:** Confidence range [0.35, 0.50] where the model is most uncertain
 - **Drift:** Degradation of model precision over time due to data distribution shift
@@ -119,10 +120,13 @@
 | **Reliability** | System operates continuously without LLM (graceful degradation to templated summaries) |
 | **Reliability** | Edge node survives network outages (local queue, at-least-once delivery) |
 | **Security** | HMAC-SHA256 signed payloads for edge→cloud; TLS for confidentiality |
+| **Security** | Sensitive operational endpoints require bearer-token access control |
 | **Security** | OWASP LLM01:2025 — image content treated as untrusted user data |
+| **Security** | Optional signed public-thumbnail access (`exp/token`) when enabled by policy |
 | **Privacy** | Shared event channels (SSE, Slack, cloud) exclude raw plate text and unredacted thumbnails; optional third-party enrichment must be separately governed |
 | **Privacy** | Third-party ALPR is policy-gated (`ROAD_ALPR_MODE=third_party`) and off by default |
 | **Privacy** | Plate text retained only as salted SHA-256 hash |
+| **Privacy** | Unredacted thumbnails gated by DSAR token |
 | **Privacy** | Configurable data retention with automatic expiry |
 | **Scalability** | Road-ready data model (vehicle_id, road_id, driver_id on every event) |
 | **Observability** | Per-call LLM token cost, latency percentiles, error/skip rates |
@@ -137,6 +141,7 @@
 | ALPR policy left at default (`ROAD_ALPR_MODE=off`) | External ALPR calls are skipped by design; narration and detection still run |
 | Stream resolution fails | Server starts without live stream; batch endpoints still functional |
 | Camera degraded (blur, low light, overexposed) | Perception quality monitor tightens thresholds, skips vision enrichment |
+| Public-thumbnail signing enabled but URL token invalid | Server denies public thumbnail request (403) and audit-logs denial |
 | LLM rate limit exhausted | Token bucket refuses calls proactively; circuit breaker opens after 3 failures |
 | Both LLM providers down | All narration/enrichment returns None; detection continues unaffected |
 | Network outage (edge→cloud) | Events queue locally; drain on reconnect with exponential backoff |
@@ -190,7 +195,7 @@ See `docs/architecture.md` for the full edge/cloud diagram and data flow.
 
 ### 3.3 API Interfaces
 
-See `docs/requirements/Road_Safety_TRD.md` §9 for the endpoint contract.
+See `docs/requirements/Road_Safety_TRD.md` §9 for the endpoint contract and auth expectations.
 
 ### 3.4 Testing Strategy
 
@@ -256,7 +261,7 @@ See `docs/challenges.md` for detailed industry challenge mapping:
 | 1 | False Positives & Alert Fatigue | Scene-adaptive thresholds, episode model, quality gating |
 | 2 | Edge/Cloud Latency & Bandwidth | Edge-first architecture, 2000-10000x bandwidth reduction |
 | 3 | LLM Reliability in Production | Multi-provider failover, circuit breaker, self-consistency |
-| 4 | Privacy & Regulatory Compliance | Dual thumbnails, plate hashing, audit, retention |
+| 4 | Privacy & Regulatory Compliance | Dual thumbnails, plate hashing, DSAR gating, audit, retention |
 | 5 | Model Drift & Continuous Improvement | Rolling precision, active learning, disputed sampling |
 | 6 | Scaling to Multi-Vehicle Roads | Road identity, driver scoring, road-wide aggregation |
 | 7 | AI Agent Orchestration | Bounded tools, structured output, hard stops, observability |

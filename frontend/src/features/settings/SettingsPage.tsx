@@ -14,12 +14,17 @@ import { useWatchdogCtx } from "../watchdog";
 
 import {
   ApplyResultBanner,
+  BaselineCard,
+  ImpactCard,
   LivePreviewCard,
   SettingsHeader,
+  TemplatesCard,
   TunablesColumn,
 } from "./components";
+import { useImpact } from "./hooks/useImpact";
 import { useSettings } from "./hooks/useSettings";
 import { useSettingsApply } from "./hooks/useSettingsApply";
+import { useSettingsTemplates } from "./hooks/useSettingsTemplates";
 import { shortSource } from "./utils/formatting";
 import type { SettingSpec } from "./types";
 
@@ -27,6 +32,8 @@ import styles from "./SettingsPage.module.css";
 
 export function SettingsPage() {
   const settings = useSettings();
+  const templates = useSettingsTemplates();
+  const impact = useImpact();
   const { data: live, error: liveError } = useLiveStatus(POLL_INTERVAL_MS.liveStatusSettings);
   const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSourcesSettings);
   const { status: wdStatus } = useWatchdogCtx();
@@ -47,9 +54,10 @@ export function SettingsPage() {
     submitting,
     apply,
     rollback,
+    applyTemplate,
     discardDraft,
     dismissApplyResult,
-  } = useSettingsApply({ settings, dialog });
+  } = useSettingsApply({ settings, templates, impact, dialog });
 
   const errorByKey = useMemo(() => {
     const m: Record<string, string> = {};
@@ -120,6 +128,23 @@ export function SettingsPage() {
         </section>
 
         <aside className={styles.right}>
+          <TemplatesCard
+            templates={templates.templates}
+            busy={submitting}
+            onApply={applyTemplate}
+            onCreate={async (name, description) => {
+              if (!settings.effective) return;
+              await templates.create(name, description, settings.effective.values);
+            }}
+            onDelete={async (id) => templates.remove(id)}
+          />
+          <BaselineCard onCaptured={() => impact.refresh()} />
+          <ImpactCard
+            report={impact.report}
+            refreshing={impact.refreshing}
+            lastUpdatedTs={impact.lastUpdatedTs}
+            onRefresh={() => impact.refresh()}
+          />
           <LivePreviewCard
             sources={liveSources.sources}
             primaryId={liveSources.primaryId}

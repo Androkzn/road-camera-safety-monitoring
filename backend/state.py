@@ -43,6 +43,8 @@ from backend.services.drift import ActiveLearningSampler, DriftMonitor
 
 if TYPE_CHECKING:
     from backend.core.validator import ValidatorWorker
+    from backend.services.impact import ImpactMonitor
+    from backend.services.ops_sampler import OpsSampler
     from backend.services.watchdog import Watchdog
 
 
@@ -582,6 +584,9 @@ class LiveState:
         self.agent_executor: AgentExecutor | None = None
         self.watchdog: "Watchdog | None" = None
         self.admin_detection_subscribers: set[asyncio.Queue] = set()
+        self.ops_sampler: "OpsSampler | None" = None
+        self.settings_impact: "ImpactMonitor | None" = None
+        self.settings_impact_subscribers: list[asyncio.Queue[Any]] = []
         # Background validator (dual-model shadow detector). Populated in
         # ``lifespan`` when ``VALIDATOR_ENABLED`` is true; ``None`` in dev
         # and single-model deployments.

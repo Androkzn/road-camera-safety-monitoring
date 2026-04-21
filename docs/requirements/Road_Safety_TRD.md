@@ -27,7 +27,7 @@
 | v0.1 | 2026-04-01 | A. Tekhtelev | Initial TRD — core detection loop |
 | v0.5 | 2026-04-08 | A. Tekhtelev | Added edge/cloud, drift, privacy, road |
 | v1.0 | 2026-04-15 | A. Tekhtelev | Added agents, LLM observability, retention, audit |
-| v1.1 | 2026-04-15 | A. Tekhtelev | Documentation sync: ALPR policy gate |
+| v1.1 | 2026-04-15 | A. Tekhtelev | Documentation sync: thumbnail signed-access option, ALPR policy gate, auth matrix alignment |
 
 ### 0.2 BRD Requirement Inventory
 
@@ -74,7 +74,7 @@ Road safety cameras generate massive video volumes that operators cannot review 
 - **Edge-first detection** using YOLOv8n + ByteTrack for real-time object tracking
 - **Physical-unit risk classification** using time-to-collision and ground-plane distance with scene-adaptive thresholds
 - **LLM enrichment layer** with multi-provider failover, rate budgeting, circuit breakers, and policy-gated external ALPR
-- **Privacy-by-design** architecture: dual thumbnails, plate hashing, audit trail, auto-retention
+- **Privacy-by-design** architecture: dual thumbnails, optional signed public-thumbnail access, plate hashing, DSAR gating, audit trail, auto-retention
 - **Feedback-driven improvement** via drift monitoring, active learning, and operator verdicts
 - **AI agent orchestration** with bounded tools, structured output, and hard iteration limits
 
@@ -464,23 +464,23 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | Recent live events | GET | `/api/live/events` | Dashboard, agents | None | Last N in-memory events | BR-03 |
 | Batch events | GET | `/api/events` | Ops, evaluation | None | Offline batch-analysis events | BR-03 |
 | Event by ID | GET | `/api/events/{event_id}` | Ops, evaluation | None | Single offline batch event | BR-03 |
-| Thumbnails | GET | `/thumbnails/{name}` | Dashboard | None | Redacted thumbnails | BR-04 |
+| Thumbnails | GET | `/thumbnails/{name}` | Dashboard / DSAR holder | Public for `*_public.*` by default; optional `exp`/`token` query when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`; `X-DSAR-Token` for raw | Redacted thumbnails and DSAR-gated unredacted thumbnails | BR-04 |
 | Feedback submit | POST | `/api/feedback` | Operator | None | Submit tp/fp verdict | BR-05 |
 | Coaching queue | GET | `/api/coaching_queue` | Operator | None | Pending medium-risk review queue | BR-05 |
 | Drift report | GET | `/api/drift` | ML engineer | None | Rolling precision + trends | BR-10 |
-| Active learning export | POST | `/api/active_learning/export` | ML engineer | None | Zip of pending samples | BR-09 |
+| Active learning export | POST | `/api/active_learning/export` | ML engineer | Open (POC) | Zip of pending samples | BR-09 |
 | Chat | POST | `/chat` | Operator | None | RAG-based Q&A | BR-07 |
-| LLM stats | GET | `/api/llm/stats` | ML engineer | None | Token cost, latency, error rate | BR-11 |
-| LLM recent | GET | `/api/llm/recent` | ML engineer | None | Last N LLM call records | BR-11 |
-| Audit trail | GET | `/api/audit` | Compliance | None | Recent audit records | BR-12 |
-| Audit stats | GET | `/api/audit/stats` | Compliance | None | Audit event counts | BR-12 |
-| Retention sweep | POST | `/api/retention/sweep` | Ops | None | Trigger manual retention sweep | BR-13 |
-| Road summary | GET | `/api/road/summary` | Road manager | None | Aggregate road stats | BR-14 |
-| Road vehicle | GET | `/api/road/vehicle/{id}` | Road manager | None | Per-vehicle detail | BR-14 |
-| Road drivers | GET | `/api/road/drivers` | Road manager | None | Driver leaderboard | BR-14 |
-| Agent coaching | POST | `/api/agents/coaching` | Road manager | None | AI coaching note | BR-15 |
-| Agent investigation | POST | `/api/agents/investigation` | Road manager | None | AI root-cause analysis | BR-16 |
-| Agent report | POST | `/api/agents/report` | Road manager | None | AI safety summary | BR-17 |
+| LLM stats | GET | `/api/llm/stats` | ML engineer | Open (POC) | Token cost, latency, error rate | BR-11 |
+| LLM recent | GET | `/api/llm/recent` | ML engineer | Open (POC) | Last N LLM call records | BR-11 |
+| Audit trail | GET | `/api/audit` | Compliance | Open (POC) | Recent audit records | BR-12 |
+| Audit stats | GET | `/api/audit/stats` | Compliance | Open (POC) | Audit event counts | BR-12 |
+| Retention sweep | POST | `/api/retention/sweep` | Ops | Open (POC) | Trigger manual retention sweep | BR-13 |
+| Road summary | GET | `/api/road/summary` | Road manager | Open (POC) | Aggregate road stats | BR-14 |
+| Road vehicle | GET | `/api/road/vehicle/{id}` | Road manager | Open (POC) | Per-vehicle detail | BR-14 |
+| Road drivers | GET | `/api/road/drivers` | Road manager | Open (POC) | Driver leaderboard | BR-14 |
+| Agent coaching | POST | `/api/agents/coaching` | Road manager | Open (POC) | AI coaching note | BR-15 |
+| Agent investigation | POST | `/api/agents/investigation` | Road manager | Open (POC) | AI root-cause analysis | BR-16 |
+| Agent report | POST | `/api/agents/report` | Road manager | Open (POC) | AI safety summary | BR-17 |
 
 ### 9.2 Request/Response Schemas
 
@@ -560,6 +560,8 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 | `MISSING_QUERY` | 400 | Chat query body empty | "Missing 'query' field" | No |
 | `MISSING_EVENT_ID` | 400 | Agent request without event_id | "Missing 'event_id'" | No |
 | `NOT_FOUND` | 404 | Requested event/vehicle not found | "Event not found" | No |
+| `DSAR_DENIED` | 403 | Unredacted thumbnail without DSAR token | "Present X-DSAR-Token header" | No (need token) |
+| `PUBLIC_THUMB_DENIED` | 403 | Public thumbnail token missing/invalid when signed mode enabled | "public thumbnail requires valid exp/token query params" | Yes (request a fresh signed URL) |
 | `STREAM_ERROR` | 500 | Video stream read failure | "Stream unavailable" | Yes (auto-reconnect) |
 | `LLM_UNAVAILABLE` | 503 | Both LLM providers failed | Narration returns None; detection continues | Yes (auto-retry) |
 
@@ -575,21 +577,28 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 
 ### 10.1 Permissions Matrix
 
-POC build: every JSON route, SSE stream, thumbnail, and live-media endpoint is open — there is no user/admin authentication. Network-level guards (SSRF rejection, per-IP clip rate-limit) and audit logging still apply.
-
 | Operation | Auth Required | Gate Mechanism | Notes |
 |---|---|---|---|
-| All operator/ops/ML/compliance endpoints | No | — | Do not expose to the public internet |
-| Cloud ingest | Yes | HMAC-SHA256 signature verification | `Signature` header — message authentication for edge→cloud ingest, not user authentication |
+| Public endpoints (status, events, recent) | No | — | Operator dashboard view |
+| Redacted thumbnails (`*_public.*`) | Optional | If enabled: `exp`/`token` query params (`ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`) | Audit-logged on success and denial |
+| Unredacted thumbnails | Yes | `X-DSAR-Token` header vs `ROAD_DSAR_TOKEN` env | Audit-logged on success and denial |
+| Feedback submission | Recommended | Reverse-proxy auth or API key (deployment-specific) | Audit-logged |
+| Active learning export | Yes | Open (POC) | Audit-logged |
+| Chat copilot | No | — | Audit-logged |
+| Agent invocations | Yes | Open (POC) | Audit-logged |
+| LLM observability / audit / retention / road summary | Yes | Open (POC) | Operational control plane |
+| Cloud ingest | Yes | HMAC-SHA256 signature verification | `Signature` header |
 
 ### 10.2 Privacy Requirements
 
 | Requirement | Implementation | Module |
 |---|---|---|
 | Shared event channels exclude raw plate text | `plate_text` / `plate_state` stripped before SSE/Slack/cloud; unredacted thumbnails remain local except for optional enrichment integrations | `server.py` |
+| Optional signed public-thumbnail access | `_public` thumbnails can require short-lived `exp`/`token` query params when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1` | `server.py` |
 | Face blurring | Upper 35% of person bbox Gaussian-blurred | `redact.py` |
 | Plate blurring | Lower-middle strip of vehicle bbox blurred | `redact.py` |
 | Plate text hashing | Raw text → salted SHA-256; salt per deployment | `redact.py` |
+| DSAR-gated raw access | Token required for unredacted thumbnails | `server.py` |
 | External ALPR policy gate | Third-party ALPR disabled unless `ROAD_ALPR_MODE=third_party` | `server.py` |
 | Data retention | Auto-expiry: thumbnails 30d, feedback 90d, AL 60d, queue 7d | `retention.py` |
 | Audit trail | All sensitive access logged with actor, timestamp, outcome | `audit.py` |
@@ -835,20 +844,21 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 | Precision dropping | Data drift (new scene type, weather, camera angle) | Review drift report; check perception quality; export AL samples for relabeling |
 | Slack alerts not firing | Webhook URL missing or Slack API issue | Check `SLACK_WEBHOOK_URL` env; test webhook manually |
 | Edge→cloud delivery failing | Network issue or HMAC secret mismatch | Check edge node connectivity; verify `ROAD_CLOUD_HMAC_SECRET` matches on both sides |
-| Audit log growing too large | Retention sweep not running | Check retention loop; trigger manual `/api/retention/sweep` |
+| Audit log growing too large | Retention sweep not running | Check retention loop; trigger manual `/api/retention/sweep` with admin bearer token |
 
 ### 16.2 Manual Recovery Procedures
 
 - **Restart server:** `uvicorn backend.server:app --host 0.0.0.0 --port 8000`
 - **Flush edge queue:** Delete `data/outbound_queue.jsonl`
 - **Reset drift state:** Restart server (in-memory state resets)
-- **Export active learning:** `POST /api/active_learning/export` → returns zip path
+- **Export active learning:** `POST /api/active_learning/export` with bearer token → returns zip path
 
 ### 16.3 Support/CS Notes
 
 - Events are deduplicated per tracked pair — same pair emitting once is correct behavior, not a bug
 - "No narration" on events is expected when LLM is unavailable — detection still works
-- Thumbnails with `_public` suffix are safe-to-share versions
+- Thumbnails with `_public` suffix are safe-to-share versions; deployments can still require signed `exp/token` URLs
+- Internal thumbnails require DSAR token (`X-DSAR-Token`)
 
 ---
 
@@ -858,7 +868,7 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 |---|---|---|---|---|
 | YOLO false positives in new environments | Alert fatigue | Medium | Scene-adaptive thresholds + feedback loop | ML team |
 | LLM provider deprecates model | Narration breaks | Low | Multi-provider failover; model version pinned | ML team |
-| PII appears in logs | Compliance incident | Low | Structural PII isolation; audit trail | Compliance |
+| GDPR audit reveals PII in logs | Fine up to 4% global revenue | Low | Structural PII isolation; audit trail | Compliance |
 | Edge node hardware failure | Events lost for one vehicle | Medium | Local JSONL queue survives restarts; at-least-once delivery | DevOps |
 | LLM hallucination in coaching | Operator follows bad advice | Medium | Structured output schema; human-in-the-loop | ML team |
 | Drift goes undetected | Model silently degrades | Low | Rolling precision monitor; Slack alerts on drop | ML team |
@@ -894,6 +904,7 @@ No data migration required for v1.0 (in-memory + JSONL storage). When persistent
 | ID | Question / Gap | Impacted Section | Severity | Owner | Status |
 |---|---|---|---|---|---|
 | Q-01 | Persistent database choice (SQLite vs PostgreSQL vs Redis) | §5.2, §7.6 | Medium | Architecture | Deferred — JSONL sufficient for v1.0 throughput envelope |
+| Q-02 | Authentication/authorization middleware (SSO, RBAC) | §10.1 | Medium | Security | Deployment-specific — reverse-proxy auth recommended for v1.0 |
 | Q-03 | GPU inference optimization path (TensorRT, ONNX) | §12.3 | Low | ML team | Open — future work |
 | Q-04 | Multi-tenant isolation for SaaS deployment | §2.2 | Low | Architecture | Open — out of scope for v1.0 |
 
@@ -927,7 +938,7 @@ Complete this checklist before creating or approving the implementation doc:
 - [x] Coverage Checksum (§0.3) passes
 - [x] Shared platform standards compliance (§3.4) is complete
 - [x] Architecture, ownership, and state model are complete (§6, §8)
-- [x] API/data contracts are complete and version-safe (§7, §9, §10)
+- [x] API/data/auth contracts are complete and version-safe (§7, §9, §10)
 - [x] Failure behavior and retry/idempotency rules are explicit (§8.5)
 - [x] Observability and analytics contracts are defined (§13)
 - [x] Testing strategy covers critical paths and edge cases (§14)
