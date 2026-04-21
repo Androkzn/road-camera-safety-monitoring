@@ -15,11 +15,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { POLL_INTERVAL_MS } from "../../shared/config/runtime";
+import { EventDialog } from "../../shared/events";
 import { useEventStream } from "../../shared/hooks/useEventStream";
 import { useUptimeTicker } from "../../shared/hooks/useUptimeTicker";
 import { PageChrome } from "../../shared/layout/PageChrome";
 import { Pill, Tabs } from "../../shared/ui";
 import { formatUptime } from "../../shared/lib/format";
+import type { SafetyEvent } from "../../shared/types/common";
 
 import {
   AdminEventCard,
@@ -40,6 +42,8 @@ export function AdminPage() {
   const { frames } = useDetections();
   const { events: liveEvents, connected } = useEventStream();
   const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSources);
+
+  const [selectedEvent, setSelectedEvent] = useState<SafetyEvent | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -154,7 +158,9 @@ export function AdminPage() {
                             : "No events match the current filter"}
                         </div>
                       ) : (
-                        visibleEvents.map((ev) => <AdminEventCard key={ev.event_id} event={ev} />)
+                        visibleEvents.map((ev) => (
+                          <AdminEventCard key={ev.event_id} event={ev} onSelect={setSelectedEvent} />
+                        ))
                       )}
                     </div>
                   </>
@@ -174,6 +180,7 @@ export function AdminPage() {
           />
         </div>
       </div>
+      <EventDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     </>
   );
 }
