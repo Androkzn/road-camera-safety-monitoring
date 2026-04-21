@@ -2,8 +2,6 @@
  * Internal barrel for the Settings Console components.
  */
 export { Tunable } from "./Tunable";
-export { TemplatesCard } from "./TemplatesCard";
-export { BaselineCard } from "./BaselineCard";
 export { ImpactCard } from "./ImpactCard";
 export { OpsDeltas } from "./OpsDeltas";
 export { SeverityBars } from "./SeverityBars";

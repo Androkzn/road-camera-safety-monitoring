@@ -35,19 +35,6 @@ export interface EffectiveSettings {
   revision_no: number;
 }
 
-export interface SettingsTemplate {
-  id: string;
-  name: string;
-  description: string;
-  system: boolean;
-  soft_deleted_at: number | null;
-  created_at: number;
-  updated_at: number;
-  payload: Record<string, number | string | boolean>;
-  latest_revision_no: number;
-  payload_hash: string;
-}
-
 export interface ApplyResultPayload {
   ok: boolean;
   applied_now: string[];
@@ -57,7 +44,6 @@ export interface ApplyResultPayload {
   revision_hash_after: string;
   revision_no: number;
   audit_id?: string | null;
-  template_id?: string;
 }
 
 export interface ValidationErrorBody {

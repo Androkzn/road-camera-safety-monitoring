@@ -1,6 +1,6 @@
 /**
- * ApplyResultBanner — apply / template success summary that hangs
- * around until the operator dismisses it.
+ * ApplyResultBanner — apply success summary that hangs around until
+ * the operator dismisses it.
  */
 import { humanize } from "../utils/formatting";
 import type { DraftValue } from "../types";
@@ -8,7 +8,7 @@ import type { DraftValue } from "../types";
 import styles from "../SettingsPage.module.css";
 
 export interface ApplyResultPayloadView {
-  kind: "apply" | "template";
+  kind: "apply";
   diff: Record<string, { before: DraftValue; after: DraftValue }>;
   applied_now: string[];
   pending_restart: string[];
@@ -27,9 +27,7 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
     <div className={styles.successBanner} role="status">
       <div>
         <strong>
-          {result.kind === "template"
-            ? "Template applied."
-            : `Applied ${diffCount} change${diffCount === 1 ? "" : "s"}.`}
+          {`Applied ${diffCount} change${diffCount === 1 ? "" : "s"}.`}
         </strong>
         {result.applied_now.length > 0 && (
           <>
@@ -65,7 +63,7 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
           </>
         )}
       </div>
-      {result.kind === "apply" && diffCount > 0 && (
+      {diffCount > 0 && (
         <div className={styles.subtle} style={{ fontSize: 11 }}>
           {Object.entries(result.diff).map(([k, ba]) => (
             <div key={k}>
