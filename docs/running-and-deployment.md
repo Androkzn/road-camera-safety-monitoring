@@ -71,6 +71,29 @@ from YouTube / the camera CDN (and optional LLM enrichment if
   root. Auto-downloaded on first run.
 - **Config:** `.env` + defaults in [road_safety/config.py](../road_safety/config.py).
 
+### Thumbnail retention (demo setup)
+
+Each detected event writes **two JPEG files** to `data/thumbnails/`:
+
+- `evt_xxx.jpg` — internal, unredacted (for forensics / labeling).
+- `evt_xxx_public.jpg` — plates and faces blurred (for Slack, LLM,
+  dashboard).
+
+At ~2,600 events/day across 6 cameras that's ~570 MB/day of thumbnails
+on local disk. To prevent unbounded growth, `.env` sets:
+
+```
+ROAD_RETENTION_THUMBNAILS_DAYS=0
+```
+
+Which makes the hourly retention loop at
+[road_safety/compliance/retention.py](../road_safety/compliance/retention.py)
+sweep "anything older than 0 days" → everything gets cleared every
+hour. Disk stays under ~25 MB.
+
+**This is a demo hack. Production does it differently** — see Section
+5.2.
+
 ---
 
 ## 3. How it works (one process, one port)
@@ -196,6 +219,21 @@ injects.
 have ephemeral filesystems — all of this evaporates on restart, and
 nothing is shareable between two tasks.
 
+**Demo vs. production at a glance:**
+
+| State | POC (what this build does) | Production (what you'd do) |
+|---|---|---|
+| Settings | SQLite file on local disk | **RDS Postgres** (managed, multi-AZ capable) |
+| Thumbnails | Local disk, swept hourly via `ROAD_RETENTION_THUMBNAILS_DAYS=0` | **S3** (object store) + **CloudFront** (CDN) + **lifecycle policy** (auto-delete after N days) |
+| Event log | JSONL file on local disk | **CloudWatch Logs** (captured from stdout) |
+| Audit log | JSONL file on local disk | **CloudWatch Logs** + optional long-term archive to S3 |
+
+The POC "sweep every hour" trick (Section 2 "Thumbnail retention")
+keeps the disk from filling up but is fundamentally the wrong model
+for production — it still hits a single ephemeral disk, still can't
+be shared across tasks, still vanishes on restart. The real fix is
+**object storage**, not aggressive cleanup.
+
 **Options per piece of state:**
 
 **Settings DB:**
@@ -208,8 +246,29 @@ nothing is shareable between two tasks.
 **Thumbnails:**
 | Option | Trade-off |
 |---|---|
-| **S3 + CloudFront + pre-signed URLs** | Obvious choice. Durable, cheap, CDN-fronted. |
+| **S3 + CloudFront + pre-signed URLs** | Obvious choice. Durable, cheap, CDN-fronted. See note below. |
 | **EFS mount** | Looks like a filesystem to Python (minimal code change) but ~10× more expensive than S3 and still single-region. |
+| **Aggressive retention only (what the POC does today)** | Zero new infra. But: still ephemeral, still per-task, still no CDN. Only useful for demos. |
+
+> **How production thumbnail storage actually works:**
+>
+> 1. When an event fires, the redaction writer calls
+>    `s3_client.put_object(Bucket=..., Key=f"thumbs/{event_id}.jpg", Body=jpeg_bytes)`
+>    instead of `Path.write_bytes(...)`.
+> 2. The dashboard asks the API for a thumbnail URL; the API returns a
+>    **pre-signed URL** valid for ~15 minutes (time-limited, scoped to
+>    that one object).
+> 3. The browser loads the image through **CloudFront**, which caches
+>    it at the edge. Second operator to view the same event = cache hit,
+>    no round-trip to S3.
+> 4. Retention becomes an **S3 lifecycle rule**: "delete objects under
+>    `thumbs/` prefix after 30 days" — enforced by S3 itself, zero
+>    Python code.
+>
+> **Cost math:** 100 cameras × 30 days ≈ 285 GB in S3. At
+> $0.023/GB/month that's **~$7/month**. CloudFront egress depends on
+> how often operators view events, but the cache hit rate is usually
+> >80% so bandwidth bills are minimal.
 
 **Event log:**
 | Option | Trade-off |
