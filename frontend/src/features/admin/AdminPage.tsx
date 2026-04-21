@@ -17,8 +17,10 @@
  *   header, optional pipeline-health strip, the live video grid, and the
  *   right-hand tabs that switch between live detections, the live events
  *   list, and the past-events history list.
- * Backend: GET /api/admin/health, GET /api/live/sources, SSE /api/live/stream,
- *   SSE /admin/detections.
+ * Backend: GET /api/admin/health (health snapshot), GET /api/live/sources
+ *   (multi-source lifecycle, via useLiveSources), SSE /stream/events (shared
+ *   event stream consumed through useEventStream), SSE /admin/detections
+ *   (per-frame detection stats consumed through useDetections).
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -47,13 +49,22 @@ import { useLiveSources } from "./hooks/useLiveSources";
 import styles from "./AdminPage.module.css";
 
 export function AdminPage() {
+  // Polled snapshot of server + per-source health (GET /api/admin/health).
   const { data: health } = useAdminHealth();
+  // Per-frame detection stream (SSE /api/admin/detections) used by DetectionsPanel.
   const { frames } = useDetections();
+  // Single app-wide SSE connection to /api/events/stream; `connected` drives the
+  // live/offline pill in PageChrome, `liveEvents` feeds the Events tab.
   const { events: liveEvents, connected } = useEventStream();
+  // TanStack-Query-backed list of live sources (GET /api/live/sources) with
+  // start/pause/add/remove mutations; polled at POLL_INTERVAL_MS.liveSources.
   const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSources);
 
+  // The event the user clicked; drives the <EventDialog> at the bottom.
   const [selectedEvent, setSelectedEvent] = useState<SafetyEvent | null>(null);
 
+  // Persist the "focused" tile (single-stream zoom) across reloads so the
+  // operator's last selection isn't lost on refresh. SSR guard covers test envs.
   const [focusedId, setFocusedId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return window.localStorage.getItem("road_admin_focused_id");
@@ -76,6 +87,8 @@ export function AdminPage() {
     }
   }, [focusedId, liveSources.sources]);
 
+  // Resolve the source shown in the header/health strip. Priority: explicit
+  // focus → backend-designated primary → first source in the list.
   const selectedSource = useMemo(() => {
     const list = liveSources.sources;
     if (list.length === 0) return null;
@@ -90,10 +103,12 @@ export function AdminPage() {
     return list[0] ?? null;
   }, [focusedId, liveSources.primaryId, liveSources.sources]);
 
+  // Uptime pill: re-tick every second locally rather than refetching /health.
   const startedAt = health?.server.started_at ?? null;
   const tickerSec = useUptimeTicker(startedAt);
   const uptimeSec = startedAt === null ? null : tickerSec;
 
+  // Hide low-risk noise from the Events tab by default — operator opts in.
   const [showLowEvents, setShowLowEvents] = useState(false);
   const visibleEvents = useMemo(
     () => (showLowEvents ? liveEvents : liveEvents.filter((ev) => ev.risk_level !== "low")),

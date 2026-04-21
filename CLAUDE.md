@@ -87,30 +87,26 @@ Every event carries `vehicle_id`, `road_id`, `driver_id` sourced from env (`ROAD
 
 ### Live video transport (admin grid)
 
-The multi-source admin grid (`frontend/src/components/admin/MultiSourceGrid.tsx`)
+The multi-source admin grid ([MultiSourceGrid.tsx](frontend/src/features/admin/components/MultiSourceGrid.tsx))
 renders one live tile per perception source via `StreamImage`
-(`frontend/src/components/admin/StreamImage.tsx`). It picks one of two server
-endpoints based on the page protocol:
+([StreamImage.tsx](frontend/src/features/admin/components/StreamImage.tsx)).
+Every tile polls a single endpoint:
 
-- **HTTPS → MJPEG** (`GET /admin/video_feed/{id}`, `multipart/x-mixed-replace`).
-  One persistent connection per tile; the server pushes each freshly-encoded
-  JPEG with no polling latency floor.
-- **HTTP → polling** (`GET /admin/frame/{id}`, single JPEG every ~400 ms).
-  Used in local dev where uvicorn speaks HTTP/1.1 directly and the browser's
-  6-concurrent-connections-per-host cap would deadlock MJPEG once you have
-  more than ~4 tiles open alongside SSE.
+- **Polling** — `GET /admin/frame/{id}`, single JPEG re-fetched every
+  ~400 ms (`POLL_INTERVAL_MS.streamImageFrame` in
+  [runtime.ts](frontend/src/shared/config/runtime.ts)).
 
-**Deploy implication**: any production deployment with ≥6 streams **must**
-front uvicorn with an HTTP/2 reverse proxy (nginx, Caddy, Cloudflare, ALB).
-HTTP/2 multiplexes all streams over one TCP connection, dissolving the
-6-conn cap. TLS termination at the proxy is what flips the frontend into
-MJPEG mode automatically — no client config needed.
+Why polling and not MJPEG: the perception pipeline runs at `TARGET_FPS`
+(default 2 fps), so the edge produces a new frame every ~500 ms. A
+~400 ms poll cycle therefore delivers every frame the edge produces —
+push-based MJPEG would add complexity (multipart framing, persistent
+connections, viewer-count tracking, per-stream TCP slots against the
+HTTP/1.1 6-conn-per-host cap) for no perceptual gain.
 
-Operators can override the auto-detection at build time via the Vite env
-var `VITE_ROAD_VIDEO_TRANSPORT=mjpeg|poll` (useful for h2c-cleartext
-deployments or for forcing polling during transport debugging). The
-server keeps both endpoints live regardless, so `/admin/frame/{id}` is
-also available for one-shot snapshots and tests.
+Idle tiles skip encode via `StreamSlot.has_viewers()`: any hit on
+`/admin/frame/{id}` within the last 2 s counts as "watched" and keeps
+the annotated-JPEG encode path hot; longer than that and the perception
+loop stops spending CPU on a frame nobody sees.
 
 ### Watchdog
 

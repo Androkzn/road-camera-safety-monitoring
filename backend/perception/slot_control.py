@@ -19,7 +19,7 @@ UI element: No direct UI — controls which camera slots are actively
 Data flow: Operator clicks start/stop on a source -> /admin route calls
        start_slot() / stop_slot() -> StreamReader thread is spawned or
        killed -> live tile on AdminPage starts or stops receiving JPEGs
-       via the MJPEG / polling endpoints.
+       via the /admin/frame polling endpoint.
 """
 
 from backend.config import TARGET_FPS
@@ -40,9 +40,16 @@ def start_slot(slot: StreamSlot) -> None:
     ``slot.reader`` is replaced with a freshly-started ``StreamReader``
     and ``slot.last_error`` is cleared.
 
+    State transition: stopped -> running. This is the route path for
+    ``POST /api/live/sources/{id}/start`` and the ``useStreamControl``
+    hook on the frontend.
+
     Raises:
         RuntimeError / Exception from ``resolve_hls`` if the URL can't
-        be resolved (yt-dlp failure, geo-block, signature change).
+        be resolved (yt-dlp failure, geo-block, signature change). The
+        caller is expected to catch and surface the error back to the
+        operator — slots without a resolvable URL shouldn't silently
+        appear to start.
     """
     if not slot.original_source:
         raise RuntimeError(f"slot {slot.source_id} has no source URL")
@@ -76,6 +83,10 @@ def stop_slot(slot: StreamSlot) -> None:
     later. Per-source perception state (quality / scene / episodes)
     is intentionally NOT reset — restarting the same camera shouldn't
     re-learn its scene from scratch.
+
+    State transition: running -> stopped. Backs ``POST /api/live/sources/{id}/stop``.
+    Any in-flight episodes live inside ``slot.episodes`` and will be
+    idle-flushed on the next successful start; we don't emit them here.
     """
     r = slot.reader
     if r is not None:
@@ -94,6 +105,12 @@ def pause_slot(slot: StreamSlot) -> bool:
     position survives across a Pause → Start cycle so the operator
     resumes exactly where they paused instead of replaying from frame 0.
 
+    State transition: running -> paused (reader thread still alive).
+    Backs ``POST /api/live/sources/{id}/pause``. The ``detection`` toggle
+    (handled inside on_frame via ``slot.detection_enabled``) is a separate
+    axis: pause freezes the capture, detection-disable keeps capture
+    running but skips the perception gates.
+
     Returns True when a reader was actually paused, False if the slot had
     nothing alive to pause (caller can treat that as a no-op).
     """
@@ -105,7 +122,12 @@ def pause_slot(slot: StreamSlot) -> bool:
 
 
 def resume_slot(slot: StreamSlot) -> bool:
-    """Reverse :func:`pause_slot`. Returns True when a paused reader was resumed."""
+    """Reverse :func:`pause_slot`. Returns True when a paused reader was resumed.
+
+    State transition: paused -> running. No-op (returns False) if the
+    reader is missing or wasn't paused to begin with, so repeated resume
+    calls are safe.
+    """
     r = slot.reader
     if r is None or not r.is_paused():
         return False

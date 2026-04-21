@@ -3,21 +3,16 @@
 Two entry points:
 
 * :func:`render_annotated_frame` — draw class-coloured bboxes + labels +
-  interaction lines on a COPY of the frame, return a JPEG byte string
-  suitable for MJPEG multipart framing.
-* ``WARMING_UP_JPEG`` — module-level constant built once at import; sent
-  to MJPEG clients while a slot is booting and has not yet produced its
-  first annotated frame.
-
-Extracted from ``server.py`` as part of the refactor plan, step 3.
-Behaviour unchanged.
+  interaction lines on a COPY of the frame, return a JPEG byte string.
+* ``WARMING_UP_JPEG`` — module-level constant built once at import;
+  returned by the polling endpoint while a slot is booting and has not
+  yet produced its first annotated frame.
 
 UI connection
 -------------
 Page: AdminPage
 UI element: Provides the single-JPEG snapshots that the AdminPage live
-       tiles fall back to (via the ``StreamImage`` polling path) when the
-       page is served over plain HTTP.
+       tiles display (via ``StreamImage`` polling ``/admin/frame/{id}``).
 """
 
 import cv2
@@ -26,9 +21,9 @@ import cv2
 def render_annotated_frame(frame, detections, interactions, distances_m=None):
     """Draw bounding boxes and labels on a copy of the frame for the admin feed.
 
-    This is a purely visual helper — the output is fed only to the MJPEG
-    admin video feed, not to any compliance-sensitive channel. It operates
-    on a COPY so the perception pipeline's shared frame is not mutated.
+    This is a purely visual helper — the output is fed only to the admin
+    polling feed, not to any compliance-sensitive channel. It operates on
+    a COPY so the perception pipeline's shared frame is not mutated.
 
     Args:
         frame: Raw BGR numpy image.
@@ -43,8 +38,7 @@ def render_annotated_frame(frame, detections, interactions, distances_m=None):
             is from the camera.
 
     Returns:
-        JPEG-encoded bytes (quality 70 — small enough for MJPEG but
-        readable for operators).
+        JPEG-encoded bytes (quality 70 — small but readable for operators).
     """
     vis = frame.copy()
     # BGR colour map (OpenCV uses BGR, not RGB). Anything unrecognised
@@ -87,11 +81,9 @@ def render_annotated_frame(frame, detections, interactions, distances_m=None):
 def _make_placeholder_jpeg() -> bytes:
     """Build a small plain dark-grey placeholder JPEG once at import.
 
-    The MJPEG generator emits this placeholder to slots that have not yet
-    published their first annotated frame. Without it, browsers loading the
-    multi-source admin page during boot see a connection with no data,
-    time out, and render a black tile that never recovers — even after the
-    slot starts producing frames a few seconds later.
+    The polling endpoint returns this placeholder to slots that have not
+    yet published their first annotated frame so booting tiles show a
+    neutral grey instead of a broken-image icon.
 
     The tile is deliberately text-free: cv2.putText at 320x180 looked
     crude when the browser scaled it to a full tile. Any "warming up"
@@ -113,5 +105,5 @@ def _make_placeholder_jpeg() -> bytes:
     return buf.tobytes()
 
 
-# Build once; reused by every slot's MJPEG generator while it warms up.
+# Build once; reused by every slot while it warms up.
 WARMING_UP_JPEG: bytes = _make_placeholder_jpeg()

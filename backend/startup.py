@@ -159,7 +159,20 @@ async def lifespan(app: FastAPI):
         log.warning("no live streams started (no sources or all failed)")
 
     # Settings Console: warm-reload for TARGET_FPS.
+    # The Settings Console (frontend/src/pages/SettingsPage.tsx -> POST
+    # /api/settings) calls into SETTINGS_STORE, which notifies subscribers
+    # on commit. We register a subscriber here so the perception loop
+    # picks up the new fps without a full server restart.
     def _on_target_fps_change(before, after) -> None:
+        """Restart every active slot when the operator changes TARGET_FPS.
+
+        Subscriber callback invoked by ``SETTINGS_STORE`` whenever the
+        stored settings dict transitions. Runs in the caller's thread
+        (the HTTP handler's threadpool) so we spin the heavy restart
+        work off onto a daemon thread to keep the POST response snappy.
+        No-op if the value did not actually change (the store calls
+        every subscriber on any commit, not just ones that moved).
+        """
         old = float(before.get("TARGET_FPS") or 0.0)
         new = float(after.get("TARGET_FPS") or 0.0)
         if old == new:
@@ -167,6 +180,13 @@ async def lifespan(app: FastAPI):
         log.info("TARGET_FPS change %.1f -> %.1f — restarting active slots", old, new)
 
         def _restart_slots() -> None:
+            """Stop + restart every active slot reader on a daemon thread.
+
+            Iterates a snapshot list (``list(state.slots.values())``) so
+            slot add/remove during the restart can't trip the iteration.
+            Failures are logged per-slot and never raise — one misbehaving
+            source must not prevent the others from coming back up.
+            """
             for slot in list(state.slots.values()):
                 if slot.reader is None:
                     continue
@@ -254,7 +274,17 @@ async def lifespan(app: FastAPI):
     watchdog_task = None
     if WATCHDOG_ENABLED:
         def _collect_snapshot() -> dict:
-            """Build the point-in-time health snapshot for the watchdog."""
+            """Build the point-in-time health snapshot for the watchdog.
+
+            Invoked by the ``Watchdog`` loop on every tick
+            (``WATCHDOG_INTERVAL_SEC`` seconds). Must be cheap — it reads
+            currently-held-in-memory values from ``state`` and the LLM
+            observer, never makes network calls. The returned dict is
+            passed to ``rule_checks`` and (when available) ``ai_analyze``
+            in ``services/watchdog/``. Surfaced to the UI via
+            ``GET /api/watchdog`` (consumed by the Monitoring page's
+            incident queue).
+            """
             q = state.quality.state()
             ctx = state.last_scene_ctx
             ego = state.last_ego_flow

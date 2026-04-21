@@ -402,10 +402,27 @@ class TrackHistory:
             pass
 
     def _on_track_history_len_change(self, before, after) -> None:
+        """Settings-store callback: resize every per-track ring buffer in place.
+
+        ``deque.maxlen`` is read-only, so we can't just mutate the attribute —
+        we rebuild each deque preserving the most-recent ``new_max`` samples.
+        Called by the settings store whenever the operator edits
+        ``TRACK_HISTORY_LEN`` from the Settings Console; the change takes
+        effect on the next :meth:`update` call.
+
+        Args:
+            before: Snapshot of the settings dict before the change (unused;
+                signature required by the subscriber protocol).
+            after: Snapshot after the change. Read ``TRACK_HISTORY_LEN`` here.
+        """
         new_max = int(after.get("TRACK_HISTORY_LEN", self._maxlen))
         if new_max == self._maxlen:
+            # No-op — subscriber fires on any settings change, not just ours.
             return
         self._maxlen = new_max
+        # Rebuild each per-track deque with the new bound, keeping only the
+        # newest ``new_max`` samples. ``list(self._tracks.items())`` snapshots
+        # the keys so we can mutate the dict while iterating.
         for tid, dq in list(self._tracks.items()):
             self._tracks[tid] = deque(list(dq)[-new_max:], maxlen=new_max)
 

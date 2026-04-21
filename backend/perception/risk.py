@@ -26,7 +26,8 @@ async def _none_coro():
 
     Used as a sentinel "no enrichment to run" task so the ``asyncio.gather``
     in ``emit_event`` always has two awaitables regardless of whether we
-    actually called the LLM enrichment path.
+    actually called the LLM enrichment path. Keeping gather's arity fixed
+    avoids branching the emit path on enrichment presence.
     """
     return None
 
@@ -88,8 +89,14 @@ def classify_with_scene(
         ``"low"`` / ``"medium"`` / ``"high"``. Never returns "unknown" —
         when all inputs are missing, defaults to "low".
     """
+    # Gather every tier any available signal would assign — we then pick
+    # the strictest tier across all signals (TTC wins ties against pixel
+    # distance because it's the most physically-meaningful measurement).
     levels = []
     if ttc_sec is not None:
+        # ``thr`` is the scene-adapted AdaptiveThresholds: highway widens
+        # ttc_high_sec (more reaction time at 30 m/s), parking tightens it
+        # (everyone's moving slowly so close TTC actually means close).
         if ttc_sec <= thr.ttc_high_sec:
             levels.append("high")
         elif ttc_sec <= thr.ttc_med_sec:

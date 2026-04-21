@@ -295,8 +295,23 @@ class LiveState:
     # Every read here delegates to the primary slot. Writes that mutate
     # objects in place (``state.episodes[key] = ...``) work because the
     # property returns the live dict reference.
+    #
+    # These proxies exist purely for backwards compatibility with code
+    # written when the edge node only supported one camera feed. New
+    # call sites must address slots explicitly via ``state.slots[sid]``
+    # so multi-source deployments emit per-source state rather than
+    # leaking the primary slot's state onto every other camera's events.
     @property
     def primary_slot(self) -> StreamSlot:
+        """Return the currently-effective primary stream slot.
+
+        Prefers ``self.slots[PRIMARY_ID]`` (the canonical primary slot).
+        If the operator has removed it but other slots remain, returns
+        any of those so legacy ``state.X`` attribute access keeps
+        working. If the slot registry is fully empty (operator removed
+        every camera), lazily re-creates a disabled placeholder so
+        property access never raises.
+        """
         slot = self.slots.get(self.PRIMARY_ID)
         if slot is not None:
             return slot

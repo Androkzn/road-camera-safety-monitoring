@@ -1,6 +1,6 @@
 /**
  * HistoryPanel — a filterable list of past safety events fetched from
- * /api/live/events (not the live SSE feed).
+ * GET /api/events/history (not the live SSE feed at /api/events/stream).
  *
  * Where it renders:
  *   One of the tabs inside AdminPage.tsx (shared/ui/Tabs). Unlike
@@ -34,8 +34,10 @@
  *   filterable list of past safety events (with risk-level and event-type
  *   dropdowns, a refresh button, and a count) that the operator can scroll
  *   through and click to open event details.
- * Backend: GET /api/live/events (called by the useHistory hook on mount
- *   and on filter change).
+ * Backend: GET /api/events/history — called by the useHistory hook on
+ *   mount and on every filter change (risk_level / event_type). Each row
+ *   also renders an <AdminEventCard>, which opens an <EventDialog> on
+ *   click (the dialog may in turn hit POST /api/events/{id}/feedback).
  */
 
 // TEACH: `useEffect` is React's "do a side-effect after render" hook.
@@ -61,6 +63,23 @@ import styles from "./HistoryPanel.module.css";
 
 // TEACH: No Props interface because this component takes zero props.
 //        That's fine — keep the signature empty.
+/**
+ * HistoryPanel — self-contained list of past SafetyEvents with filters.
+ *
+ * UI connections:
+ *   - Parent: rendered as a tab in AdminPage (alongside DetectionsPanel).
+ *   - Child elements: two controlled <select>s + a "Refresh" button +
+ *     count label in the filter bar; a scrolling list of
+ *     <AdminEventCard> rows; an <EventDialog> modal for drill-down; an
+ *     <ErrorList> surface for fetch failures.
+ *   - CSS: HistoryPanel.module.css — `.filterBar`, `.select`,
+ *     `.refreshBtn`, `.count`, `.list`, `.empty`.
+ *
+ * Backend endpoints: indirectly GET /api/events/history via the
+ *   `useHistory` custom hook (on mount + on every filter change). The
+ *   dialog opened from this panel can additionally submit feedback via
+ *   POST /api/events/{id}/feedback.
+ */
 export function HistoryPanel() {
   // TEACH: The custom hook returns a big object of state + callbacks.
   //        We destructure everything we need in one line. If you want

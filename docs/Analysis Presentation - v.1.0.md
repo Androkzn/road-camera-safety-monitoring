@@ -24,6 +24,7 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
   - [Type safety](#fe-typesafety)
   - [Performance](#fe-performance)
   - [Error boundaries & lifecycle](#fe-errors)
+  - [Documentation / discoverability](#fe-docs)
   - [Critical bugfixes](#fe-bugfixes)
   - [Best practices applied](#fe-best-practices)
   - [Best judgments](#fe-judgments)
@@ -37,6 +38,7 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
   - [Privacy & security](#be-security)
   - [Resilience (LLM, external calls)](#be-resilience)
   - [Observability](#be-observability)
+  - [Documentation / discoverability](#be-docs)
   - [Critical bugfixes](#be-bugfixes)
   - [Best practices applied](#be-best-practices)
   - [Best judgments](#be-judgments)
@@ -93,21 +95,21 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
 - *`axios`:* bigger bundle; native `fetch` + tiny wrapper is enough.
 - *Generated client from OpenAPI:* considered for the future (see BE type safety).
 
-### Transport choice: MJPEG vs polling (auto-switch)
+### Transport choice: just poll
 
-**Problem.** Browsers cap HTTP/1.1 at **6 concurrent connections per host**. Each MJPEG video stream (`multipart/x-mixed-replace`, a continuous stream of JPEGs pushed over one connection) holds one slot. With 5+ tiles plus an SSE stream, the browser stalls. But local dev uses HTTP/1.1 (no TLS), while production runs behind HTTPS with HTTP/2 (which multiplexes, dissolving the cap).
+**Problem.** Every major browser caps HTTP/1.1 at 6 concurrent connections per origin. A long-lived push transport (`multipart/x-mixed-replace`) would hold one TCP connection open per tile, so ≥6 tiles + SSE deadlocks the browser on plain HTTP. HTTP/2 behind a reverse proxy dissolves the cap (all streams multiplex over one TCP connection), but that adds a "production **must** use an HTTP/2 proxy" deploy asterisk.
 
-**Fix.** `StreamImage.tsx` auto-detects:
-- `window.location.protocol === "https:"` → MJPEG push.
-- HTTP → polling single JPEGs (`/admin/frame/{id}`) every ~400 ms.
-- Override via `VITE_ROAD_VIDEO_TRANSPORT=mjpeg|poll`.
+**Why polling works here.** The pipeline runs at `TARGET_FPS` (default 2). The edge produces a new frame every ~500 ms. A ~400 ms poll cycle catches every frame the edge emits. Push delivery can't beat that ceiling — the latency floor is inference cadence, not transport.
 
-**Impact.** Dev works with 8 tiles on plain HTTP. Production gets push-based MJPEG with no polling latency floor. Zero operator config.
+**Fix.** Every tile polls `GET /admin/frame/{id}` every ~400 ms. `has_viewers()` on `StreamSlot` is a single `time.monotonic()` delta against the last poll: any hit within 2 s keeps the annotated-JPEG encode path hot.
 
-**Alternatives.**
-- *WebRTC everywhere:* sub-100ms but needs STUN/TURN/SFU infra. Overkill at 2 fps.
-- *WebSockets with binary JPEGs:* reimplements what the browser already does natively with `<img src=multipart>`.
-- *HLS:* 6–10s latency floor, kills the "live" feel.
+**Impact.** One code path. No deploy asterisk — polling scales fine on HTTP/1.1 because each request closes its connection promptly. No dev/prod drift.
+
+**Alternatives considered.**
+- *Server-told capability (`GET /admin/video_caps` returns `push`|`poll`).* More honest than a client-side protocol guess, but still more code than "just poll."
+- *WebRTC / HLS.* Relevant at ≥10 fps or multi-tenant public fan-out. Not this product's regime.
+
+**When this stops being right.** ≥10 fps sources, or >30 tiles on cellular. At that point WebRTC is the honest answer.
 
 ---
 
@@ -165,7 +167,7 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
 
 **Problem.** `shared/types/common.ts` was a 334-line hand-mirrored copy of backend shapes. Every backend rename silently desynced and produced a runtime parse error in dev. "Source of truth in two places" = no source of truth.
 
-**Fix.** Backend Pydantic models (`backend/api/models.py`) → `scripts/generate_ts_types.py` → `frontend/src/shared/types/generated.ts` (462 LoC, machine-written). `common.ts` is now a 50-line re-export shim so existing imports keep working. `start.py` runs codegen *before* every Vite build — a backend rename fails the build loudly, not at runtime.
+**Fix.** Backend Pydantic models (`backend/api/models.py`) → `scripts/generate_ts_types.py` → `frontend/src/shared/types/generated.ts` (588 LoC, machine-written). `common.ts` is now a 50-line re-export shim so existing imports keep working. `start.py` runs codegen *before* every Vite build — a backend rename fails the build loudly, not at runtime.
 
 **Impact.** Wire contract physically generated from the backend. Field renames caught at compile time. Also: `risk_level` and `stream_type` become string-literal unions; `bbox` becomes a 4-tuple (safe under `noUncheckedIndexedAccess`).
 
@@ -206,11 +208,32 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
 
 ---
 
+## <a name="fe-docs"></a>Documentation / in-file discoverability
+
+**Problem.** Tracing a SafetyEvent from the SSE channel → React hook → rendered component meant grepping `/api/*` string literals and chasing `useQuery` keys by hand. JSDoc coverage was uneven: some files carried rich headers, most had none. Onboarding leaned on `CLAUDE.md` plus tribal knowledge about *which hook hits which endpoint*.
+
+**Fix.** One-pass annotation of **126 frontend files** (everything under `frontend/src/` except the machine-written `shared/types/generated.ts`, which is clobbered on every launch). For each file:
+
+- **File-level header** naming the BE endpoint it calls (or SSE channel it subscribes to), the parent page/feature it belongs to, and its role in that feature.
+- **JSDoc above every exported symbol** (component, hook, function, type) describing props, child elements rendered, the endpoint-and-effect it triggers, and the FE hook that mediates the call.
+- **Inline notes** on non-trivial logic: SSE reconnect/backoff, optimistic-mutation lifecycle (`onMutate` / `onError` / `onSettled` rollback), poll-cadence choice and *why* the 6-connection HTTP/1.1 cap forces a non-push transport, severity-color mapping, stale-time deduplication, portal mount targets for dialogs.
+
+Run in parallel across 20 agents; zero code changes; `tsc -b --noEmit` clean after the pass.
+
+**Impact.** `grep "/api/events/stream"` now returns a JSDoc block explaining who consumes it, with what hook, in which component. IDE hover on `useLiveStatus` surfaces the full contract (endpoint, cache key, refetch cadence, consumer pages) without jumping to the definition. New contributors read one file instead of three to understand any page.
+
+**Alternatives.**
+- *Architecture doc only* (what `docs/architecture.md` already does): global view, but no per-file wayfinding once you've clicked into code.
+- *Typedoc site*: more infra, and the current comments already surface in VS Code / WebStorm tooltips — a generated site would be a second target to keep in sync.
+- *No annotations*: `CLAUDE.md`'s default style ("names should explain themselves"). Overrode it here deliberately to optimize FE↔BE traceability for new contributors.
+
+---
+
 ## <a name="fe-bugfixes"></a>Critical bugfixes
 
 1. **Zombie state writes on unmount** → threaded `AbortSignal` through `apiFetch` + every `useQuery`. React no longer warns, no noisy logs in StrictMode.
 2. **Stuck "applying…" state** on settings apply when network hiccuped → 8-second escape timer with explicit failure banner.
-3. **Browser connection exhaustion** at 5+ tiles → MJPEG/poll auto-switch (see Network).
+3. **Browser connection exhaustion** at 5+ tiles → polling-only transport (see Network).
 4. **Duplicated SSE subscribers** — every open tab opened N connections → shared `<EventStreamProvider>`.
 5. **Silent type drift** between backend and frontend → codegen pipeline (see Type safety).
 6. **White-screen crashes** from one feature breaking all others → per-route error boundaries.
@@ -257,10 +280,10 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
 - `backend/integrations/` — edge-to-cloud publisher, Slack.
 - `backend/compliance/` — audit log + retention.
 - `backend/security/` — SSRF guard + rate limit.
-- `backend/rendering/` — clip, frame, MJPEG encoders.
+- `backend/rendering/` — clip + frame encoders.
 - `backend/domain/` — `Episode`, `StreamSlot` (extracted from shared state).
 - `backend/state.py` — singletons only.
-- `backend/server.py` — **189 lines** (from 1,535). Pure composition root: wires routers + lifespan.
+- `backend/server.py` — **194 lines** (from 1,535). Pure composition root: wires routers + lifespan.
 
 **Impact.** Each module is independently testable. New features land as new files, not 300-line diffs inside `server.py`. A new engineer reads `server.py` in one screen.
 
@@ -278,11 +301,11 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
 - `state.py` at 791 LoC — singletons and domain classes intermingled.
 
 **Fix.**
-- `server.py` → 189 LoC (composition root).
+- `server.py` → 194 LoC (composition root).
 - `watchdog.py` → `backend/services/watchdog/` package: `model.py` (dataclass + fingerprinting), `rules.py` (deterministic detectors), `ai.py` (Claude hypothesis layer, strictly additive), `storage.py` (JSONL I/O), `api.py` (background loop + `stats()`).
 - `state.py` 791 → 400 LoC — `Episode` and `StreamSlot` moved to `backend/domain/`, re-exported for backward compat.
 
-**Remaining candidates.** `backend/services/impact.py` (813 LoC), `backend/api/settings.py` (640 LoC — SSE + ticket exchange could move out).
+**Remaining candidates.** `backend/services/impact.py` (825 LoC), `backend/api/settings.py` (659 LoC — SSE + ticket exchange could move out).
 
 **Impact.** Each concern is testable in isolation. Rules can be exercised without booting the loop. AI layer can be stubbed for offline tests.
 
@@ -303,7 +326,7 @@ For deep technical detail see [Improvements and Refactoring - v.1.0.md](Improvem
 | `watchdog.py` | incident queue | 129 |
 | `spa.py` | SPA fallback | 110 |
 | `agents.py` | coaching / investigation | 101 |
-| `admin_video.py` | MJPEG + snapshot frames | 94 |
+| `admin_video.py` | snapshot frame endpoint | 94 |
 | ...plus 7 smaller routers | | |
 
 Pydantic response models in `backend/api/models.py`.
@@ -366,7 +389,7 @@ Pydantic response models in `backend/api/models.py`.
 **Problem.** Live state (per-source streams, episodes, viewer counts) lived as dict-of-dicts in `server.py`, mutated from everywhere.
 
 **Fix.**
-- `backend/domain/stream_slot.py` — one `StreamSlot` class per live source: tracks viewers (`mark_polled`, `has_viewers`), MJPEG subscriber count, per-slot `detection_enabled` toggle.
+- `backend/domain/stream_slot.py` — one `StreamSlot` class per live source: tracks viewers (`mark_polled`, `has_viewers` via 2 s poll TTL), per-slot `detection_enabled` toggle.
 - `backend/domain/episode.py` — one `Episode` per active incident.
 - `backend/state.py` — thin module owning the singletons (`STORE`, slot registry) and nothing else.
 - `SettingsStore` for config (see Performance).
@@ -457,6 +480,28 @@ Pydantic response models in `backend/api/models.py`.
 
 ---
 
+## <a name="be-docs"></a>Documentation / in-file discoverability
+
+**Problem.** `backend/api/models.py` is the wire-contract source of truth, but nothing on each Pydantic class told a reader *which FE hook* consumed it. Routers mentioned path + `response_model` but not the downstream React component. Perception gates had terse constants with no rationale — `if ttc < 0.6` didn't explain *why 0.6* or which false-positive class it was killing. Coverage was bimodal: `services/llm.py` and `services/watchdog/` were exhaustively documented; many smaller modules had empty docstrings.
+
+**Fix.** One-pass annotation of **85 backend files** across `backend/`, `cloud/`, `tools/`, and `scripts/`. For each file:
+
+- **Module docstring** naming upstream producers and downstream consumers — where the data comes from, and specifically which endpoint → FE hook → React component path surfaces it.
+- **Per-function / per-class docstrings** covering inputs, outputs, side effects (DB writes, SSE fan-out, audit log, cloud publish), and privacy / security notes.
+- **Inline comments** on non-trivial logic: the plate-hash invariant at ingest (stripped *before* any buffer), HMAC signature computation and replay defence, circuit-breaker state transitions (closed → open → half-open), frame-encode viewer gating, watchdog fingerprint-collision resolution (rule wins over AI on fingerprint *or* title match), and gate rationale — *why* this threshold, not just *what it is*.
+- **Pydantic docstrings** name the producer endpoint and the consuming FE hook without touching field definitions (no new `Field(...)` wrappers, preserving `scripts/generate_ts_types.py` output byte-for-byte).
+
+Run in parallel across 19 agents; zero executable code changes; `py_compile` clean across all touched modules; TS codegen re-run emits a byte-identical `generated.ts`.
+
+**Impact.** Each module reads as its own mini design doc. Tracing a field from `SafetyEvent` in Pydantic to its render site in `EventDialog` now follows breadcrumbs in both directions — from `models.py` forward to the hook, or from the hook back to the router and the service that populates the payload. Threshold tuning during settings work has the *why* beside the number, so operators and new engineers can adjust without rediscovering the false-positive class a gate was designed to kill.
+
+**Alternatives.**
+- *Sphinx auto-API:* docstrings are a prerequisite, not an alternative — this pass is what makes a future Sphinx build worthwhile. Defer until docstring coverage stabilises.
+- *Inline TODOs + external wiki:* external docs drift the moment the code changes. Inline comments live with the code and survive refactors via `git blame`.
+- *No annotations*: project `CLAUDE.md` defaults to "names explain themselves." Traded that philosophy here for onboarding velocity and FE↔BE wayfinding.
+
+---
+
 ## <a name="be-bugfixes"></a>Critical bugfixes
 
 1. **Hot-path config race** → `SettingsStore` snapshot isolation (atomic pointer swap).
@@ -504,7 +549,7 @@ Pydantic response models in `backend/api/models.py`.
 | Common area | What I look for | Frontend fix | Backend fix |
 | --- | --- | --- | --- |
 | Project structure | Cross-feature coupling | Feature folders + import rule | Feature packages under `backend/` |
-| Giant files | One file owns many concerns | `SettingsPage`, `MultiSourceGrid` decomposed | `server.py` 1535→189; `watchdog.py` split |
+| Giant files | One file owns many concerns | `SettingsPage`, `MultiSourceGrid` decomposed | `server.py` 1535→194; `watchdog.py` split |
 | Network | Ad-hoc fetches, no abort | `apiFetch` + `HttpApiError` + `AbortSignal` | 15 routers + HMAC ingest + SSRF guard |
 | State management | Hand-rolled caches | TanStack Query | `SettingsStore` snapshot isolation |
 | Hooks / lifecycle | Duplicated subscriptions | Shared `useSSE`, single `EventStream` | `StreamSlot` viewer tracking |
@@ -514,12 +559,13 @@ Pydantic response models in `backend/api/models.py`.
 | Error handling | One bug breaks everything | Per-route `ErrorBoundary` | Circuit breaker + rules-only fallback |
 | Privacy / security | Trust boundaries | (n/a) | Plate-hash at ingest, HMAC, SSRF |
 | Observability | Logs vs. actionable incidents | (n/a) | Watchdog fingerprinted findings |
+| Code discoverability | File-to-endpoint map, tribal wire-contract knowledge | 126 files annotated (JSDoc + FE→BE map) | 85 files annotated (endpoint→consumer docstrings, gate rationale) |
 
 ---
 
 ## How I'd present this
 
 1. **Framework first** — show the table above. "These are the common areas I audit."
-2. **Pick two deep dives** — the ones that show judgment, not just work. I use: **`SettingsStore` snapshot isolation** (BE concurrency) and **MJPEG/poll auto-switch** (FE network).
+2. **Pick two deep dives** — the ones that show judgment, not just work. I use: **`SettingsStore` snapshot isolation** (BE concurrency) and **polling-only transport** (FE network: 6-conn cap + 2 fps perception).
 3. **Volunteer a gap** — "auth is the biggest product-readiness gap, and here's why I didn't half-build it." Engineering judgment > feature enthusiasm.
 4. **One alternative per topic** — "I considered X; rejected because Y." Proves I chose, didn't just do.

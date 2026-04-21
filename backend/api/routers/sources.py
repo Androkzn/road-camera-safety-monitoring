@@ -4,15 +4,43 @@ CRUD on ``state.slots`` + per-slot start / pause / restart-all /
 detection-toggle. Every mutation is audit-logged so a reviewer can
 reconstruct which operator added / removed which source.
 
+Endpoints
+---------
+* ``GET  /api/live/sources`` — list configured sources + status.
+* ``POST /api/live/sources`` — add a new source (SSRF-guarded).
+* ``POST /api/live/sources/{source_id}/start`` — start / resume.
+* ``POST /api/live/sources/{source_id}/pause`` — pause (slot preserved).
+* ``DELETE /api/live/sources/{source_id}`` — stop and drop slot.
+* ``POST /api/live/sources/{source_id}/detection`` — toggle YOLO/emission.
+
 UI connection
 -------------
 Page: AdminPage — [file](frontend/src/features/admin/AdminPage.tsx)
+FE hooks that consume this router:
+* ``useStreamRegistry`` (frontend/src/features/admin/hooks/useStreamRegistry.ts)
+  — polls ``GET /api/live/sources`` to render the tile list.
+* ``useStreamControl`` (frontend/src/features/admin/hooks/useStreamControl.ts)
+  — calls the start/pause/delete/detection-toggle endpoints from each tile.
+* ``useLiveSources`` / ``useLiveSourcesList`` for adjacent fleet views.
 UI element: the source-management controls above the live video grid —
 the "add stream URL" form, each tile's start / pause / remove buttons,
 and the per-tile "detection on/off" toggle.
-Backend route(s): GET /api/live/sources, POST /api/live/sources,
-POST /api/live/sources/{source_id}/start, POST /api/live/sources/{source_id}/pause,
-DELETE /api/live/sources/{source_id}, POST /api/live/sources/{source_id}/detection.
+
+Backend services used
+---------------------
+* ``backend.perception.slot_control`` — ``start_slot`` / ``pause_slot`` /
+  ``resume_slot`` / ``stop_slot`` drive the background capture threads.
+* ``backend.security.ssrf.validate_public_url`` — SSRF guard on user URLs.
+* ``backend.compliance.audit`` — every mutation is audit-logged.
+* ``backend.state`` — ``state.slots`` is the shared slot registry.
+
+Security notes
+--------------
+* POC has no request authentication on these mutating endpoints — any
+  caller reachable on the network can add/remove sources. See CLAUDE.md
+  "Access model" — add an auth layer before production.
+* User-supplied URLs are SSRF-validated (see ``validate_public_url``) to
+  reject loopback / private / link-local / cloud-metadata targets.
 """
 
 import time

@@ -9,6 +9,21 @@ utilities), [broadcast.py](broadcast.py) (SSE fan-out),
 [slot_control.py](slot_control.py) (per-slot lifecycle), and
 [score_decay.py](score_decay.py) (background driver-score decay).
 
+Pipeline seam
+-------------
+Upstream (producers):
+    ``backend/core/stream.py`` → ``backend/perception/on_frame.py``
+    produces per-frame detections which, after a multi-frame episode
+    is closed, call into ``episode_emit.flush_episode``.
+Downstream (consumers):
+    ``emit.emit_event`` fans the finished event out to
+    ``backend/services/llm.py`` (narration + ALPR),
+    ``backend/integrations/slack.py`` (tiered notifier),
+    ``backend/integrations/edge_publisher.py`` (HMAC batched cloud
+    ingest), and ``broadcast.broadcast_perception`` pushes it to the
+    per-client SSE queues that the React app consumes via
+    ``useEventStream`` / ``EventStreamProvider``.
+
 UI connection
 -------------
 Page: Live page, Events page

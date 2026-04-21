@@ -10,6 +10,7 @@
  *   shown inside cards, badges, headers and tooltips.
  */
 
+/** Zero-pad a small integer to two digits ("3" -> "03"). Internal helper for clock-style formatting. */
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
 /** "HH:MM:SS" or "—" if the timestamp is invalid. */

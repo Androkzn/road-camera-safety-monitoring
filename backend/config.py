@@ -223,9 +223,8 @@ def _parse_stream_sources() -> list[dict[str, str]]:
             if len(parts) == 3 and parts[0] and parts[2]:
                 out.append({"id": parts[0], "name": parts[1] or parts[0], "url": parts[2]})
                 continue
-        # Bare URL — auto id/name. First entry becomes "primary" so legacy
-        # endpoints (``/admin/video_feed`` without a source id) continue to
-        # serve the same stream as before.
+        # Bare URL — auto id/name. First entry becomes "primary" so URLs
+        # like ``/admin/frame/primary`` are stable across restarts.
         sid = "primary" if i == 0 else f"src{i + 1}"
         name = "Primary" if i == 0 else f"Source {i + 1}"
         out.append({"id": sid, "name": name, "url": entry})
@@ -519,6 +518,14 @@ def _camera_env_float(slot_id: str, field_suffix: str, fallback: float) -> float
 
 
 def _camera_env_str(slot_id: str, field_suffix: str, fallback: str) -> str:
+    """Read ``ROAD_CAMERA_<FIELD>__<SLOT>`` as an orientation enum string.
+
+    Whitelisted to ``{"forward", "rear", "side"}``; any other value — empty,
+    typo, or a legacy label — silently falls back to the supplied default.
+    Mirrors :func:`_camera_env_float` but for the one string field on
+    :class:`CameraCalibration` (orientation), used by
+    :func:`camera_calibration_for`.
+    """
     raw = os.getenv(f"ROAD_CAMERA_{field_suffix}__{slot_id.upper()}", "").strip().lower()
     if raw not in {"forward", "rear", "side"}:
         return fallback

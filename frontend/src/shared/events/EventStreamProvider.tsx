@@ -25,6 +25,15 @@
  * UI element: the live-event ticker that powers incident feeds,
  *   detection panels, and live tiles — this provider owns the single
  *   shared SSE buffer that every event surface reads from.
+ *
+ * --- Backend endpoints ---
+ *  - SSE: `/stream/events` (server-sent stream of SafetyEvent payloads,
+ *    interleaved with PerceptionState `_meta` frames). Reconnection and
+ *    backoff are handled inside the `useSSE` hook; this provider only
+ *    owns message dispatch + the in-memory buffer.
+ *  - The public `/api/events/stream` and `/api/events/history` endpoints
+ *    carry the same payload shape (redacted thumbnails only; plate text
+ *    stripped at ingest).
  */
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
@@ -62,10 +71,22 @@ const ActionsCtx = createContext<EventStreamActionsCtx>({
   clearEvents: () => {},
 });
 
+/**
+ * EventStreamProvider — mount once at the app root; children read via
+ * the three split hooks below. Owns the SSE connection, rolling event
+ * buffer, and the latest PerceptionState snapshot.
+ *
+ * Props: `children` only. No configuration — the SSE URL and buffer cap
+ * are fixed so the contract stays simple.
+ */
 export function EventStreamProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<SafetyEvent[]>([]);
   const [perception, setPerception] = useState<PerceptionState | null>(null);
 
+  // Single dispatcher for the interleaved SSE stream. The server tags
+  // perception-state frames with `_meta = "perception_state"`; everything
+  // else is a SafetyEvent. Keeping this in one callback means a single
+  // state-update cycle per frame.
   const onMessage = useCallback((msg: SafetyEvent | PerceptionState) => {
     if ("_meta" in msg && msg._meta === "perception_state") {
       setPerception(msg as PerceptionState);
@@ -73,6 +94,9 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
     }
     const ev = msg as SafetyEvent;
     setEvents((prev) => {
+      // Prepend so newest-first ordering is implicit; then cap at the
+      // configured buffer size so long-running sessions don't leak
+      // memory. Older events are dropped off the tail.
       const next = [ev, ...prev];
       return next.length > LIMITS.eventStreamBuffer
         ? next.slice(0, LIMITS.eventStreamBuffer)
@@ -80,6 +104,9 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // useSSE owns the EventSource lifecycle: connect, auto-reconnect with
+  // backoff on drop, and exposes the live connected flag we surface via
+  // ConnectionCtx.
   const { connected } = useSSE<SafetyEvent | PerceptionState>({
     url: "/stream/events",
     onMessage,
@@ -102,25 +129,36 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Subscribe to the rolling event buffer + latest perception state. */
+/**
+ * useEventStreamData — subscribe to the rolling event buffer + latest
+ * perception state. Re-renders on every new event; use only in
+ * components that actually read `events` or `perception`.
+ */
 export function useEventStreamData(): EventStreamDataCtx {
   return useContext(DataCtx);
 }
 
-/** Subscribe ONLY to the connected flag — cheap, no event-buffer re-renders. */
+/**
+ * useEventStreamConnection — subscribe ONLY to the connected flag. Cheap;
+ * no re-render when a new event arrives. Use for status pills / banners.
+ */
 export function useEventStreamConnection(): boolean {
   return useContext(ConnectionCtx);
 }
 
-/** Subscribe to stable action callbacks (clearEvents). Never re-renders on data changes. */
+/**
+ * useEventStreamActions — stable action callbacks (currently
+ * `clearEvents`). Never re-renders on data changes, so safe to destructure
+ * in effect deps.
+ */
 export function useEventStreamActions(): EventStreamActionsCtx {
   return useContext(ActionsCtx);
 }
 
 /**
- * Back-compat aggregate — returns everything in one object. Prefer the
- * split hooks above in new code so consumers only re-render on the slice
- * they actually use.
+ * useEventStreamCtx — back-compat aggregate: returns events, perception,
+ * connected flag, and actions in one object. Prefer the split hooks above
+ * in new code so consumers only re-render on the slice they actually use.
  */
 export function useEventStreamCtx(): EventStreamCtx {
   const data = useEventStreamData();

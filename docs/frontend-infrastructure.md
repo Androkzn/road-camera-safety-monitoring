@@ -11,7 +11,7 @@ The UI does **not** run computer vision. It:
 - Renders three main screens (routes).
 - Opens **Server-Sent Events (SSE)** connections for **live** updates (events, detection snapshots).
 - Calls **REST JSON** endpoints for status, history, watchdog, tests, and feedback.
-- Displays images from `/thumbnails/...` and a live MJPEG preview from `/admin/video_feed`.
+- Displays images from `/thumbnails/...` and live tiles polled from `/admin/frame/{id}` every ~400 ms.
 
 All “brains” (YOLO, tracking, LLM, Slack, cloud publish) run in Python on the server.
 
@@ -153,12 +153,12 @@ flowchart TB
     H[useAdminHealth → GET /api/admin/health]
     D[useDetections → SSE /admin/detections]
     E[useEventStream → SSE /stream/events]
-    VF[VideoFeed → img src /admin/video_feed]
+    VF[StreamImage → img src /admin/frame/{id} polled ~400ms]
   end
 ```
 
 - **Health strip** — structured snapshot (server, pipeline, integrations, perception, scene, ego).
-- **Video** — MJPEG stream (not SSE): `<img src="/admin/video_feed">` style consumption in `VideoFeed`.
+- **Video** — polled single-JPEG: `<img src="/admin/frame/{id}?t=…">` refreshed every ~400 ms by `StreamImage`. (Perception runs at 2 fps, so poll cadence catches every frame.)
 - **Detections tab** — rolling buffer of last N snapshots from SSE.
 - **Events tab** — live events from main SSE stream.
 - **History** — `HistoryPanel` uses `useHistory` → `api.getLiveEvents` → `GET /api/live/events`.
@@ -186,7 +186,7 @@ flowchart TB
 - Vite serves the app (default port **3000** in `vite.config.ts`).
 - **`server.proxy`** forwards API-like paths to `http://localhost:8000`, so the browser still uses **relative** URLs like `/api/...` and they hit the Python server.
 
-Proxied prefixes include: `/api`, `/stream`, `/chat`, `/thumbnails`, `/admin/video_feed`, `/admin/detections`.
+Proxied prefixes include: `/api`, `/stream`, `/chat`, `/thumbnails`, `/admin/frame`, `/admin/detections`.
 
 ### Production (`npm run build` + Python)
 

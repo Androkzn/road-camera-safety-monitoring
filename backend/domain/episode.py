@@ -6,6 +6,20 @@ frame. When risk drops for long enough, the Episode closes and becomes
 a SafetyEvent. Constants like MIN_HIGH_RISK_FRAMES / MIN_HIGH_RISK_EPISODE_SEC
 live here and are re-exported by backend/state.py for backwards compat.
 
+Pipeline role
+-------------
+- **Created / updated** by ``backend/perception/on_frame.py`` — each
+  ``find_interactions`` pair that survives the TTC / convergence / depth
+  gates either opens a new Episode in ``StreamSlot.episodes`` (keyed by
+  canonical ``(lo, hi)`` track-id tuple) or folds a fresh observation
+  into the existing one via :meth:`Episode.update`.
+- **Consumed** by ``backend/perception/emit.py::_flush_episode``. On
+  close, the emit path calls :meth:`final_risk` to apply the sustained-
+  risk downgrade, reads the ``peak_*`` snapshot (frame / detections /
+  distance / TTC), then builds the ``SafetyEvent`` wire payload and
+  dispatches it over SSE / Slack / cloud. ``emitted=True`` is flipped
+  there to enforce the one-event-per-Episode invariant.
+
 Python primer: This is a regular class (not a dataclass) because it owns
 mutable state that evolves each frame. The `@property` decorator wraps a
 method so callers use `ep.duration_sec` like an attribute while the class

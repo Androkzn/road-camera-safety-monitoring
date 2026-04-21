@@ -375,6 +375,7 @@ class StreamReader:
         self._paused.clear()
 
     def is_paused(self) -> bool:
+        """``True`` iff the operator has called :meth:`pause` without a later :meth:`resume`."""
         return self._paused.is_set()
 
     def uptime_sec(self) -> float:

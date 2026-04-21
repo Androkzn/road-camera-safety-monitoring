@@ -10,7 +10,7 @@ export default defineConfig({
       "/stream": "http://127.0.0.1:8002",
       "/chat": "http://127.0.0.1:8002",
       "/thumbnails": "http://127.0.0.1:8002",
-      "/admin/video_feed": "http://127.0.0.1:8002",
+      "/admin/frame": "http://127.0.0.1:8002",
       "/admin/detections": "http://127.0.0.1:8002",
     },
   },

@@ -18,7 +18,7 @@ Reference documents for deep dives:
 
 ## 1. Architecture & project-structure refactor
 
-**What changed.** The Python package was renamed `road_safety/` → `backend/` and split into proper subpackages: `backend/core/` (perception, orientation policy, validator, stream, depth, egomotion, quality, context), `backend/perception/` (hot path + emit + broadcast + slot control + risk/score_decay), `backend/services/` (LLM, drift, watchdog, impact, ops_sampler, templates, registry, redact, agents, llm_obs, digest, test_runner, settings_db), `backend/integrations/` (edge_publisher, slack), `backend/compliance/` (audit, retention), `backend/rendering/` (clip, frame, mjpeg), `backend/security/` (ssrf, rate_limit), `backend/api/` (routers + settings + feedback + models), plus `backend/state.py` (live-state singletons plus `Episode`, `StreamSlot`, and related domain instances), `backend/startup.py`, `backend/settings_store.py`, `backend/settings_spec.py`. The old monolithic `road_safety/server.py` shrank from 1,535 lines to `backend/server.py` at **189 lines** — purely a composition root that wires routers + lifespan.
+**What changed.** The Python package was renamed `road_safety/` → `backend/` and split into proper subpackages: `backend/core/` (perception, orientation policy, validator, stream, depth, egomotion, quality, context), `backend/perception/` (hot path + emit + broadcast + slot control + risk/score_decay), `backend/services/` (LLM, drift, watchdog, impact, ops_sampler, templates, registry, redact, agents, llm_obs, digest, test_runner, settings_db), `backend/integrations/` (edge_publisher, slack), `backend/compliance/` (audit, retention), `backend/rendering/` (clip, frame), `backend/security/` (ssrf, rate_limit), `backend/api/` (routers + settings + feedback + models), plus `backend/state.py` (live-state singletons plus `Episode`, `StreamSlot`, and related domain instances), `backend/startup.py`, `backend/settings_store.py`, `backend/settings_spec.py`. The old monolithic `road_safety/server.py` shrank from 1,535 lines to `backend/server.py` at **189 lines** — purely a composition root that wires routers + lifespan.
 
 **Why.** In the `main` baseline, `road_safety/server.py` is a 1,535-line monolith with 37 `@app.*` routes mixed with state/domain concerns; earlier internal snapshots had already drifted toward ~4,000 lines. In both shapes, routing, live state, and business logic were too tightly coupled, making review and unit testing painful and turning every feature into a same-file merge conflict. The rename `road_safety → backend` also clarifies layering: this process is the edge node; `cloud/` is a peer.
 
@@ -51,7 +51,7 @@ Reference documents for deep dives:
 | `watchdog.py` | Incident queue reads / deletes | 129 |
 | `spa.py` | Static + SPA fallback | 110 |
 | `agents.py` | Coaching / investigation / report agents | 101 |
-| `admin_video.py` | MJPEG + single-shot frame endpoints | 94 |
+| `admin_video.py` | Single-shot frame endpoint | 94 |
 | `road.py` | Road-level aggregations | 48 |
 | `thumbnails.py` | Thumbnail serving | 46 |
 | `active_learning.py` | Drift sampler feed | 40 |
@@ -112,40 +112,32 @@ Key pieces:
 
 ---
 
-## 4. Live video transport — MJPEG vs polling auto-switch
+## 4. Live video transport — just poll
 
-**What changed.** The multi-source admin grid now auto-selects its video transport based on the page protocol:
-- **HTTPS → MJPEG** (`GET /admin/video_feed/{id}`, `multipart/x-mixed-replace`) — server pushes each JPEG with no polling latency floor.
-- **HTTP → polling** (`GET /admin/frame/{id}`, single JPEG every ~400 ms via `POLL_INTERVAL_MS.streamImageFrame`).
+**Problem.** Every major browser caps HTTP/1.1 at 6 concurrent connections per origin. A long-lived push transport (`multipart/x-mixed-replace`) would hold one TCP connection open per tile, so ≥6 tiles + SSE deadlocks the browser on plain HTTP. HTTP/2 multiplexing behind a reverse proxy dissolves the cap, but that adds a "production **must** use an HTTP/2 proxy" deploy asterisk.
 
-Override via Vite env `VITE_ROAD_VIDEO_TRANSPORT=mjpeg|poll`. Both endpoints stay live regardless — `/admin/frame/{id}` doubles as a one-shot snapshot source for tests.
+**What the grid does.** The multi-source admin grid polls a single server endpoint for every tile:
+- `GET /admin/frame/{id}`, single JPEG, re-fetched every ~400 ms via `POLL_INTERVAL_MS.streamImageFrame`.
 
 Key files:
-- `frontend/src/features/admin/components/StreamImage.tsx` — transport-selection + per-tile lifecycle.
-- `backend/api/routers/admin_video.py` — both endpoints.
-- `backend/rendering/mjpeg.py` — MJPEG encoder.
-- `backend/rendering/frame.py` — single-frame encoder with auto-shedding policy.
-- `backend/state.py::StreamSlot` — viewer-presence tracking: `mark_polled`, `has_viewers`, MJPEG subscriber count.
+- `frontend/src/features/admin/components/StreamImage.tsx` — polled `<img>` lifecycle.
+- `backend/api/routers/admin_video.py` — single endpoint.
+- `backend/rendering/frame.py` — single-frame encoder + `WARMING_UP_JPEG` boot placeholder.
+- `backend/domain/stream_slot.py::StreamSlot` — viewer-presence tracking: `mark_polled`, `has_viewers` (2 s TTL on last poll).
 
-**Why.** Two technical constraints collide:
-1. Browsers cap concurrent HTTP/1.1 connections at **6 per host**. With a persistent MJPEG connection per tile plus an SSE connection, four tiles already eat the budget and the fifth stalls.
-2. Local dev uses uvicorn speaking HTTP/1.1 directly (no TLS), so MJPEG deadlocks past ~4 tiles.
+**Why.** The perception pipeline runs at `TARGET_FPS` (default 2), so the edge produces a new frame every ~500 ms. A ~400 ms poll cycle catches every frame the edge emits. Push delivery can't beat that ceiling — the latency floor is inference cadence, not transport. At 2 fps the savings from push are invisible, while the cost (dual endpoints, multipart framing, HTTP/2-proxy deploy asterisk) is real.
 
-HTTP/2 (which needs TLS to activate in browsers) multiplexes everything over one connection and dissolves the cap — so in production behind an HTTPS reverse proxy (nginx/Caddy/Cloudflare/ALB) MJPEG works fine. Auto-detection by `window.location.protocol === "https:"` means zero client config to switch.
-
-**Why it matters.** (a) Developers can run 8 live tiles locally without changing any config — the auto-detect picks polling. (b) Production deployments behind HTTPS automatically get push-based MJPEG with no polling latency. (c) Pairing this with `StreamSlot.has_viewers` means idle tiles stop burning JPEG encode cycles — "encode only when someone is watching". (d) Per-slot `detection_enabled` lets ops drop inference load on quiet tiles without restarting the stream (commit `df478f2`).
+**Why it matters.** (a) One code path, one endpoint, no transport branch in the code. (b) No deploy asterisk — polling scales fine on HTTP/1.1 because each poll closes its connection promptly, freeing the 6-conn-per-host budget across all tiles. (c) `StreamSlot.has_viewers` skips JPEG encode on idle tiles; pollers count as "watched" for 2 s after their last hit. (d) Per-slot `detection_enabled` lets ops drop YOLO load on quiet tiles without restarting the stream.
 
 **Possible next improvements.**
-- WebRTC transport option for sub-100ms latency (MJPEG floor is one frame period + decode).
-- Server-side adaptive JPEG quality based on bandwidth per subscriber.
-- Client-side MJPEG decoder cap (partially present) — unit-test at 8/12/16 tiles.
-- Generate pre-signed URLs for `/admin/video_feed` when auth is eventually added (signed-URL scaffolding already landed in commit `c1f1804`).
+- WebRTC / H.264 when source fps climbs past ~10 (JPEG's lack of inter-frame compression starts to hurt at that point).
+- Server-side adaptive JPEG quality based on viewer window size.
+- Server-told capability endpoint (`GET /admin/video_caps`) if a push transport is ever reintroduced — more honest than a client-side protocol guess.
 
 **Alternative solutions & trade-offs.**
-- **Alternative A: WebRTC for every tile.** *Pros:* sub-100ms latency, adaptive bitrate, native browser decoding, NAT traversal solved. *Cons:* need STUN/TURN infrastructure and an SFU or one PeerConnection per tile, browser-version quirks, huge overkill for 2 fps inference output where a frame-period floor is invisible.
-- **Alternative B: WebSocket + binary JPEG frames, one socket per tile (or multiplexed).** *Pros:* works on HTTP/1.1, flexible framing, no connection-cap issues if multiplexed. *Cons:* reimplements what `<img src=multipart/x-mixed-replace>` gives us for free — manual decode, manual backpressure, more client code, no built-in frame pacing.
-- **Alternative C: HLS for all tiles.** *Pros:* CDN-cacheable, standard, works through every proxy. *Cons:* 6–10 s latency floor from segment packaging, kills the "live" feel operators expect, adds `ffmpeg` as a hot-path dependency for every source.
-- **Verdict:** MJPEG on HTTPS/h2 is the simplest transport that still does push delivery; polling fallback makes local HTTP dev work without any infra, and both endpoints being live means tests and snapshots get a one-shot JPEG for free.
+- **Alternative A: WebRTC for every tile.** *Pros:* sub-100ms latency, adaptive bitrate, native browser decoding. *Cons:* needs STUN/TURN + SFU or one PeerConnection per tile; overkill for 2 fps inference output where the frame-period floor is invisible.
+- **Alternative B: HLS for all tiles.** *Pros:* CDN-cacheable, standard. *Cons:* 6–10 s latency floor from segment packaging kills the "live" feel; adds `ffmpeg` as a hot-path dependency.
+- **Verdict:** polling at `~frame_period` is the simplest transport that actually delivers every frame the edge produces. Push delivery only earns its complexity when it can demonstrably reduce *perceived* latency; below the inference period, it can't.
 
 ---
 
@@ -295,7 +287,7 @@ Existing tests were refactored for the new module layout: `test_api.py`, `test_c
 - Contract tests between the settings router and `frontend/src/features/settings/api.ts`.
 
 **Alternative solutions & trade-offs.**
-- **Alternative A: End-to-end Playwright tests driving the whole browser against a live `start.py`.** *Pros:* catches real integration bugs, covers SSE and MJPEG transport paths. *Cons:* 10× runtime, flaky on CI without careful waits, needs a GPU-less YOLO stub, slower feedback loop when you want to iterate on a gate threshold.
+- **Alternative A: End-to-end Playwright tests driving the whole browser against a live `start.py`.** *Pros:* catches real integration bugs, covers SSE and polling transport paths. *Cons:* 10× runtime, flaky on CI without careful waits, needs a GPU-less YOLO stub, slower feedback loop when you want to iterate on a gate threshold.
 - **Alternative B: Full integration tests that boot the whole FastAPI app and perception pipeline per test.** *Pros:* "tests the real thing". *Cons:* 30 s per test from model load, shared global state (`state.py` singletons) causes order-dependency, can't run in parallel, defeats the per-router isolation the refactor enabled.
 - **Alternative C: Snapshot-test the API response shapes only.** *Pros:* cheap to write, catches accidental schema drift. *Cons:* snapshot rot (every intentional change requires a re-record, people stop reading diffs), doesn't verify behavior — a buggy handler with a consistent response passes.
 - **Verdict:** Pytest unit tests on routers (fresh `FastAPI` + fresh store per test) + `test_core.py` gate-integrity tests gives the right pyramid — fast feedback, true isolation, and the `test_orientation_policy.py` scale proves the pattern carries real business logic.
@@ -373,12 +365,12 @@ What remains:
 - `docs/requirements/` — original scope.
 - Four separate settings-console plans (claude code, codex, cursor, v1.0) — planning exercise across different AI tools.
 
-**Why.** This project carries a lot of non-obvious "why this way" decisions — plate-scrub-at-ingest, 5-tool agent cap, multi-gate TTC, MJPEG-vs-poll. Without written rules, every new contributor re-litigates them.
+**Why.** This project carries a lot of non-obvious "why this way" decisions — plate-scrub-at-ingest, 5-tool agent cap, multi-gate TTC, polling-transport-at-2fps. Without written rules, every new contributor re-litigates them.
 
 **Why it matters.** `CLAUDE.md` is the "agent contract" — it turns the codebase into something an AI coding agent can edit safely without breaking the privacy invariant or adding an LLM call outside `services/llm.py`. The audit docs are review-ready artifacts that can go to an acquirer's engineering diligence process as-is.
 
 **Possible next improvements.**
-- `ADR/` directory with one entry per architecture decision (`001-plate-scrub-at-ingest.md`, `002-mjpeg-vs-poll.md`, etc.).
+- `ADR/` directory with one entry per architecture decision (`001-plate-scrub-at-ingest.md`, `002-polling-transport.md`, etc.).
 - Auto-generated API reference from OpenAPI once `response_model=` coverage hits 100%.
 - A public `ARCHITECTURE.md` that imports from the internal audit docs but strips vendor comparisons.
 
@@ -491,7 +483,7 @@ What remains:
 
 | Dimension | Order-of-magnitude rule | Source / why |
 | --- | --- | --- |
-| Tiles per edge before browser cap bites | **~4 over HTTP/1.1**, **dozens over HTTP/2** | Browsers cap concurrent HTTP/1.1 connections at 6 per host; MJPEG holds one each (§4). |
+| Tiles per edge before browser cap bites | **Plenty over HTTP/1.1 with polling**; push transports would cap at ~4 over HTTP/1.1 and dozens over HTTP/2 | Browsers cap concurrent HTTP/1.1 connections at 6 per host; each poll closes promptly so the cap is not pressured (§4). |
 | Inference cadence per source | TARGET_FPS, default ~2 fps | `backend/settings_spec.py` default; tunable hot-apply via Settings Console. |
 | JPEG encode | Skipped when `StreamSlot.has_viewers == False` | "Encode only when someone is watching" (§4). |
 | Settings apply latency | Sub-millisecond pointer swap; SQLite write off the hot path | §15 concurrency model. |
@@ -598,7 +590,7 @@ If the interviewer asks "what is still weak?", answer directly:
 - **Single-instance assumption.** `SettingsStore` is one in-memory singleton per edge process — no leader election, no fleet-wide config coordination yet.
 - **Operational durability of JSONL stores.** `data/audit.jsonl` and `data/watchdog.jsonl` grow unbounded — rotation/compaction policy is implicit, not enforced.
 - **No formal benchmarks.** Capacity envelope (§16) is order-of-magnitude reasoning, not measured numbers.
-- **No browser-level end-to-end smoke suite.** Pytest unit tests + frontend vitest cover the units; nothing exercises the full SSE + MJPEG path against a live `start.py` yet.
+- **No browser-level end-to-end smoke suite.** Pytest unit tests + frontend vitest cover the units; nothing exercises the full SSE + frame-polling path against a live `start.py` yet.
 - **Cold-start latency is still under-characterized.** `startup.py` does pre-warm YOLO, but there is no measured end-to-end "first live frame" benchmark for stream attach, first inference, and first UI paint.
 - **Production packaging is not finished.** Missing auth is the obvious one, but no first-class HTTP/2 reverse-proxy recipe and no `docker-compose.prod.yml` either.
 
@@ -612,7 +604,7 @@ This section helps because it shows engineering judgment, not just feature enthu
 | --- | --- | --- |
 | *Why split server.py?* | Monolithic `server.py` mixed routes, live state, and domain logic in one file. In `main` it was 1,535 lines (37 routes), and earlier internal snapshots had already drifted toward ~4,000 lines. Extracting 15 routers + 2 function-mounted routers + `state.py`/`startup.py`/`settings_store.py` cut `server.py` to **189 lines** and made per-feature testing possible. | Hexagonal/clean-arch layers — rejected as 3× ceremony for a single-process POC with one perception backend. |
 | *Why Settings Console?* | Hot-apply runtime tuning with statistically-gated impact feedback (JSD scene drift, sample-size floor, confidence tiers) so operators aren't guessing whether a threshold change helped. | LaunchDarkly / Unleash — gets flags + audit but no perception-domain impact engine, which is the actual differentiator. |
-| *MJPEG or polling — why both?* | Browsers cap HTTP/1.1 at 6 conns/host. MJPEG needs one per tile. HTTPS gets HTTP/2 multiplexing free; HTTP dev doesn't. Auto-detect by `window.location.protocol`. | WebRTC — sub-100 ms but needs STUN/TURN/SFU infra; overkill for 2 fps inference where frame-period latency is invisible. |
+| *Why polling for tiles, not push?* | Browsers cap HTTP/1.1 at 6 conns/host and push transports hold one per tile. At 2 fps perception, a ~400 ms poll cycle picks up every frame the edge emits — push delivery can't beat that ceiling, so one endpoint, one code path, no HTTP/2 deploy asterisk. | WebRTC — sub-100 ms but needs STUN/TURN/SFU infra; overkill for 2 fps inference where frame-period latency is invisible. |
 | *Why scrub plate at ingest, not egress?* | Defence in depth backwards. Egress scrub means every new buffer consumer must remember; ingest scrub means the raw plate was never in memory to leak. | KMS-encrypted at-rest with decrypt-on-egress — recoverable under audit but puts a KMS call on the hot path and doesn't shrink the in-memory leak surface. |
 | *Why no auth?* | POC explicitly. Half-built auth is worse than documented none. Cloud receiver still HMAC-verifies batches; audit log still records every access. Real auth goes at the reverse proxy on deploy. | Static admin bearer token — sniffable on HTTP dev, no rotation, creates false confidence while offering almost nothing. |
 | *Why TanStack Query?* | Kills hand-rolled `setInterval` polling, gives cache + `invalidateQueries`, supports `AbortSignal` out of the box for unmount cancellation, and integrates with React Suspense. | Redux Toolkit + RTK Query — single store but ceremony tax per slice and weaker Suspense/AbortSignal story than TanStack. |

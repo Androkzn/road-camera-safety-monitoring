@@ -22,6 +22,11 @@
  * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
  * UI element: each tunable row in the left column (label + slider /
  *   number input + small reset/help meta line below it).
+ *
+ * Backend: no direct calls. Edits update a local draft map on the parent
+ *   page; the draft is POSTed to /api/settings/apply when the operator
+ *   hits Apply. The spec metadata (min/max/step/default/description)
+ *   originates from GET /api/settings.
  */
 
 import {
@@ -72,9 +77,16 @@ interface TunableRootProps extends TunableContextValue {
 }
 
 /**
- * Tunable root. Provides context to Tunable.Label / .Control / .Meta,
- * and if no children are passed renders the default three-part layout.
- * Also toggles "dirty" / "error" CSS classes based on current state.
+ * Tunable root — compound-component provider.
+ *
+ * Parent: TunablesColumn (one <Tunable> per spec).
+ * Children: Tunable.Label / Tunable.Control / Tunable.Meta (default set
+ *   if no explicit children are passed).
+ * BE: none directly; edits propagate to the parent draft map.
+ *
+ * Provides context to Tunable.Label / .Control / .Meta, and if no
+ * children are passed renders the default three-part layout. Also
+ * toggles "dirty" / "error" CSS classes based on current state.
  */
 export function Tunable(props: TunableRootProps) {
   // Rest destructuring: `children` goes one place, everything else
@@ -350,6 +362,8 @@ function Meta() {
 
 // Attach the parts as static properties of the root. Lets callers use
 // `<Tunable.Label />` syntax instead of importing each one separately.
+// `Label` / `Control` / `Meta` are all consumers of TunableContext so
+// they must be rendered inside <Tunable> (enforced by useTunable).
 Tunable.Label = Label;
 Tunable.Control = Control;
 Tunable.Meta = Meta;

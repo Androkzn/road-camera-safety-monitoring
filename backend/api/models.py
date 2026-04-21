@@ -53,7 +53,8 @@ class PerceptionStateModel(BaseModel):
     ``reason`` string.
 
     Routes: embedded in GET /api/live/status and GET /api/admin/health.
-    Drives the "perception health" dot on the operator UI header.
+    Consumed by the ``useLiveStatus`` and ``useAdminHealth`` hooks;
+    drives the "perception health" dot on the operator UI header.
     """
 
     state: str
@@ -80,8 +81,9 @@ class PerceptionStateMessage(BaseModel):
     as a ``Literal`` — a type that allows exactly one string value — to
     keep that discriminator visible in the generated TS.
 
-    Route: emitted over GET /stream/events. Consumed by the SSE client
-    hook that feeds the dashboard's live panels.
+    Route: emitted over GET /stream/events. Consumed by the
+    ``useEventStream`` hook (via ``EventStreamProvider``) that feeds the
+    dashboard's live panels.
     """
 
     # ``Field(alias="_meta")`` exposes the field over JSON as ``_meta``
@@ -109,8 +111,9 @@ class SourceStatusModel(BaseModel):
     sources), the last error it saw, and whether detection is enabled.
 
     Routes: returned as an element of the ``sources`` array in
-    GET /api/live/sources and GET /api/live/status. Drives the per-slot
-    tiles on the dashboard's multi-camera grid.
+    GET /api/live/sources and GET /api/live/status. Consumed by the
+    ``useLiveSourcesList`` and ``useLiveStatus`` hooks; drives the
+    per-slot tiles on the dashboard's multi-camera grid.
     """
 
     id: str
@@ -233,8 +236,9 @@ class EventModel(BaseModel):
 
     Routes: returned by GET /api/live/events, GET /api/events,
     GET /api/events/{event_id}; embedded in the copilot chat responses
-    and the SSE event stream. Drives the EventCard, EventDialog, and
-    the clip-player on every page that lists events.
+    and the /stream/events SSE channel. Consumed by the
+    ``useEventStream`` / ``useHistory`` hooks; drives the EventCard,
+    EventDialog, and the clip-player on every page that lists events.
     """
 
     event_id: str
@@ -291,7 +295,7 @@ class DetectionObjectModel(BaseModel):
     distance; TTC is not).
 
     Route: embedded in DetectionSnapshotModel; reaches the UI via the
-    admin SSE stream.
+    /admin/detections SSE stream, consumed by ``useDetections``.
     """
 
     cls: str
@@ -325,8 +329,9 @@ class DetectionSnapshotModel(BaseModel):
     looped local files so the map overlay marker stays locked to the
     frame the user is actually watching.
 
-    Route: pushed over the admin SSE stream (no REST endpoint returns it
-    directly).
+    Route: pushed over the /admin/detections SSE stream (no REST
+    endpoint returns it directly). Consumed by the ``useDetections``
+    hook that feeds the AdminPage bounding-box overlay.
     """
 
     ts: float
@@ -372,8 +377,8 @@ class LiveSourcesResponse(BaseModel):
 
     Wraps the full source list (one ``SourceStatusModel`` per configured
     camera / file) with a ``primary_id`` pointer so the UI knows which
-    slot to highlight as "main". Drives the source selector dropdown and
-    the multi-camera grid.
+    slot to highlight as "main". Consumed by the ``useLiveSourcesList``
+    hook; drives the source selector dropdown and the multi-camera grid.
     """
 
     primary_id: str
@@ -386,8 +391,9 @@ class LiveStatusResponse(BaseModel):
     Dense summary used by the operator UI header: is the pipeline
     ``running``? how many frames has it seen? which integrations are
     configured (``llm_configured``, ``slack_configured``)? which sources
-    are live (the ``sources`` array)? Drives the TopBar uptime widget
-    and the dashboard's running/not-running indicator.
+    are live (the ``sources`` array)? Consumed by the ``useLiveStatus``
+    hook; drives the TopBar connection pill and the dashboard's
+    running/not-running banners.
     """
 
     source: str
@@ -417,8 +423,8 @@ class ChatResponse(BaseModel):
     Single-field wrapper around the LLM-generated answer string. The
     wrapper exists (instead of returning the raw string) so future
     fields — follow-up suggestions, citations — can be added without
-    breaking the FE contract. Drives the copilot chat panel's reply
-    bubble.
+    breaking the FE contract. Consumed by the ``useChat`` hook; drives
+    the copilot chat panel's reply bubble.
     """
 
     answer: str
@@ -495,8 +501,9 @@ class AdminHealthResponse(BaseModel):
     ``per_source`` map (keyed by source id) so multi-camera dashboards
     can render per-slot tiles. ``stage_timings`` is a nested dict —
     ``stage_timings["source_id"]["stage_name"]`` gives the
-    ``StageTimingStatsModel`` for that stage on that source. Drives the
-    entire admin page's dashboard tiles.
+    ``StageTimingStatsModel`` for that stage on that source. Consumed
+    by the ``useAdminHealth`` hook; drives the AdminPage HealthStrip
+    and every admin-dashboard tile.
     """
 
     server: AdminServerHealthModel
@@ -547,9 +554,11 @@ class WatchdogFindingModel(BaseModel):
     same fingerprint are the same incident recurring, not two separate
     incidents.
 
-    Route: returned by GET /api/watchdog/findings; embedded in
-    ``WatchdogTopIncidentModel.latest``. Drives the monitoring page's
-    incident cards.
+    Route: returned as elements of the ``findings`` array on
+    GET /api/watchdog/recent; embedded in
+    ``WatchdogTopIncidentModel.latest``. Consumed by the
+    ``useWatchdogCtx`` context; drives the MonitoringPage's incident
+    cards.
     """
 
     severity: Literal["error", "warning", "info"]
@@ -596,15 +605,16 @@ class WatchdogTopIncidentModel(BaseModel):
 
 
 class WatchdogStatusModel(BaseModel):
-    """Response body for GET /api/watchdog/status.
+    """Response body for GET /api/watchdog.
 
     Counters + grouped summary so the frontend can render the "incident
     queue" overview rather than a log-tail of every finding ever. The
     ``by_severity`` / ``by_category`` dicts are bucket counts; the
     ``top_incidents`` array is the current dashboard-worthy shortlist.
 
-    Drives the monitoring page's header strip and the sidebar
-    severity/category filters.
+    Consumed by the ``useWatchdogCtx`` context; drives the
+    MonitoringPage's header strip and the sidebar severity/category
+    filters.
     """
 
     enabled: bool
@@ -656,7 +666,8 @@ class TestStatusModel(BaseModel):
     plus the full per-node ``results`` list. ``status`` is one of
     ``"idle"`` / ``"running"`` / ``"passed"`` / ``"failed"`` and drives
     the run/stop button state in the operator UI. ``progress`` is a
-    0.0-1.0 fraction driving the progress bar.
+    0.0-1.0 fraction driving the progress bar. Consumed by the
+    ``useTests`` hook on the TestsPage.
     """
 
     status: Literal["idle", "running", "passed", "failed"]

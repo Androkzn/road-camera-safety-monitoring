@@ -14,7 +14,7 @@ flowchart TB
   subgraph edge["Edge: FastAPI backend.server"]
     REST[REST JSON]
     SSE[SSE streams]
-    MJPEG[MJPEG /admin/video_feed]
+    FRAME[JPEG /admin/frame/&#123;id&#125;]
     STATIC[Static frontend/dist]
   end
   subgraph cloud["Optional: cloud.receiver"]
@@ -24,7 +24,7 @@ flowchart TB
   SPA --> STATIC
   SPA --> REST
   SPA --> SSE
-  SPA --> MJPEG
+  SPA --> FRAME
   edge -->|batch HTTPS| INGEST
   INGEST --> DB
 ```
@@ -53,7 +53,7 @@ flowchart TB
 
 `frontend/vite.config.ts` proxies:
 
-- `/api`, `/stream`, `/chat`, `/thumbnails`, `/admin/video_feed`, `/admin/detections` → `http://localhost:8000`
+- `/api`, `/stream`, `/chat`, `/thumbnails`, `/admin/frame`, `/admin/detections` → `http://localhost:8000`
 
 So frontend code keeps **relative paths** (`/api/...`) in both dev and prod.
 
@@ -97,7 +97,7 @@ flowchart LR
 
 | UI | URL | Type |
 |----|-----|------|
-| Admin video strip | `/admin/video_feed` | MJPEG multipart (browser `<img>` or similar). |
+| Admin video tiles | `/admin/frame/{id}` | Single JPEG, polled ~400 ms by `StreamImage`. |
 | Event thumbnails | `/thumbnails/{filename}` | JPEG; public variant typically `*_public.jpg` with optional token query params. |
 
 ---

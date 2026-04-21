@@ -66,6 +66,22 @@ interface DetectionsPanelProps {
 //        JSX (which compiles to React.createElement calls). The argument
 //        is "props"; here we destructure `{ frames }` right in the
 //        parameter list, and annotate it with our Props interface.
+/**
+ * DetectionsPanel — scrollable list of per-frame detection snapshots.
+ *
+ * UI connections:
+ *   - Parent: rendered inside AdminPage as a tab in the right-hand
+ *     information column.
+ *   - Child elements: plain <div> rows (one "frameGroup" per frame; one
+ *     "detRow" per detected object) — no imported sub-components.
+ *   - CSS: DetectionsPanel.module.css — `.list`, `.empty`, `.frameGroup`,
+ *     `.frameHdr`, `.detRow`, `.detCls`, `.detConf`, `.detTrack`,
+ *     `.detDist`, `.detBbox`, plus per-class tints (`.person`, `.vehicle`).
+ *
+ * Backend endpoints: none called directly. The `frames` prop is ultimately
+ *   fed by the SSE admin detection stream GET /api/admin/detections, which
+ *   AdminPage consumes through its live-stream hook.
+ */
 export function DetectionsPanel({ frames }: DetectionsPanelProps) {
   // TEACH: Conditional rendering via early return. If there are no
   //        frames yet, we short-circuit and render a placeholder. React

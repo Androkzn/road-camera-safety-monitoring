@@ -1,43 +1,29 @@
 /**
- * StreamImage — renders a live per-source video tile, choosing between
- * persistent MJPEG (`multipart/x-mixed-replace`) and short-poll JPEG
- * snapshots based on the deployment's likely HTTP version.
+ * StreamImage — renders a live per-source video tile by polling the
+ * `/admin/frame/{id}` JPEG endpoint on POLL_INTERVAL_MS.streamImageFrame.
  *
- * POC: feeds use plain `/admin/video_feed/...` and `/admin/frame/...` URLs
- * (no signed query params or bearer headers).
+ * At the pipeline's 2 fps inference rate, one poll cycle (~400ms) delivers
+ * every new frame the edge produces — a push-based MJPEG transport would
+ * add complexity for no perceptual gain. See CLAUDE.md "Live video
+ * transport (admin grid)" for the rationale.
  *
  * --- UI mapping ---
  * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
  * UI element: just the moving picture inside one video tile — the
  *   camera image itself, no buttons or labels around it.
- * Backend: MJPEG /admin/video_feed/{id} on HTTPS, or polled
- *   /admin/frame/{id} JPEG snapshots on HTTP.
+ * Backend: GET /admin/frame/{id} (single-JPEG, polled).
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 import type { LiveSourceStatus } from "../../../shared/types/common";
 
-type Transport = "mjpeg" | "poll";
-
-const BLANK_GIF = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-
+// Append ?key=value or &key=value depending on whether the base URL
+// already has a query string. Used here as a cache-buster for polled frames.
 function appendQueryParam(baseUrl: string, key: string, value: string | number): string {
   const sep = baseUrl.includes("?") ? "&" : "?";
   return `${baseUrl}${sep}${key}=${encodeURIComponent(String(value))}`;
 }
-
-function resolveTransport(): Transport {
-  const override = (import.meta.env.VITE_ROAD_VIDEO_TRANSPORT ?? "")
-    .toString()
-    .trim()
-    .toLowerCase();
-  if (override === "mjpeg" || override === "poll") return override;
-  if (typeof window === "undefined") return "poll";
-  return window.location.protocol === "https:" ? "mjpeg" : "poll";
-}
-
-export const VIDEO_TRANSPORT: Transport = resolveTransport();
 
 interface StreamImageProps {
   source: LiveSourceStatus;
@@ -45,53 +31,43 @@ interface StreamImageProps {
   onError: () => void;
 }
 
+/**
+ * StreamImage — polled per-source live tile.
+ *
+ * UI connections:
+ *   - Parent: <StreamTile> (and, by extension, <MultiSourceGrid>) renders
+ *     exactly one of these per camera tile.
+ *   - CSS: none of its own — `className` is forwarded from StreamTile
+ *     (styles.video) onto the underlying <img>.
+ *
+ * Backend endpoint:
+ *   - GET /admin/frame/{id} — single JPEG, re-fetched every
+ *     POLL_INTERVAL_MS.streamImageFrame.
+ */
 export function StreamImage({ source, className, onError }: StreamImageProps) {
-  if (VIDEO_TRANSPORT === "mjpeg") {
-    return <MjpegStreamImage source={source} className={className} onError={onError} />;
-  }
-  return <PollingStreamImage source={source} className={className} onError={onError} />;
-}
-
-function MjpegStreamImage({ source, className, onError }: StreamImageProps) {
-  const ref = useRef<HTMLImageElement>(null);
-  const baseUrl = `/admin/video_feed/${encodeURIComponent(source.id)}`;
-  const startedAt = source.started_at ?? 0;
-
-  useEffect(() => {
-    const img = ref.current;
-    return () => {
-      if (img) img.src = BLANK_GIF;
-    };
-  }, [source.id, startedAt, baseUrl]);
-
-  const src = appendQueryParam(baseUrl, "v", startedAt);
-
-  return (
-    <img
-      ref={ref}
-      key={`${source.id}-${startedAt}`}
-      src={src}
-      alt={`Live feed: ${source.name}`}
-      className={className}
-      onError={onError}
-    />
-  );
-}
-
-function PollingStreamImage({ source, className, onError }: StreamImageProps) {
   const baseUrl = `/admin/frame/${encodeURIComponent(source.id)}`;
+  // `tick` is the cache-buster — each tick triggers a new GET. Seeded
+  // lazily with `() => Date.now()` to avoid recomputing on every render.
   const [tick, setTick] = useState(() => Date.now());
+  // `loaded` gates the "Connecting…" overlay: we don't want to flash it
+  // on every subsequent poll, only the very first successful frame.
   const [loaded, setLoaded] = useState(false);
 
+  // When the source swaps identity or restarts, reset `loaded` so the
+  // overlay re-appears until the first new frame arrives.
   useEffect(() => {
     setLoaded(false);
   }, [source.id, source.started_at, baseUrl]);
 
+  // Set up a polling interval on mount, tear it down on unmount.
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), POLL_INTERVAL_MS.streamImageFrame);
     return () => window.clearInterval(id);
   }, [source.id]);
 
+  // Ignore errors until we've successfully loaded at least once — the
+  // first poll can race the backend coming up, and we don't want that
+  // transient failure to propagate to the parent tile as a hard error.
   const handleError = () => {
     if (loaded) onError();
   };
@@ -125,7 +101,7 @@ function PollingStreamImage({ source, className, onError }: StreamImageProps) {
             pointerEvents: "none",
           }}
         >
-          Connecting…
+          Connecting&hellip;
         </div>
       )}
     </>

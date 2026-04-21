@@ -2,16 +2,25 @@
  * EventDialog — modal showing a ±3s looping clip + detailed analytics for
  * a single SafetyEvent.
  *
- * The clip is served by `GET /api/events/{id}/clip`; if the event's source
- * is a live stream (no seekable backing file), the backend 404s and we
- * fall back to showing the event thumbnail.
- *
  * --- UI mapping ---
  * Used on: DashboardPage, MonitoringPage, AdminPage — opens whenever an
  *   operator clicks an event card or incident row.
  * UI element: full-screen modal overlay with a looping ±3s video clip
  *   (or thumbnail fallback) on the left and event details (risk badge,
  *   narration, detected params, scene + ego motion) on the right.
+ *
+ * --- Backend endpoints ---
+ *  - `GET /api/events/{id}/clip?before=N&after=N` — seekable MP4 window
+ *    around the event. Returns 404 when the source is a live stream or
+ *    the backing file is inaccessible server-side; we catch that via
+ *    the <video onError> handler and fall back to the thumbnail.
+ *  - The `event` prop itself comes from the SSE buffer
+ *    (`/api/events/stream`) or `/api/events/history`.
+ *
+ * --- Privacy ---
+ *  Thumbnail and clip frames are the redacted `_public` variants. Raw
+ *  plate text is never present on `event` (stripped at ingest in
+ *  enrich_event); only `enrichment.plate_hash` is displayed.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -31,6 +40,16 @@ export interface EventDialogProps {
 
 /**
  * EventDialog — full-screen details modal. Pass `event={null}` to hide.
+ *
+ * Props:
+ *  - event: the SafetyEvent to inspect, or null to render nothing.
+ *  - disputeLabel/disputeBody: optional banner used by MonitoringPage
+ *    to surface a watchdog dispute note above the narration.
+ *  - onClose: parent-provided close callback (also wired to Esc and
+ *    backdrop click).
+ *
+ * UI connections: <RiskBadge/> from shared/ui and a local <Cell/>.
+ * Backend calls: one GET for the clip URL (see clipUrl useMemo below).
  */
 export function EventDialog({ event, disputeLabel, disputeBody, onClose }: EventDialogProps) {
   // `useRef` stores a live reference to the <video> DOM node without
@@ -55,7 +74,9 @@ export function EventDialog({ event, disputeLabel, disputeBody, onClose }: Event
   }, [event, onClose]);
 
   // `useMemo` rebuilds the URL only when `event` changes — avoids a
-  // pointless string concat on every unrelated re-render.
+  // pointless string concat on every unrelated re-render. The BE streams
+  // an MP4 clip centered on the event with `clipWindowSec` of padding on
+  // each side; a 404 here (live-only source) is caught by <video onError>.
   const clipUrl = useMemo(
     () =>
       event
@@ -230,7 +251,12 @@ export function EventDialog({ event, disputeLabel, disputeBody, onClose }: Event
   );
 }
 
-/** Cell — one label/value pair inside the details grid. Local helper. */
+/**
+ * Cell — one label/value pair inside the details grid. Local helper (not
+ * exported). Renders a stacked label+value with the full value copied
+ * into the `title` attribute so long strings (IDs, reasons) remain
+ * inspectable on hover even when truncated by CSS.
+ */
 function Cell({ label, value }: { label: string; value: string }) {
   return (
     <div className={styles.cell}>

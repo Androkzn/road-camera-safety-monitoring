@@ -43,6 +43,12 @@ const DEFAULT_TYPES: ReadonlyArray<string> = [
   "swerving",
 ];
 
+// Props are fully controlled: empty-string sentinel values mean "no
+// filter applied". `availableTypes` overrides DEFAULT_TYPES so the
+// dropdown can shrink to only the event classes actually present in
+// the caller's current feed. `onClear` is optional — the Clear button
+// only renders when both the callback and at least one active filter
+// exist (see `hasFilters` below).
 interface EventFilterBarProps {
   riskLevel: string;
   onRiskLevelChange: (v: string) => void;
@@ -55,6 +61,12 @@ interface EventFilterBarProps {
   className?: string;
 }
 
+/**
+ * Renders the horizontal filter bar: risk-level <select>, event-type
+ * <select>, optional Clear button, and a "Show low risk" checkbox.
+ * Purely presentational — every state change delegates to the setter
+ * props passed by the parent feature page.
+ */
 export function EventFilterBar({
   riskLevel,
   onRiskLevelChange,
@@ -66,12 +78,20 @@ export function EventFilterBar({
   onClear,
   className,
 }: EventFilterBarProps) {
+  // Fall back to the hard-coded default event-type list when the caller
+  // doesn't narrow the dropdown to its actual feed contents.
   const types = availableTypes ?? DEFAULT_TYPES;
+  // "Any filter active?" — drives visibility of the Clear button below.
+  // Empty string is the sentinel for "no filter" on both selects.
   const hasFilters = riskLevel !== "" || eventType !== "";
+  // Merge caller className with the module style so parents can tweak
+  // layout (e.g. widen on Admin, compact on Dashboard) without CSS hacks.
   const rootClass = className ? `${styles.bar} ${className}` : styles.bar;
 
   return (
     <div className={rootClass}>
+      {/* Risk-level select. aria-label (not a visible <label>) because
+          the bar is dense — screen readers still get a clear purpose. */}
       <select
         className={styles.select}
         value={riskLevel}
@@ -84,6 +104,9 @@ export function EventFilterBar({
         <option value="low">Low</option>
       </select>
 
+      {/* Event-type select. Raw values are snake_case backend identifiers;
+          humanEventType() converts them to display strings
+          ("pedestrian_proximity" -> "Pedestrian proximity"). */}
       <select
         className={styles.select}
         value={eventType}
@@ -98,12 +121,18 @@ export function EventFilterBar({
         ))}
       </select>
 
+      {/* Clear appears only when something is actually filtered — avoids
+          a dead button when the bar is in its default state. */}
       {onClear && hasFilters && (
         <button type="button" className={styles.clearBtn} onClick={onClear}>
           Clear
         </button>
       )}
 
+      {/* "Show low risk" is a separate gate from the risk-level <select>:
+          the feed hides low-severity events by default to reduce noise,
+          and this checkbox is the explicit opt-in. Rendered as a
+          <label> wrapping the <input> so the whole row is clickable. */}
       <label className={styles.showLow}>
         <input
           type="checkbox"

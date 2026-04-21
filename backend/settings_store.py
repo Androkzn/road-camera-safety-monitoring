@@ -20,6 +20,26 @@ The store is a process-wide singleton (``STORE`` at the bottom of the file).
 There is exactly one settings snapshot per edge process — out-of-scope for
 v1: HA / multi-instance with leader election (see plan §S2).
 
+Contract surface
+----------------
+* Readers (hot path) — ``backend/core/*`` and ``backend/perception/*``
+  call ``STORE.snapshot()`` once per frame. The returned
+  ``MappingProxyType`` is an immutable view over the current dict; readers
+  never take the store lock.
+* Writers (cold path) — ``backend/api/settings.py`` translates
+  ``POST /api/settings/apply`` into ``STORE.apply_diff(...)`` and
+  ``POST /api/settings/rollback`` into ``STORE.rollback_to_last_good()``.
+* Persistence — this module is pure in-memory. A separate collaborator
+  (``services/settings_db.py``, registered as a subscriber) mirrors every
+  successful apply to SQLite so the snapshot survives a restart.
+
+Concurrency model
+-----------------
+Exactly one ``RLock`` guards mutation; readers do not participate. The
+``RLock`` variant is deliberate — a subscriber callback is allowed to
+call ``STORE.snapshot()`` (or in pathological cases, schedule another
+apply via its own thread) without deadlocking.
+
 UI connection
 -------------
 Page: SettingsPage ([SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx)).
@@ -109,6 +129,12 @@ def _hash_snapshot(snap: Mapping[str, Any]) -> str:
 
     SHA-256 truncated to 16 hex chars is plenty for collision avoidance
     inside a single process and keeps the wire payload tiny.
+
+    Determinism: ``sort_keys=True`` ensures two snapshots with identical
+    contents but different insertion order hash to the same value, which
+    is required for the FE's ``If-Match`` revision-compare to be correct
+    across reloads. ``default=str`` protects against accidental
+    non-JSON-native values (e.g. ``Path``) leaking into the snapshot.
     """
     payload = json.dumps(snap, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:16]
@@ -119,6 +145,16 @@ def _hash_snapshot(snap: Mapping[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 @dataclass
 class _Subscriber:
+    """One registered ``(before, after)`` listener.
+
+    Attributes:
+        callback: Fires after every successful apply. Must not raise —
+            exceptions are caught and surfaced as warnings.
+        keys: Narrow filter; when non-``None`` the callback only fires if
+            one of these keys changed. ``None`` means "fire on every apply".
+        name: Human-friendly label for warning messages + observability.
+    """
+
     callback: Callable[[Mapping[str, Any], Mapping[str, Any]], None]
     keys: tuple[str, ...] | None  # None == fire on every apply
     name: str
@@ -145,6 +181,17 @@ class SettingsStore:
     """
 
     def __init__(self, initial: Mapping[str, Any] | None = None):
+        """Seed the store from :func:`settings_spec.defaults`, overlayed with ``initial``.
+
+        Inputs:
+            initial: Optional dict of previously-persisted values loaded by
+                ``services/settings_db.py`` at boot. Merged on top of
+                defaults so a new key added to the spec inherits its default
+                without requiring a DB migration.
+        Raises:
+            SettingsValidationError: If the resulting seed fails validation
+                — treated as a programming error, not a runtime error.
+        """
         seed = dict(settings_spec.defaults())
         if initial:
             seed.update(initial)
@@ -153,6 +200,9 @@ class SettingsStore:
         errors = settings_spec.validate(seed)
         if errors:
             raise SettingsValidationError(errors)
+        # The snapshot is stored as a MappingProxyType so readers cannot
+        # mutate it. New snapshots are built and rebound atomically; the
+        # existing view remains valid to any thread that already grabbed it.
         self._snapshot: Mapping[str, Any] = MappingProxyType(seed)
         self._last_good: Mapping[str, Any] = self._snapshot
         self._revision_no: int = 1
@@ -160,7 +210,9 @@ class SettingsStore:
         # store (e.g. read ``snapshot()``) without deadlocking.
         self._lock = threading.RLock()
         self._subscribers: list[_Subscriber] = []
-        # Counters surfaced by the observability endpoints.
+        # Counters surfaced by the observability endpoints
+        # (GET /api/settings/metrics). Never reset during the process
+        # lifetime; Prometheus / ops treat these as monotonic.
         self.counters: dict[str, int] = {
             "settings_apply_total_success": 0,
             "settings_apply_total_validation_error": 0,
@@ -173,15 +225,32 @@ class SettingsStore:
     # Snapshot reads
     # ------------------------------------------------------------------
     def snapshot(self) -> Mapping[str, Any]:
-        """Return the current frozen snapshot (cheap, lock-free)."""
+        """Return the current frozen snapshot (cheap, lock-free).
+
+        The returned mapping is a ``MappingProxyType``. Callers must treat
+        it as read-only; attempting to mutate raises ``TypeError``.
+        Intended for per-frame access in the perception hot path — no lock
+        is taken on the reader side.
+        """
         return self._snapshot
 
     def revision_hash(self) -> str:
-        """Short stable hash of the current snapshot for ``If-Match`` flows."""
+        """Short stable hash of the current snapshot for ``If-Match`` flows.
+
+        The FE captures this value when it reads the schema and passes it
+        back as ``expected_revision_hash`` on apply; a mismatch means
+        someone else edited the snapshot in between and the FE should
+        refresh instead of clobbering.
+        """
         return _hash_snapshot(self._snapshot)
 
     def revision_no(self) -> int:
-        """Monotonic apply counter (informational; not for concurrency)."""
+        """Monotonic apply counter (informational; not for concurrency).
+
+        Unlike :meth:`revision_hash`, this does NOT discriminate between
+        two applies that land on identical content. Use only for logs
+        and the UI; use the hash for optimistic concurrency.
+        """
         return self._revision_no
 
     # ------------------------------------------------------------------
@@ -199,6 +268,9 @@ class SettingsStore:
         store lock. It MUST NOT raise; if it does, the exception is logged
         as a warning and surfaced in :class:`AppliedResult.warnings` —
         the snapshot is not rolled back.
+
+        Side effects: appends to the internal subscriber list. There is no
+        ``unregister`` — subscribers live for the process lifetime.
         """
         self._subscribers.append(
             _Subscriber(callback=callback, keys=None, name=name or callback.__name__)
@@ -211,7 +283,15 @@ class SettingsStore:
         *,
         name: str | None = None,
     ) -> None:
-        """Register a callback that fires only when one of ``keys`` changes."""
+        """Register a callback that fires only when one of ``keys`` changes.
+
+        Inputs:
+            keys: Iterable of registry keys to watch. An apply that
+                changes none of these keys skips the callback entirely.
+            callback: ``(before, after)`` hook. Same isolation rules as
+                :meth:`register_subscriber`.
+            name: Optional override for the warning/observability label.
+        """
         self._subscribers.append(
             _Subscriber(
                 callback=callback,
@@ -254,10 +334,17 @@ class SettingsStore:
             :class:`AppliedResult` with the applied + pending-restart key
             lists and any subscriber warnings.
         """
+        # The entire apply — validation, swap, fan-out — runs under one
+        # lock. Readers never take this lock; they just observe the rebind
+        # via the ``self._snapshot`` attribute read.
         with self._lock:
             before = self._snapshot
             before_hash = _hash_snapshot(before)
 
+            # Optimistic-concurrency (lost-update) check. The FE passes back
+            # the hash it saw when it opened the page; a divergence means
+            # another apply landed in between and we must refuse rather
+            # than silently stomp it.
             if expected_revision_hash and expected_revision_hash != before_hash:
                 self.counters["settings_apply_total_conflict"] += 1
                 raise RevisionConflict(expected_revision_hash, before_hash)
@@ -266,6 +353,8 @@ class SettingsStore:
             warnings: list[str] = []
             cleaned: dict[str, Any] = {}
             for key, raw in diff.items():
+                # Unknown / stale keys are a warning, not a hard error, so
+                # that a cached FE build with a retired knob doesn't 422.
                 if settings_spec.spec_for(key) is None:
                     warnings.append(f"unknown key dropped: {key}")
                     continue
@@ -273,6 +362,8 @@ class SettingsStore:
                 if spec.mutability == "read_only":
                     warnings.append(f"read-only key ignored: {key}")
                     continue
+                # Privacy-sensitive keys (ALPR_MODE) require an explicit
+                # opt-in flag to prevent accidental regulatory exposure.
                 if spec.requires_privacy_confirm and not confirm_privacy_change:
                     raise PrivacyConfirmRequired(key)
                 try:
@@ -296,10 +387,14 @@ class SettingsStore:
                     revision_no=self._revision_no,
                 )
 
-            # Build the prospective merged snapshot.
+            # Build the prospective merged snapshot. ``dict(before)`` copies
+            # the frozen view into a mutable dict we can overlay the diff on.
             merged = dict(before)
             merged.update(cleaned)
 
+            # Full re-validation (per-key + cross-field) on the prospective
+            # end state. Must run BEFORE the swap so failure leaves the
+            # store untouched.
             errors = settings_spec.validate(merged)
             if errors:
                 self.counters["settings_apply_total_validation_error"] += 1
@@ -313,10 +408,14 @@ class SettingsStore:
             self._revision_no += 1
             after_hash = _hash_snapshot(self._snapshot)
 
+            # Split the applied keys into "took effect now" vs
+            # "persisted, needs restart" so the FE can badge them.
             buckets = settings_spec.changed_mutability(cleaned)
             applied_now = sorted(buckets.get("hot_apply", []) + buckets.get("warm_reload", []))
             pending_restart = sorted(buckets.get("restart_required", []))
 
+            # Fan-out collects warnings; any subscriber exception becomes a
+            # warning string rather than rolling back the snapshot.
             warnings.extend(self._fan_out(before, self._snapshot, list(cleaned.keys())))
 
             self.counters["settings_apply_total_success"] += 1
@@ -336,6 +435,15 @@ class SettingsStore:
         A no-op (returns ``ok=True`` with empty lists) when nothing has been
         applied since boot — the API layer translates that into a 409 if
         the operator clicked rollback with no eligible target.
+
+        Note on rollback semantics: after rollback, the new
+        ``_last_good`` points at the snapshot we just *rolled back from*,
+        so a second rollback call moves forward to where we were a
+        moment ago. This gives the operator an "undo/redo" toggle rather
+        than a one-way Ctrl-Z.
+
+        Side effects: swaps the snapshot, bumps ``_revision_no``, fires
+        subscribers, bumps ``settings_rollback_total``.
         """
         with self._lock:
             before = self._snapshot
@@ -380,10 +488,30 @@ class SettingsStore:
         after: Mapping[str, Any],
         changed_keys: list[str],
     ) -> list[str]:
-        """Run subscribers, isolating exceptions into warnings."""
+        """Run subscribers, isolating exceptions into warnings.
+
+        Inputs:
+            before: Snapshot prior to the swap (for subscribers that need
+                to diff values, e.g. to rebuild a cached LLM token bucket).
+            after: Newly-active snapshot.
+            changed_keys: Keys touched by this apply. Used to short-circuit
+                subscribers registered with a narrow key filter.
+
+        Outputs:
+            List of ``"<name>: <error>"`` warning strings, one per
+            subscriber that raised. Empty on clean runs.
+
+        Side effects: may increment
+        ``settings_apply_total_subscriber_error``. Does NOT revert the
+        snapshot — that is the whole point of running fan-out *after*
+        the swap: a broken consumer cannot poison the store.
+        """
         warnings: list[str] = []
         changed_set = set(changed_keys)
         for sub in self._subscribers:
+            # Narrow-key filter: subscriber registered via
+            # ``register_subscriber_for(keys=...)`` only fires when at
+            # least one of its watched keys appears in this apply.
             if sub.keys is not None and not changed_set.intersection(sub.keys):
                 continue
             try:
@@ -397,6 +525,10 @@ class SettingsStore:
 # ---------------------------------------------------------------------------
 # Process-wide singleton
 # ---------------------------------------------------------------------------
+# Constructed at import time with the spec's defaults. ``services/settings_db.py``
+# registers a persistence subscriber during FastAPI's lifespan startup and
+# overlays any previously-saved values via a subsequent ``apply_diff`` call —
+# keeping this module free of DB imports and import-order coupling.
 STORE = SettingsStore()
 """Process-wide :class:`SettingsStore` singleton. Import as
 ``from backend.settings_store import STORE`` and call

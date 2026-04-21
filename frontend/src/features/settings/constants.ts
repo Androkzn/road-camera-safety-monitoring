@@ -8,7 +8,11 @@
  *   SettingsPage formatting helpers and tunable rows.
  */
 
-/** Per-token rewrite map for humanizing SCREAMING_SNAKE keys. */
+/**
+ * TOKEN_REWRITES — per-token rewrite map for humanizing SCREAMING_SNAKE
+ * keys in slider labels (e.g. "TTC_HIGH_SEC" → "Time to Collision High
+ * Seconds"). UI: Tunable row labels / help popover titles. No BE calls.
+ */
 export const TOKEN_REWRITES: Record<string, string> = {
   TTC: "Time to Collision",
   ALPR: "License Plate Recognition",
@@ -27,7 +31,12 @@ export const TOKEN_REWRITES: Record<string, string> = {
   ID: "ID",
 };
 
-/** Unit-suffix tokens recognised by `unitFromTail`. */
+/**
+ * UNIT_TOKENS — trailing-token → unit label map. Consumed by
+ * `unitFromTail` (utils/formatting) which strips the last token from a
+ * key (e.g. "_SEC", "_M", "_PCT") to annotate slider values with the
+ * proper unit. UI: Tunable value badges. No BE calls.
+ */
 export const UNIT_TOKENS: Record<string, string> = {
   M: "meters",
   SEC: "seconds",
@@ -37,6 +46,9 @@ export const UNIT_TOKENS: Record<string, string> = {
   PCT: "percent",
 };
 
+/** TunableHelp — shape of a single entry in TUNABLE_HELP. `increase` /
+ *  `decrease` are for numeric tunables; `options` is for enum tunables
+ *  (e.g. ALPR_MODE) and maps each enum value to an operator explanation. */
 export interface TunableHelp {
   what: string;
   affects: string;
@@ -45,7 +57,13 @@ export interface TunableHelp {
   options?: Record<string, string>;
 }
 
-/** Per-tunable operator-facing explainer. */
+/**
+ * TUNABLE_HELP — per-tunable operator-facing explainer rendered in the
+ * Tunable help popover on the SettingsPage. Keyed by SettingSpec.key.
+ * UI: hover/click tooltip on each slider row. No BE calls — this is
+ * purely front-end copy that documents the physical meaning of each
+ * pipeline threshold so operators can tune without reading code.
+ */
 export const TUNABLE_HELP: Record<string, TunableHelp> = {
   CONF_THRESHOLD: {
     what: "Minimum YOLO confidence required for a vehicle detection to enter the pipeline.",
@@ -203,7 +221,11 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
   },
 };
 
-/** Pretty labels for impact-engine metric keys. */
+/**
+ * METRIC_LABELS — pretty labels for impact-engine metric keys (from
+ * /api/settings/impact). UI: ImpactCard / OpsDeltas metric rows. Keys
+ * mirror `WindowStats` fields in types.ts. No BE calls.
+ */
 export const METRIC_LABELS: Record<string, string> = {
   event_rate_per_min: "Events / min",
   confidence_p50: "Confidence p50",
@@ -232,7 +254,11 @@ export const METRIC_LABELS: Record<string, string> = {
   memory_p95: "Memory %, p95",
 };
 
-/** Reason codes returned by the comparability gate. */
+/**
+ * REASON_LABELS — humanised codes the server returns in
+ * ImpactReport.confidence_reasons (comparability gate). Used by ImpactCard
+ * to explain why a predicted impact has low/insufficient confidence.
+ */
 export const REASON_LABELS: Record<string, string> = {
   insufficient_events: "Insufficient events",
   scene_mix_drift: "Scene mix drifted",
@@ -240,6 +266,10 @@ export const REASON_LABELS: Record<string, string> = {
   no_baseline_or_after: "No baseline or after-window yet",
 };
 
+/**
+ * SEVERITY_LABELS — pretty names for the three risk tiers (+ unknown
+ * bucket). UI: SeverityBars legend / tooltips inside ImpactCard.
+ */
 export const SEVERITY_LABELS: Record<string, string> = {
   high: "High",
   medium: "Medium",

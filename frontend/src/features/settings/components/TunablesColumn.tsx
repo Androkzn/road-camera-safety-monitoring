@@ -11,6 +11,10 @@
  * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
  * UI element: the left-hand column listing all tunables, grouped by
  *   category in collapsible sections.
+ *
+ * Backend: none directly. The `groupedSpecs` and `effective` inputs
+ *   originate from GET /api/settings in the parent page; edits feed the
+ *   POST /api/settings/apply request via the parent's draft map.
  */
 
 import { humanize } from "../utils/formatting";
@@ -37,6 +41,11 @@ interface TunablesColumnProps {
  * Render each category as a collapsible <details> and delegate each
  * individual row to <Tunable>. The draft value falls back to the
  * effective (saved) value when the operator hasn't touched the key yet.
+ *
+ * Parent: SettingsPage (owns draft/effective/errorByKey).
+ * Children: one <Tunable> per spec (see Tunable.tsx).
+ * BE: indirect — consumes the schema from GET /api/settings; edits flow
+ *   up via `onChange` and eventually POST to /api/settings/apply.
  */
 export function TunablesColumn({
   groupedSpecs,

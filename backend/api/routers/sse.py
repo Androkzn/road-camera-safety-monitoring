@@ -2,19 +2,41 @@
 
 Three endpoints:
 
-* ``/stream/events`` — SSE of safety events.
+* ``/stream/events`` — SSE of safety events (``SafetyEvent`` payloads).
 * ``/chat`` — copilot Q&A over recent events + statute corpus.
 * ``/admin/detections`` — SSE of per-frame detection snapshots.
 
+Each SSE payload on ``/stream/events`` is a JSON-serialised
+``SafetyEvent`` as declared in ``backend/api/models.py`` (mirrored to
+TypeScript via ``scripts/generate_ts_types.py``). The contract is the
+single source of truth — do not hand-edit the TS shim.
+
 UI connection
 -------------
-Page: DashboardPage + AdminPage + MonitoringPage —
-       [file](frontend/src/shared/events/EventStreamProvider.tsx)
+Page: DashboardPage + AdminPage + MonitoringPage + ValidationPage.
+FE hooks that consume this router:
+* ``EventStreamProvider`` (frontend/src/shared/events/EventStreamProvider.tsx)
+  and ``useEventStream`` (frontend/src/shared/hooks/useEventStream.ts)
+  — a single provider opens one ``/stream/events`` connection and fans
+  out to every page's live-event list.
+* ``useSSE`` (frontend/src/shared/hooks/useSSE.ts) — the underlying
+  reconnecting EventSource helper.
+* The admin detection overlay subscribes to ``/admin/detections``
+  directly from the admin page.
 UI element: the live event cards (every page subscribes to /stream/events
 through the shared provider); the dashboard's copilot chat input box
 (/chat); and the admin page's per-frame bounding-box overlays
 (/admin/detections SSE feeds the detection panel).
-Backend route(s): GET /stream/events, POST /chat, GET /admin/detections.
+
+Backend services used
+---------------------
+* ``backend.state.state`` — ``state.subscribers`` (safety-event fanout
+  queues) and ``state.admin_detection_subscribers`` (detection fanout).
+* ``backend.services.llm.chat`` — copilot Q&A; inherits failover /
+  circuit breaker / rate budget from the shared LLM wrapper.
+* ``backend.compliance.audit`` — chat queries are audit-logged (first
+  200 chars only, to avoid persisting user PII).
+* ``backend.config.SSE_REPLAY_COUNT`` — replay depth on reconnect.
 """
 
 import asyncio
@@ -58,14 +80,19 @@ async def stream_events(request: Request):
     """
     # ``maxsize=200`` caps a single slow consumer at 200 buffered events
     # before broadcasts start dropping to their queue. The client can
-    # tell from gaps in event_id sequence that a reconnect is needed.
+    # tell from gaps in event_id sequence that a reconnect is needed —
+    # every SafetyEvent carries a stable ``event_id`` (see
+    # ``backend/api/models.py``) so ``useSSE`` can deduplicate replay
+    # against its in-memory cache on reconnection.
     queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     state.subscribers.add(queue)
 
     async def gen():
         try:
             # Replay recent buffer so a fresh client sees context, not
-            # just the next new event.
+            # just the next new event. ``SSE_REPLAY_COUNT`` bounds the
+            # number of historical events; the client uses ``event_id``
+            # to drop any it has already rendered.
             for ev in state.recent_events_snapshot(limit=SSE_REPLAY_COUNT):
                 yield f"data: {json.dumps(ev)}\n\n"
             while True:
@@ -111,7 +138,7 @@ async def admin_detections_sse(request: Request):
 
     HTTP: GET /admin/detections
     Response: ``text/event-stream`` of JSON snapshots — frame counters
-        plus object bounding boxes. Much lighter than the MJPEG feed,
+        plus object bounding boxes. Much lighter than the JPEG feed,
         suitable for charts / counters.
     """
     # Smaller queue cap than the safety-event SSE — these messages are

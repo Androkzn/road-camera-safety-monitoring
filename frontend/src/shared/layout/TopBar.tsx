@@ -6,6 +6,18 @@
  * into the right side. Pages own the data sources and pass them in,
  * which keeps `shared/` decoupled from any feature.
  *
+ * --- Backend coupling ---
+ * None. TopBar never calls the backend — it only renders props. Counts
+ * come from context via PageChrome; connection status comes from the
+ * page's own `useLiveStatus()` hook and is forwarded as the `connected`
+ * prop.
+ *
+ * --- Child components hosted ---
+ * - `<Link>` from react-router for brand + nav entries.
+ * - `<Pill>` + `<Dot>` from `shared/ui` for the live-status indicator.
+ * - `children` slot (right side, after the status pill): PageChrome
+ *   forwards the TestBadge here.
+ *
  * --- UI mapping ---
  * Used on: All pages (global layout). Rendered (via PageChrome) at the
  *   top of AdminPage, DashboardPage, MonitoringPage, SettingsPage and
@@ -37,8 +49,19 @@ interface TopBarProps {
 
 /**
  * TopBar — nav + live-connection pill. Pure presentational.
- * `useLocation()` reads the current URL from react-router context so we
- * can highlight the active nav link.
+ *
+ * What it renders: a `<header>` flex row containing (in order) the
+ * brand Link, the primary `<nav>` with five route Links, a flex spacer,
+ * the live-status Pill, and any `children` (right-side slot — currently
+ * the TestBadge from PageChrome).
+ *
+ * Props: see `TopBarProps` above. `connected` is tri-state (true /
+ * false / undefined); `errorCount` and `driftCount` default to `0` and
+ * suppress their red bubbles when zero.
+ *
+ * Active-link highlighting: `useLocation()` reads the current URL from
+ * react-router context and `styles.active` is applied when pathname
+ * matches — no runtime effect, just a className toggle.
  */
 export function TopBar({ connected, errorCount = 0, driftCount = 0, children }: TopBarProps) {
   const { pathname } = useLocation();
@@ -98,11 +121,13 @@ export function TopBar({ connected, errorCount = 0, driftCount = 0, children }: 
           Settings
         </Link>
       </nav>
+      {/* Flex spacer — pushes the status pill + children to the far right. */}
       <span className={styles.spacer} />
       <Pill>
         <Dot variant={statusVariant} />
         <span>{statusLabel}</span>
       </Pill>
+      {/* Right-side slot — PageChrome forwards TestBadge here. */}
       {children}
     </header>
   );

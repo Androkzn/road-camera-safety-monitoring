@@ -39,10 +39,15 @@ interface ErrorListProps {
   className?: string;
 }
 
+// Accepts either a bare string or a structured ErrorListItem so callers can
+// mix plain messages and keyed validation errors in the same array.
 function normalize(entry: ErrorEntry): ErrorListItem {
   return typeof entry === "string" ? { reason: entry } : entry;
 }
 
+// `role="alert"` is an assertive live region — announced immediately by
+// screen readers. Returning null on empty input lets callers render this
+// unconditionally without wrapping each call site in a ternary.
 export function ErrorList({ errors, title, variant = "danger", className }: ErrorListProps) {
   if (errors.length === 0) return null;
 
@@ -55,6 +60,9 @@ export function ErrorList({ errors, title, variant = "danger", className }: Erro
       <ul className={styles.list}>
         {errors.map((entry, idx) => {
           const item = normalize(entry);
+          // Prefer the stable `key` (e.g. "ROAD_FPS") when present; fall
+          // back to index+reason so duplicate unkeyed rows still get
+          // distinct React keys.
           const rowKey = item.key ?? `${idx}-${item.reason}`;
           return (
             <li key={rowKey} className={styles.row}>

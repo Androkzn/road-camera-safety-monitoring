@@ -15,10 +15,12 @@
  * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
  * UI element: a single live video tile inside the admin grid — shows the
  *   moving picture for one camera plus the small per-tile controls
- *   (start, pause, toggle detection, focus/maximize, remove).
- * Backend: MJPEG /admin/video_feed/{id} or polled /admin/frame/{id} for
- *   the picture; POST /api/live/sources/{id}/start|pause|detection and
- *   DELETE /api/live/sources/{id} for the controls.
+ *   (toggle detection, focus/maximize, remove).
+ * Backend:
+ *   - Video: GET /admin/frame/{id} (polled JPEG) via <StreamImage>.
+ *   - Controls: per-source mutations against the /api/streams registry,
+ *     issued by `useStreamControl(source.id).setDetection` (detection
+ *     toggle) and `useStreamRegistry().remove` (DELETE /api/streams/{id}).
  */
 import { useEffect, useState } from "react";
 
@@ -40,10 +42,41 @@ export interface StreamTileProps {
   onFocusToggle: () => void;
 }
 
+/**
+ * StreamTile — one live camera tile inside the admin grid.
+ *
+ * UI connections:
+ *   - Parent: <MultiSourceGrid> renders one StreamTile per LiveSourceStatus
+ *     (in either the focused layout's big slot, its minimized strip, or
+ *     the default grid layout).
+ *   - Child elements: <StreamImage> (the moving picture), inline badges
+ *     (statusDot, pausedBadge, warmingBadge, detectionBadge, focusedBadge),
+ *     a remove <button> with a shared <useDialog> confirmation, metadata
+ *     row, and a Detection <input type="checkbox"> toggle.
+ *   - CSS: MultiSourceGrid.module.css (shared across grid + tile) —
+ *     `.tile`, `.tileMuted`, `.tileFocused`, `.tileMini`, `.videoWrap`,
+ *     `.video`, `.placeholder`, `.statusDot`, `.dotRunning`, `.dotPaused`,
+ *     `.pausedBadge`, `.warmingBadge`, `.detectionBadge`, `.focusedBadge`,
+ *     `.removeBtn`, `.meta`, `.metaTop`, `.name`, `.metaStats`, `.warn`,
+ *     `.actions`, `.detectionToggle`.
+ *
+ * Backend endpoints:
+ *   - GET /admin/frame/{id} via <StreamImage>.
+ *   - Detection toggle: `useStreamControl(source.id).setDetection` POSTs
+ *     to the /api/streams registry to flip YOLO on/off for this source.
+ *   - Remove: `useStreamRegistry().remove` DELETEs the source from the
+ *     /api/streams registry (stops its perception loop and frees the slot).
+ */
 export function StreamTile({ source, focused, minimized, onFocusToggle }: StreamTileProps) {
+  // Local view state only: whether the <StreamImage> has hard-failed.
+  // Mutation state (pending/error for start/pause/detection/remove) lives
+  // in TanStack Query inside the two hooks below, not here.
   const [imgError, setImgError] = useState(false);
   const dialog = useDialog();
+  // Per-tile hook instance — `setDetection` POSTs to /api/streams to flip
+  // YOLO detection on/off for this specific source id.
   const { setDetection } = useStreamControl(source.id);
+  // Shared registry hook — `remove` issues DELETE /api/streams/{id}.
   const { remove } = useStreamRegistry();
   const running = source.running;
 
@@ -98,7 +131,7 @@ export function StreamTile({ source, focused, minimized, onFocusToggle }: Stream
           // Keep the <StreamImage> mounted across pause/resume so the
           // last-delivered frame stays on screen (frozen) instead of
           // snapping to a placeholder. The server keeps the reader alive
-          // while paused, so the MJPEG buffer still holds the last frame.
+          // while paused, so the slot still holds the last frame.
           <>
             <StreamImage
               source={source}

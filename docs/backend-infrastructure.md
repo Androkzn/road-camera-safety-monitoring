@@ -155,7 +155,7 @@ Routes are registered from `backend/server.py` by including feature routers in
 ### Live streams
 
 - `GET /stream/events` — **SSE**: replay last `SSE_REPLAY_COUNT` events, then live queue; keepalives.
-- `GET /admin/video_feed` — **MJPEG** multipart stream of annotated JPEGs.
+- `GET /admin/frame/{source_id}` — single annotated JPEG per call (polled by the admin grid ~every 400 ms).
 - `GET /admin/detections` — **SSE** of JSON detection snapshots for admin UI.
 
 ### JSON APIs (public / operational)

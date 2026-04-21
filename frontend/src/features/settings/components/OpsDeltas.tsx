@@ -9,6 +9,10 @@
  * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
  * UI element: the operations metric deltas section inside the impact card
  *   (the rows showing fps, CPU, latency, cost and skip-rate before vs after).
+ *
+ * Backend: none directly. Consumes the `baseline` / `after_window` /
+ *   `deltas` slices that the parent ImpactCard receives from
+ *   GET /api/settings/impact.
  */
 import { Fragment } from "react";
 
@@ -30,6 +34,11 @@ type Row = {
   digits?: number;
 };
 
+// Static schema for the rows we render. `goodWhen` flips the colour
+// semantics: "up" means this metric rising is good (e.g. fps), "down"
+// means falling is good (cost, latency, skip-rate, CPU). `digits`
+// controls decimal precision per-metric because token counts (int) and
+// dollar figures (4dp) don't share a sensible default.
 const ROWS: Row[] = [
   { key: "actual_fps_p50", label: "Actual fps p50", goodWhen: "up", digits: 2 },
   { key: "cpu_p95", label: "CPU %, p95", goodWhen: "down", digits: 1 },
@@ -61,7 +70,19 @@ const ROWS: Row[] = [
   },
 ];
 
+/**
+ * Render the "Operational" deltas subsection.
+ *
+ * Parent: ImpactCard. Children: none (plain grid cells).
+ * BE: indirect — consumes the ops slice of GET /api/settings/impact.
+ *
+ * Hidden entirely when every row is null in both baseline and after
+ * (keeps the ImpactCard tidy before ops samples arrive).
+ */
 export function OpsDeltas({ baseline, after, deltas }: OpsDeltasProps) {
+  // Drop rows that have nothing to show in either window — the backend
+  // emits null when a metric hasn't collected a sample yet (first
+  // window after a restart / apply).
   const visible = ROWS.filter((r) => baseline[r.key] != null || after[r.key] != null);
   if (!visible.length) return null;
   return (
@@ -74,6 +95,10 @@ export function OpsDeltas({ baseline, after, deltas }: OpsDeltasProps) {
           const b = baseline[r.key] as number | null | undefined;
           const a = after[r.key] as number | null | undefined;
           const d = deltas[r.key];
+          // `isUp` just checks the sign of the % delta; `good` maps that
+          // sign onto the metric's semantics so the colour below matches
+          // "did this help or hurt?" rather than "did it increase?".
+          // null/0 deltas are rendered neutral (no colour class).
           const isUp = (d ?? 0) > 0;
           const good = d == null || d === 0 ? null : r.goodWhen === "up" ? isUp : !isUp;
           const deltaClass = good == null ? "" : good ? styles.deltaPos : styles.deltaNeg;

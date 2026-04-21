@@ -65,13 +65,13 @@ Same lens applied to **FE** and **BE** below.
 - **Impact.** Unmount cancellation is automatic. Rate-limit and validation errors render consistently. Debugging = reading one file.
 - **Alternatives.** `axios` (bigger bundle); OpenAPI-generated client (needs 100% `response_model=` on BE first).
 
-### 1.3.a Transport choice — MJPEG vs polling auto-switch
+### 1.3.a Transport choice — just poll
 
-- **Problem.** Browsers cap HTTP/1.1 at **6 concurrent connections per host**. One MJPEG stream per tile + SSE = stalls at 5+ tiles. Local dev is HTTP/1.1; production is HTTPS / HTTP/2 (multiplexes, no cap).
-- **Why it mattered.** Either dev breaks or prod latency suffers — can't have both with one transport.
-- **Fix.** `StreamImage.tsx` auto-detects: `window.location.protocol === "https:"` → MJPEG push; HTTP → polling `/admin/frame/{id}` every ~400ms. Override via `VITE_ROAD_VIDEO_TRANSPORT`.
-- **Impact.** Dev works with 8 tiles on plain HTTP; prod gets push-based MJPEG with no polling floor. Zero operator config.
-- **Alternatives.** WebRTC everywhere (sub-100ms but needs STUN/TURN/SFU — overkill at 2 fps); WebSocket + binary JPEG (reimplements what `<img src=multipart>` gives natively); HLS (6–10s latency floor, kills "live" feel).
+- **Problem.** Browsers cap HTTP/1.1 at 6 concurrent connections per origin. A long-lived push transport (`multipart/x-mixed-replace`) would hold one TCP connection open per tile, so ≥6 tiles + SSE deadlock the browser on plain HTTP. HTTP/2 multiplexing behind a reverse proxy dissolves the cap, but that adds a "production **must** use an HTTP/2 proxy" deploy asterisk.
+- **Why polling works here.** Perception runs at 2 fps (one frame per ~500ms); polling at ~400ms delivers every frame the edge emits. Push delivery can't beat that ceiling.
+- **Fix.** Every tile polls `GET /admin/frame/{id}` every ~400ms. `has_viewers()` on `StreamSlot` is a single timestamp check (2 s TTL), so JPEG encode is skipped on idle tiles.
+- **Impact.** One code path, no deploy asterisk, each poll closes its connection promptly so the 6-conn cap is not pressured.
+- **Alternatives.** Server-told capability (more honest than a client-side protocol guess, still more code than "just poll"); WebRTC/HLS (only matter at ≥10 fps — not our regime).
 
 ## 1.4 State management
 
@@ -137,7 +137,7 @@ Same lens applied to **FE** and **BE** below.
 
 1. **Zombie state writes on unmount** → `AbortSignal` through `apiFetch` + every `useQuery`. React no longer warns; StrictMode double-invoke is clean.
 2. **Stuck "applying…" state** on settings apply after network hiccup → 8-second escape timer + explicit failure banner.
-3. **Browser connection exhaustion** at 5+ tiles → MJPEG/poll auto-switch (§1.3.a).
+3. **Browser connection exhaustion** at 5+ tiles → polling-only transport (§1.3.a). Sidesteps the 6-conn cap entirely because each poll closes promptly.
 4. **Duplicated SSE subscribers** per tab → shared `<EventStreamProvider>`.
 5. **Silent type drift** between backend and frontend → codegen pipeline (§1.7).
 6. **White-screen crash from one broken feature** → per-route error boundaries.
@@ -251,7 +251,7 @@ Same lens applied to **FE** and **BE** below.
 - **Problem.** Live state (per-source streams, episodes, viewer counts) lived as dict-of-dicts in `server.py`, mutated from everywhere.
 - **Why it mattered.** No typed surface → no confidence any caller respected invariants.
 - **Fix.**
-  - `backend/domain/stream_slot.py` — one `StreamSlot` per live source: viewer tracking (`mark_polled`, `has_viewers`), MJPEG subscriber count, per-slot `detection_enabled` toggle.
+  - `backend/domain/stream_slot.py` — one `StreamSlot` per live source: viewer tracking (`mark_polled`, `has_viewers` via 2 s poll TTL), per-slot `detection_enabled` toggle.
   - `backend/domain/episode.py` — one `Episode` per active incident (temporal dedupe + sustained-risk downgrade).
   - `backend/state.py` — thin module owning singletons (`STORE`, slot registry), nothing else.
   - `SettingsStore` owns config (§2.4).
@@ -347,7 +347,7 @@ Same lens applied to **FE** and **BE** below.
 | --- | --- | --- |
 | Project structure | Feature folders + import rule | Feature packages under `backend/` |
 | Giant files | `SettingsPage`, `MultiSourceGrid` decomposed | `server.py` 1535→189; `watchdog.py` split into package |
-| Network | `apiFetch` + `HttpApiError` + `AbortSignal`; MJPEG/poll auto-switch | 15 routers + HMAC ingest + SSRF guard |
+| Network | `apiFetch` + `HttpApiError` + `AbortSignal`; polling-only tile transport | 15 routers + HMAC ingest + SSRF guard |
 | State management | TanStack Query (server state) | `SettingsStore` snapshot isolation (hot-path config) |
 | Hooks / lifecycle | Shared `useSSE`, single `EventStream` provider | `StreamSlot` viewer tracking |
 | UI / reusable | `shared/ui/` primitives library | n/a |
@@ -364,7 +364,7 @@ Same lens applied to **FE** and **BE** below.
 1. **Open with the framework** — the matrix above. "These are the common areas I audit in any codebase."
 2. **Pick two deep dives** that show judgment, not just work. I use:
    - **BE:** `SettingsStore` snapshot isolation — invariants (reader never blocks writer, writer never blocks readers, no partial reads).
-   - **FE:** MJPEG vs polling auto-switch — the HTTP/1.1 6-connection cap and how HTTP/2 changes the math.
+   - **FE:** polling-only transport — the HTTP/1.1 6-connection cap rules out long-lived push per tile, and at 2 fps source rate push delivery is theatrical below the inference period; one endpoint, one code path, no HTTP/2 deploy asterisk.
 3. **Volunteer the gap.** "Auth is the biggest product-readiness gap — and here's why I didn't half-build it." Engineering judgment > feature enthusiasm.
 4. **One alternative per topic.** "I considered X; rejected because Y." Proves I **chose**, didn't just **do**.
 
@@ -374,7 +374,7 @@ Same lens applied to **FE** and **BE** below.
 
 - **Auth** — POC has no user auth by design. Documented; HMAC + audit log still in place for channels that matter.
 - **Codegen drift-check in CI** — `make generate-types && git diff --exit-code` not yet wired.
-- **No browser-level end-to-end smoke** (Playwright) — pytest + vitest cover the units; SSE + MJPEG path against a live `start.py` untested automatically.
+- **No browser-level end-to-end smoke** (Playwright) — pytest + vitest cover the units; SSE + polling path against a live `start.py` untested automatically.
 - **No formal capacity benchmarks** — order-of-magnitude reasoning only.
 - **`impact.py` (813 LoC) and `api/settings.py` (640 LoC)** — next file-level split candidates.
 - **Single-instance `SettingsStore`** — one per edge process, no leader election yet.

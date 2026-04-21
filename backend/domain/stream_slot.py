@@ -2,9 +2,42 @@
 
 Each configured source (a YouTube live URL, dashcam file, etc.) gets its
 own StreamSlot holding: the StreamReader thread, per-slot detection
-toggle, viewer-presence counter for MJPEG subscribers, last frame
-timestamp, and the Episode currently in flight. `backend/state.py.slots`
-is a dict of these, keyed by source_id.
+toggle, last-poll timestamp (for viewer presence), last frame timestamp,
+and the Episode currently in flight. `backend/state.py.slots` is a dict
+of these, keyed by source_id.
+
+Pipeline role
+-------------
+- **Created** once per configured source at server boot by
+  ``backend/server.py`` (and on operator "add source" actions). The
+  StreamReader thread is attached lazily by ``start_slot`` when Play is
+  pressed.
+- **Written by the perception thread** — ``backend/perception/on_frame.py``
+  drives one slot per captured frame: updates ``quality`` / ``scene`` /
+  ``ego`` / ``track_history``, opens or updates ``episodes``, and pushes
+  the annotated JPEG into the slot's frame buffer.
+- **Consumed** by the HTTP / SSE layer:
+  * The ``/admin/frame/{id}`` polling route reads ``_annotated_jpeg``
+    under ``_frame_lock`` and calls :meth:`mark_polled` so the perception
+    loop knows a tile is being watched.
+  * ``backend/perception/emit.py`` reads per-slot episode state when a
+    pair's conflict concludes, and records timing via
+    :meth:`record_stage_ms`.
+  * ``backend/api/routers/admin.py::admin_health`` reads
+    :meth:`stage_stats` to report p50/p95 latencies.
+
+Concurrency
+-----------
+Three threads touch a StreamSlot simultaneously:
+  1. The capture thread (inside ``StreamReader``) producing frames.
+  2. The perception thread running ``_on_frame`` / ``_flush_episode``.
+  3. The FastAPI / uvicorn thread pool serving polling / health.
+Two locks keep this safe:
+  * ``_frame_lock`` — annotated-JPEG buffer.
+  * ``_stage_lock`` — stage-timing ring buffers, held separately so the
+    health route never contends with the encode path.
+Everything else is either immutable post-construction (``calibration``,
+``source_id``) or tolerates a one-frame-stale read.
 
 Python primer: `dataclass` here auto-generates __init__ from annotated
 fields; threading primitives like `threading.Lock()` guard concurrent
@@ -114,7 +147,7 @@ class StreamSlot:
         # operators see *why* a stream is offline.
         self.last_error: str | None = None
         # Operator-controlled detection toggle. When False, ``_on_frame``
-        # still renders the raw frame to the slot's MJPEG buffer (so the
+        # still renders the raw frame to the slot's frame buffer (so the
         # operator can keep watching the camera) but skips YOLO,
         # quality / scene / ego updates, and event emission entirely. The
         # CPU saving is large; the trade-off is no boxes / no alerts from
@@ -136,33 +169,27 @@ class StreamSlot:
         self.scene = SceneContextClassifier()
         self.last_ego_flow = None
         self.last_scene_ctx = None
-        # Per-source MJPEG buffer. The capture thread writes; HTTP handlers
-        # read. A dedicated lock per slot avoids cross-source contention.
+        # Per-source annotated-JPEG buffer. The capture thread writes; HTTP
+        # handlers read. A dedicated lock per slot avoids cross-source
+        # contention.
         self._frame_lock = threading.Lock()
         self._annotated_jpeg: bytes | None = None
         self._frame_detections: list[dict] = []
         self._frame_ts: float = 0.0
         # Most-recent raw frame (BGR ndarray) captured for this slot. Used by
         # the polling endpoint as a fallback when ``_annotated_jpeg`` hasn't
-        # been populated yet (e.g. first poll after stream start, or first
-        # frame after a viewer-cycle). Storing the reference is O(1); we copy
-        # only when we actually need to encode.
+        # been populated yet (e.g. first poll after stream start). Storing
+        # the reference is O(1); we copy only when we actually need to encode.
         self._latest_raw_frame = None
-        # Active MJPEG viewer count. Incremented by ``_mjpeg_response`` on
-        # connect and decremented in its ``finally`` block on disconnect.
-        # When zero, ``_on_frame`` skips ``_render_annotated_frame`` /
-        # ``cv2.imencode`` — the biggest per-frame cost after YOLO itself.
-        self._mjpeg_subscribers: int = 0
         # Monotonic timestamp of the most recent poll to ``/admin/frame/{id}``.
-        # The admin grid uses short-lived polls instead of a persistent MJPEG
-        # connection (to dodge the browser's 6-conn-per-host cap), so viewer
-        # presence has to be inferred from recent polls with a TTL.
+        # The admin grid uses short-lived polls; viewer presence is inferred
+        # from recent polls with a TTL.
         self._last_poll_monotonic: float = 0.0
         # ----- Per-stage latency ring buffers (BE-D5.A) -----
         # Populated by ``_on_frame`` / ``_flush_episode`` on the perception
         # thread; read by ``admin_health`` on the FastAPI thread pool. The
         # dedicated ``_stage_lock`` keeps us off the hot ``_frame_lock`` so
-        # the health route never contends with the MJPEG encode path.
+        # the health route never contends with the encode path.
         # Each deque is bounded (``maxlen=200``) so the measurement path
         # is O(1) and memory stays flat regardless of runtime duration.
         self.stage_timings_ms: dict[str, deque] = {
@@ -220,8 +247,9 @@ class StreamSlot:
         Called every frame by the perception loop in
         ``backend/server.py::_on_frame`` so we can skip the expensive
         annotated-JPEG encode when no one is looking at this tile. A
-        viewer is either an open MJPEG connection (``_mjpeg_subscribers``)
-        or a recent hit on the polling endpoint within the last 2 seconds.
+        viewer is a recent hit on ``/admin/frame/{id}`` within the last
+        2 seconds; the admin grid polls at ~400ms, so 2s = 5 polls of
+        slack before the encode path goes idle.
 
         Python note: ``time.monotonic()`` returns a number of seconds
         from an arbitrary start point. It only ever goes forward (unlike
@@ -231,13 +259,6 @@ class StreamSlot:
         Returns:
             ``True`` if at least one viewer is active, else ``False``.
         """
-        # Int read is atomic in CPython; a one-frame stale value is harmless
-        # (at worst we skip one encode the frame a viewer connects on).
-        if self._mjpeg_subscribers > 0:
-            return True
-        # Poll-based viewer: any /admin/frame hit in the last 2s counts. The
-        # grid polls at ~400ms, so 2s = 5 polls of slack before we let the
-        # encode path go idle (which matters on multi-stream hosts).
         return (time.monotonic() - self._last_poll_monotonic) < 2.0
 
     def mark_polled(self) -> None:
@@ -252,25 +273,6 @@ class StreamSlot:
             ``None``. Side effect: updates ``self._last_poll_monotonic``.
         """
         self._last_poll_monotonic = time.monotonic()
-
-    def _acquire_viewer(self) -> None:
-        with self._frame_lock:
-            self._mjpeg_subscribers += 1
-
-    def _release_viewer(self) -> None:
-        with self._frame_lock:
-            self._mjpeg_subscribers = max(0, self._mjpeg_subscribers - 1)
-            # Intentionally do NOT reset ``_annotated_jpeg`` here. Two reasons:
-            #   1. The polling endpoint (``/admin/frame/{id}``) is a separate
-            #      viewer path that doesn't increment ``_mjpeg_subscribers``;
-            #      dropping the cached frame here strands every poll-based
-            #      tile on the dark placeholder JPEG until the next
-            #      perception tick (~0.5s) produces a fresh encode. With 6
-            #      streams contending for the shared YOLO model the actual
-            #      encode rate is closer to 0.5fps per slot, so the gap is
-            #      visibly long.
-            #   2. A stale-but-recent frame is strictly better UX than the
-            #      placeholder JPEG. The next encode overwrites it anyway.
 
     def is_running(self) -> bool:
         """Return True when this slot's capture thread is actively producing frames.

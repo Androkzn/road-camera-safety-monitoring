@@ -22,13 +22,18 @@
  *   - CSS Modules styling via `styles.someClass`.
  *
  * NOTE: This component is purely presentational — it owns no state and calls
- *       no APIs. Parents are responsible for feeding it events.
+ *       no APIs directly. The SafetyEvent itself originates from the SSE
+ *       stream GET /api/events/stream (live feed) or GET /api/events/history
+ *       (HistoryPanel), and its thumbnail URL is served by the backend's
+ *       static redaction layer (see services/redact.py).
  *
  * --- UI mapping ---
  * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
  * UI element: one compact row inside the admin "Events" or "History" list
  *   — shows a single safety event with its risk badge, time, type tag,
  *   small thumbnail, and track ids; tapping the row opens its details.
+ * Backend: none called directly. Upstream data comes from
+ *   GET /api/events/stream (SSE) and GET /api/events/history (REST).
  */
 
 import type { SafetyEvent } from "../../../shared/types/common";
@@ -74,6 +79,23 @@ function orientationLabel(e: SafetyEvent): string | null {
   return o.toUpperCase();
 }
 
+/**
+ * AdminEventCard — renders one SafetyEvent as a dense admin row.
+ *
+ * UI connections:
+ *   - Parent: used by DetectionsPanel / HistoryPanel inside AdminPage, and
+ *     by any admin list that wants a denser event row than the public
+ *     EventCard.
+ *   - Child elements: RiskBadge (left), Tag chips (TTC, distance, track
+ *     ids, episode duration), a thumbnail <img>, and a narration line.
+ *   - CSS: AdminEventCard.module.css — `.card`, `.interactive`, `.thumb`,
+ *     `.info`, `.top`, `.metaRow`, `.narr` and taxonomy/orientation badges.
+ *
+ * Backend endpoints: none. This component is pure view — onSelect only
+ *   opens a local EventDialog in the parent. Thumbnails are loaded by the
+ *   browser from the URL supplied on the event (served by the edge
+ *   backend's static file mount).
+ */
 export function AdminEventCard({ event: e, onSelect }: AdminEventCardProps) {
   // Pre-compute display values once. Keeping them above the return keeps the
   // JSX below cleaner.

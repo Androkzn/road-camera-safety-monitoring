@@ -39,9 +39,16 @@ async def score_decay_loop(interval_sec: int) -> None:
         asyncio.CancelledError: Re-raised on shutdown so the task cleanly
             terminates when ``lifespan`` cancels it.
     """
+    # Simple fixed-cadence loop. We sleep first and act second so a fresh
+    # process doesn't immediately decay on boot — callers generally want
+    # at least one full interval of steady-state data before the first
+    # pass runs.
     while True:
         try:
             await asyncio.sleep(interval_sec)
+            # Delegates the actual math (per-driver exponential-style
+            # pull-toward-neutral) to the registry. This loop is only
+            # responsible for scheduling, not the decay formula itself.
             road_registry.decay_scores()
         except asyncio.CancelledError:
             raise

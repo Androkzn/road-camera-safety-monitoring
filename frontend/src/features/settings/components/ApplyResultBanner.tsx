@@ -6,6 +6,10 @@
  * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
  * UI element: the green/red banner that appears at the top of the page
  *   after the operator presses Apply, summarising what changed.
+ *
+ * Backend: no direct calls here. The parent page POSTs to
+ *   /api/settings/apply and feeds the response (diff, applied_now,
+ *   pending_restart, audit_id) into this banner as `result`.
  */
 import { humanize } from "../utils/formatting";
 import type { DraftValue } from "../types";
@@ -25,8 +29,20 @@ interface ApplyResultBannerProps {
   onDismiss: () => void;
 }
 
+/**
+ * Render the "changes applied" banner.
+ *
+ * Parent: SettingsPage (owns apply-mutation state and passes the result).
+ * Children: none — plain markup + a Dismiss button.
+ * BE: indirect — renders the shape returned by POST /api/settings/apply.
+ *
+ * Renders nothing (null) when there's no result yet, so the parent can
+ * mount this unconditionally.
+ */
 export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps) {
   if (!result) return null;
+  // Pluralisation driver — also used to decide whether to render the
+  // per-key before→after diff block at the bottom.
   const diffCount = Object.keys(result.diff).length;
   return (
     <div className={styles.successBanner} role="status">
@@ -68,6 +84,10 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
           </>
         )}
       </div>
+      {/* Per-key before → after diff highlighting: each line shows the
+          humanized key and the raw before/after values joined by an arrow.
+          Rendered only when there is at least one change, in the subtle
+          style so it reads as auxiliary detail under the main summary. */}
       {diffCount > 0 && (
         <div className={styles.subtle} style={{ fontSize: 11 }}>
           {Object.entries(result.diff).map(([k, ba]) => (

@@ -37,7 +37,11 @@
  *   the top of the page that summarise pipeline and integration health
  *   (Stream, Frames, Events, Perception, Scene, Tracker, LLM, Slack, Edge
  *   Pub, PII).
- * Backend: GET /api/admin/health (data is fetched by the parent page).
+ * Backend: GET /api/admin/health — the full server-side health snapshot
+ *   (server/pipeline/integrations/perception/scene sub-trees). The parent
+ *   page owns the fetch; this component only renders the result.
+ *   The admin page also polls GET /api/live/status alongside /api/admin/health
+ *   for stream-identity bits; both feed the same HealthData shape here.
  */
 
 import type { HealthData } from "../../../shared/types/common";
@@ -89,6 +93,20 @@ interface HealthStripProps {
   health: HealthData | null;
 }
 
+/**
+ * HealthStrip — top-of-page status row for pipeline & integration health.
+ *
+ * UI connections:
+ *   - Parent: AdminPage renders this at the very top of the page (above
+ *     SelectedStreamHeader and the tile grid).
+ *   - Child elements: ten internal <HealthCell> pills (Stream, Frames,
+ *     Events, Perception, Scene, Tracker, LLM, Slack, Edge Pub, PII).
+ *   - CSS: HealthStrip.module.css — `.strip`, `.hg`, `.label`, `.val`,
+ *     `.sub`, and variant classes `.ok`, `.warn`, `.err`, `.accent`.
+ *
+ * Backend endpoints: none called from this file. The `health` prop is the
+ *   HealthData payload AdminPage fetches from GET /api/admin/health.
+ */
 export function HealthStrip({ health }: HealthStripProps) {
   // TEACH: Loading-state branch. Returning a placeholder shape that
   //        mirrors the real layout prevents the page from jumping when

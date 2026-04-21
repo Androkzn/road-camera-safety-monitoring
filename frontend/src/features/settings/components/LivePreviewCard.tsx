@@ -4,8 +4,7 @@
  * <select> lets them preview any active source.
  *
  * Lets the operator see the effect of a tunable change on a real stream
- * without tabbing back to Admin. Transport (MJPEG vs polling) is chosen
- * automatically by StreamImage based on page protocol — see CLAUDE.md.
+ * without tabbing back to Admin.
  *
  * NOTE: this reaches into `../../admin/components/StreamImage`, which
  * technically breaks the feature-isolation rule. If that matters in the
@@ -15,8 +14,10 @@
  * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
  * UI element: the live-preview card on the right column showing incoming
  *   video events under the proposed settings, with a source picker.
- * Backend: streams from /admin/video_feed/{id} or /admin/frame/{id}
- *   (transport chosen by StreamImage).
+ * Backend:
+ *   - GET /admin/frame/{id} (~400 ms JPEG polling) via <StreamImage>.
+ *   This component itself does not hit /api/settings/* — it only consumes
+ *   the `sources` list (derived from /api/live/status in the parent page).
  */
 
 import { useEffect, useState } from "react";

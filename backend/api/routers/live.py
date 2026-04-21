@@ -9,17 +9,53 @@ because it only reads in-memory state — no I/O to await. FastAPI still
 runs them without blocking: sync handlers are dispatched to a thread
 pool automatically.
 
+NOTE: the SSE live event feed (``/api/events/stream``) and the
+source-registry CRUD routes (``/api/live/sources``) are NOT in this
+file — they live in their own routers. This module owns only the
+read-only "what is the pipeline doing right now?" endpoints.
+
 UI connection
 -------------
-Page: DashboardPage — [file](frontend/src/features/dashboard/DashboardPage.tsx)
-       (also AdminPage and the shared event dialog).
-UI element: the header status strip on every page (running flag, frame
-counters, uptime), the dashboard's scene + drift banners, the recent-events
-list, and the "play clip" video that opens when an event card is clicked.
+Pages: ``DashboardPage`` (frontend/src/features/dashboard/DashboardPage.tsx),
+``AdminPage`` (frontend/src/features/admin/AdminPage.tsx), plus the
+``EventDialog`` opened from any event card.
+
+FE hooks / components that consume each route (verified against
+``frontend/src/**``):
+
+- ``GET /api/live/status`` → ``useLiveStatus``
+  (``frontend/src/shared/hooks/useLiveStatus.ts``). Drives the ``TopBar``
+  connection strip and the ``HealthStrip`` on AdminPage.
+- ``GET /api/live/scene`` → ``useScene``
+  (``frontend/src/features/dashboard/hooks/useScene.ts``) via
+  ``dashboardApi.getScene`` (``frontend/src/features/dashboard/api.ts``).
+- ``GET /api/drift`` → ``dashboardApi.getDrift``
+  (``frontend/src/features/dashboard/api.ts``); drives the dashboard
+  drift banner.
+- ``GET /api/live/events`` → ``useHistory``
+  (``frontend/src/features/admin/hooks/useHistory.ts``) via
+  ``adminApi.getLiveEvents`` (``frontend/src/features/admin/api.ts``).
+- ``GET /api/events/{id}/clip`` → ``EventDialog``
+  (``frontend/src/shared/events/EventDialog.tsx``).
+- ``GET /api/live/perception`` — currently server-side / debug only;
+  the perception block surfaced in the UI is already embedded inside
+  the ``/api/live/status`` response consumed by ``useLiveStatus``.
+- ``GET /api/events``, ``GET /api/events/{id}``, ``DELETE /api/events``
+  — used by operator tooling / tests; no React hook calls them directly
+  (the live feed ``useEventStream`` / ``EventStreamProvider`` speaks to
+  the separate SSE route ``/api/events/stream``).
+
 Backend route(s): GET /api/live/status, GET /api/live/perception,
 GET /api/live/scene, GET /api/drift, GET /api/live/events, GET /api/events,
 GET /api/events/{event_id}, GET /api/events/{event_id}/clip,
 DELETE /api/events.
+
+Backend services used: ``backend.state`` (in-memory perception snapshot
++ recent-events ring), ``backend.compliance.audit`` (audit trail on
+event-buffer wipe), ``backend.services.llm`` / ``backend.integrations.slack``
+(``*_configured`` probes surfaced on status), ``backend.rendering.clip``
+(annotated MP4 renderer), ``backend.security.rate_limit`` (per-IP clip
+render guard).
 """
 
 from pathlib import Path
@@ -74,6 +110,13 @@ def live_status():
     HTTP: GET /api/live/status
     Response: a large dict with source label, running flag, frame counts,
         uptime, tracker/risk-model names, and PII-redaction config.
+        Shape is validated by the ``LiveStatusResponse`` pydantic model
+        (codegenned to the TS ``LiveStatus`` type in
+        ``frontend/src/shared/types/generated.ts``).
+    FE caller: ``useLiveStatus`` (``frontend/src/shared/hooks/useLiveStatus.ts``)
+        polls this on an interval; the result feeds ``TopBar`` on every
+        page and ``HealthStrip`` on AdminPage.
+    Side effects: none (read-only snapshot).
 
     BE-D8: consumes ``state.snapshot()`` (frozen under ``state.lock``) so
     every returned field is consistent with every other — no torn reads
@@ -129,6 +172,12 @@ def live_perception(source_id: str | None = None):
     HTTP: GET /api/live/perception[?source_id=<slot>]
     Query params:
         source_id: optional; defaults to the primary slot when omitted.
+    Response: ``QualityMonitor.state()`` dict (state label, reason,
+        samples, since_sec, avg_confidence, luminance, sharpness).
+    FE caller: none directly — the same block is embedded inside
+        ``/api/live/status`` and surfaced through ``useLiveStatus``.
+        This route is kept for debugging / scripted per-slot inspection.
+    Side effects: none.
     Raises: 404 when ``source_id`` is given but unknown.
 """
     slot = _resolve_slot(source_id)
@@ -140,8 +189,16 @@ def live_scene(source_id: str | None = None):
     """Current scene context + adaptive thresholds.
 
     HTTP: GET /api/live/scene[?source_id=<slot>]
+    Query params:
+        source_id: optional; defaults to the primary slot when omitted.
     Returns: label (urban/highway/parking), confidence, ego-flow proxy,
-        and the active risk thresholds that were rescaled for that scene.
+        and the active risk thresholds that were rescaled for that scene
+        (matches the ``SceneContext`` TS type in
+        ``frontend/src/shared/types/generated.ts``).
+    FE caller: ``useScene`` (``frontend/src/features/dashboard/hooks/useScene.ts``)
+        via ``dashboardApi.getScene`` — drives the dashboard scene banner.
+    Side effects: none.
+    Raises: 404 when ``source_id`` is given but unknown.
 """
     slot = _resolve_slot(source_id)
     ctx = slot.last_scene_ctx
@@ -180,6 +237,11 @@ def api_drift():
     positives are trending over time.
 
     HTTP: GET /api/drift
+    Returns: ``DriftReport`` dict (see generated.ts).
+    FE caller: ``dashboardApi.getDrift``
+        (``frontend/src/features/dashboard/api.ts``) — drives the
+        dashboard drift banner.
+    Side effects: none.
 """
     return state.drift.compute().as_dict()
 
@@ -192,9 +254,15 @@ def live_events(risk_level: str | None = None, event_type: str | None = None, li
 
     HTTP: GET /api/live/events[?risk_level=high&event_type=...&limit=100]
     Query params:
-        risk_level: optional substring match ("high" / "medium" / "low").
+        risk_level: optional exact match ("high" / "medium" / "low").
         event_type: optional event-type filter.
         limit: max records returned (slice of the most recent).
+    Returns: ``list[EventModel]`` — same shape as SSE ``SafetyEvent``
+        frames, already stripped of raw plate text by ``enrich_event``.
+    FE caller: ``useHistory``
+        (``frontend/src/features/admin/hooks/useHistory.ts``) via
+        ``adminApi.getLiveEvents`` — drives the AdminPage history panel.
+    Side effects: none.
 """
     items = state.recent_events_snapshot()
     if risk_level:
@@ -213,6 +281,16 @@ def events(
     """Live events from the in-memory recent-events buffer.
 
     HTTP: GET /api/events
+    Query params:
+        risk_level: optional exact match ("high" / "medium" / "low").
+        event_type: optional event-type filter.
+        limit: max records returned (default 500; slice of the most recent).
+    Returns: ``list[EventModel]``.
+    FE caller: none directly — the React app reads live events over SSE
+        via ``useEventStream`` / ``EventStreamProvider`` and backfills
+        through ``/api/events/history`` (both live in different routers).
+        This route is retained for operator tooling / tests.
+    Side effects: none.
 
     BE-D8: consumes ``state.snapshot()`` so the read is atomic with
     respect to the perception thread's appends.
@@ -233,6 +311,10 @@ def event(event_id: str):
     HTTP: GET /api/events/{event_id}
     Path params:
         event_id: the opaque event id emitted by the perception pipeline.
+    Returns: ``EventModel``.
+    FE caller: none directly; event cards already carry the full payload
+        they were rendered with. Kept for scripted / operator lookup.
+    Side effects: none.
     Raises: 404 if no matching event is in the current buffer.
     """
     ev = state.find_recent_event(event_id)
@@ -258,11 +340,21 @@ def event_clip(
     Path params:
         event_id: the event to clip around.
     Query params:
-        before/after: seconds of context to include (allowed values only).
+        before/after: seconds of context to include (allowed values only —
+            see ``_CLIP_WINDOW_ALLOWED``; bounding the set prevents
+            operators requesting huge arbitrary windows that would
+            balloon ffmpeg CPU + disk cache).
         annotated: when True, draw bounding boxes over the clip.
     Returns: ``FileResponse`` (video/mp4). First call for a given
-        (event,before,after,annotated) tuple renders + caches; later
-        calls are served from cache.
+        (event,before,after,annotated) tuple renders + caches under
+        ``DATA_DIR/clips/``; later calls are served from cache.
+    FE caller: ``EventDialog``
+        (``frontend/src/shared/events/EventDialog.tsx``) — the <video>
+        element opens this URL when the user clicks an event card.
+    Side effects:
+        - Writes an MP4 into ``DATA_DIR/clips/`` on cache miss.
+        - On annotated cache-miss path, consumes one token from the
+          per-IP clip-render rate limiter.
     Raises:
         400 on disallowed before/after values.
         404 when the event or its source file cannot be located.
@@ -300,9 +392,13 @@ def event_clip(
             404, "source is not a local file (live streams can't be clipped)",
         )
 
+    # Clamp the seek point to 0 so we never pass a negative -ss to ffmpeg
+    # when the event is within ``before`` seconds of the source's start.
     start = max(0.0, float(ts_sec) - before)
     duration = before + after
 
+    # Cache path is keyed by (event, window, annotated) so different
+    # callers asking for different windows don't clobber each other.
     clips_dir = DATA_DIR / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
     suffix = "_annotated" if annotated else ""
@@ -320,6 +416,9 @@ def event_clip(
             except subprocess.TimeoutExpired:
                 raise HTTPException(504, "annotated clip extraction timed out")
             except Exception as exc:  # noqa: BLE001
+                # Annotated render blew up (e.g. OpenCV issue) — fall back
+                # to a plain ffmpeg cut so the user at least gets video
+                # instead of a 500. Swap to the non-annotated cache key.
                 log.warning("annotated clip extraction failed: %s", exc)
                 annotated = False
                 cache_path = clips_dir / f"{event_id}_{before:g}_{after:g}.mp4"
@@ -356,6 +455,12 @@ def clear_events():
 
     HTTP: DELETE /api/events
     Returns: ``{"cleared": <n>}`` — count of events removed.
+    FE caller: none directly — operator/test affordance, typically hit
+        via curl or a test fixture.
+    Side effects:
+        - Drops every event from the in-memory recent-events ring.
+        - Writes an ``audit.log("clear_events", ...)`` entry so a
+          compliance reviewer can see who wiped the buffer and when.
     """
     cleared = state.clear_recent_events()
     audit.log("clear_events", "recent_events", outcome="success")

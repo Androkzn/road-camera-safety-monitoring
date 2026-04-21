@@ -437,6 +437,17 @@ def insert_apply_log(
 
 
 def list_apply_log(limit: int = 50) -> list[dict[str, Any]]:
+    """Return the most recent apply-log rows, newest first.
+
+    Args:
+        limit: Maximum number of rows to return. Default 50 matches the
+            SettingsPage "apply history" drawer page size.
+
+    Returns:
+        A list of plain dicts. ``warnings_json`` / ``payload_json`` columns
+        are decoded back into Python lists/dicts and exposed as
+        ``warnings`` / ``payload`` for caller convenience.
+    """
     with connect() as conn:
         cur = conn.execute(
             "SELECT * FROM apply_log ORDER BY ts DESC LIMIT ?",
@@ -446,6 +457,8 @@ def list_apply_log(limit: int = 50) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for r in rows:
         d = dict(r)
+        # Decode the stored JSON columns once here so the API layer does not
+        # have to deal with raw strings per row.
         d["warnings"] = json.loads(d.pop("warnings_json") or "[]")
         d["payload"] = json.loads(d.pop("payload_json") or "{}")
         out.append(d)
@@ -465,6 +478,23 @@ def insert_baseline(
     sample_count: int,
     payload: dict[str, Any],
 ) -> None:
+    """Persist a captured baseline window used for impact comparison.
+
+    A baseline freezes the aggregate metrics observed under one
+    ``settings_hash`` over ``[captured_start, captured_end]`` so the impact
+    engine can contrast post-change behaviour against it.
+
+    Args:
+        baseline_id: Opaque id the caller chose for this baseline.
+        audit_id: The settings apply this baseline ties to.
+        settings_hash: Hash of the settings snapshot that was active.
+        captured_start / captured_end: Unix-second window bounds.
+        sample_count: How many samples were folded into ``payload``.
+        payload: The aggregated baseline metrics (JSON-serialisable).
+
+    Side effects:
+        Single INSERT; no return value.
+    """
     with connect() as conn:
         conn.execute(
             """
@@ -487,6 +517,11 @@ def insert_baseline(
 
 
 def get_baseline(baseline_id: str) -> dict[str, Any] | None:
+    """Fetch one baseline by id; returns ``None`` if unknown.
+
+    The stored ``payload_json`` column is decoded back into a dict under
+    the ``payload`` key before return.
+    """
     with connect() as conn:
         cur = conn.execute("SELECT * FROM baselines WHERE id=?", (baseline_id,))
         row = cur.fetchone()
@@ -498,6 +533,11 @@ def get_baseline(baseline_id: str) -> dict[str, Any] | None:
 
 
 def baseline_for_audit(audit_id: str) -> dict[str, Any] | None:
+    """Return the most recently captured baseline tied to ``audit_id``.
+
+    Multiple baselines can share one ``audit_id`` if recapture was
+    triggered; the most recent by ``created_at`` wins.
+    """
     with connect() as conn:
         cur = conn.execute(
             "SELECT * FROM baselines WHERE audit_id=? ORDER BY created_at DESC LIMIT 1",
@@ -527,6 +567,28 @@ def upsert_impact_session(
     state: str,
     archived_at: float | None = None,
 ) -> None:
+    """Insert or update the impact session keyed by ``audit_id``.
+
+    One impact session tracks the observable effect of one settings change
+    over time. The impact engine ticks every ~15 s and calls this to
+    update ``last_payload`` / ``state``; the ``ON CONFLICT(audit_id)``
+    clause makes that tick-level write cheap (single UPSERT).
+
+    Args:
+        session_id: Opaque id for the row (used as PK).
+        audit_id: Apply-log correlate; uniquely identifies the session.
+        change_ts: When the settings change happened (unix seconds).
+        actor_label: Operator label from the settings apply.
+        before / after: Full settings dicts on either side of the change.
+        baseline_id: Optional FK into ``baselines`` for comparison.
+        last_payload: Latest aggregated impact snapshot (tick output).
+        state: One of ``monitoring``, ``monitoring_unattended``, ``archived``.
+        archived_at: Unix seconds when state flipped to ``archived``.
+
+    Concurrency: the impact engine runs on a background task; callers must
+    hold the module-level connection lock (the :func:`connect` context
+    manager does this automatically).
+    """
     with connect() as conn:
         conn.execute(
             """
@@ -570,6 +632,7 @@ def get_active_impact_session() -> dict[str, Any] | None:
 
 
 def get_impact_session(audit_id: str) -> dict[str, Any] | None:
+    """Fetch one impact session by ``audit_id`` (unique), or ``None``."""
     with connect() as conn:
         cur = conn.execute("SELECT * FROM impact_sessions WHERE audit_id=?", (audit_id,))
         row = cur.fetchone()
@@ -577,6 +640,7 @@ def get_impact_session(audit_id: str) -> dict[str, Any] | None:
 
 
 def list_archived_sessions(limit: int = 20) -> list[dict[str, Any]]:
+    """Return archived impact sessions, newest first (bounded by ``limit``)."""
     with connect() as conn:
         cur = conn.execute(
             """
@@ -592,7 +656,12 @@ def list_archived_sessions(limit: int = 20) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+# The leading underscore marks these as private — they shape raw sqlite3.Row
+# objects into plain dicts the rest of the codebase can JSON-encode without
+# special-casing. Callers outside this module should use the public getters
+# above, never these helpers directly.
 def _row_to_template(row: sqlite3.Row) -> dict[str, Any]:
+    """Project a templates row into a plain dict (``system`` → bool cast)."""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -605,6 +674,7 @@ def _row_to_template(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _row_to_revision(row: sqlite3.Row) -> dict[str, Any]:
+    """Project a template_revisions row; decodes ``payload_json`` inline."""
     return {
         "id": row["id"],
         "template_id": row["template_id"],
@@ -618,6 +688,7 @@ def _row_to_revision(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _row_to_session(row: sqlite3.Row) -> dict[str, Any]:
+    """Project an impact_sessions row; decodes the three JSON columns."""
     return {
         "id": row["id"],
         "audit_id": row["audit_id"],

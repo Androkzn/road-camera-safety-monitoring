@@ -30,6 +30,8 @@ interface EmptyStateProps {
   className?: string;
 }
 
+// `role="status"` is a polite live region — screen readers will announce
+// the empty-state message when it appears without interrupting the user.
 export function EmptyState({ title, message, icon, actions, className }: EmptyStateProps) {
   const cls = cx(styles.root, className);
   return (

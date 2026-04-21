@@ -31,6 +31,18 @@ Design notes
   testable in isolation and so the API's ``/validate`` endpoint can return
   per-key reasons before any apply attempt.
 
+Contract surface
+----------------
+* Backend consumers — :mod:`backend.settings_store` uses
+  :func:`defaults` to seed the snapshot and :func:`validate` on every
+  ``apply_diff``. Perception modules do not import from this file
+  directly; they read values via ``STORE.snapshot()``.
+* API layer — ``backend/api/settings.py`` serves
+  :func:`schema_payload` at ``GET /api/settings/schema`` and uses
+  :func:`changed_mutability` to bucket apply responses.
+* FE — ``frontend/src/features/settings/useSettings.ts`` fetches the
+  schema and renders :data:`SETTINGS_SPEC` as the form on SettingsPage.
+
 UI connection
 -------------
 Page: SettingsPage ([SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx)).
@@ -53,6 +65,10 @@ from backend.config import (
 )
 
 
+# Bump when the shape of ``SETTINGS_SPEC`` changes (add/remove key, type
+# change, semantic re-meaning). Templates persisted with an older value
+# will be migration candidates at apply time. Do NOT bump for default or
+# range tweaks — those ride on the existing schema.
 SCHEMA_VERSION = 1
 
 
@@ -101,7 +117,10 @@ class SettingSpec:
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
-# Order matters only for UI rendering — keep grouped by category.
+# Order matters only for UI rendering — keep grouped by category. Categories
+# used: detection, risk-tier, gating, quality, llm-cost, alerting, privacy,
+# dedup, performance. ``schema_payload()`` derives the distinct set for the
+# FE to build its accordion headers.
 SETTINGS_SPEC: list[SettingSpec] = [
     # --- detection ---------------------------------------------------------
     SettingSpec(
@@ -340,21 +359,41 @@ SETTINGS_SPEC: list[SettingSpec] = [
 ]
 
 
+# O(1) key lookup cache, built once at import. ``SETTINGS_SPEC`` is frozen
+# at module-scope so this map never needs invalidation.
 _BY_KEY: dict[str, SettingSpec] = {s.key: s for s in SETTINGS_SPEC}
 
 
 def spec_for(key: str) -> SettingSpec | None:
-    """Return the spec for ``key`` or ``None`` if unknown."""
+    """Return the spec for ``key`` or ``None`` if unknown.
+
+    Inputs:
+        key: Candidate setting key; arbitrary string, no normalization.
+    Outputs:
+        The matching :class:`SettingSpec` or ``None``.
+    Side effects: none.
+    """
     return _BY_KEY.get(key)
 
 
 def all_keys() -> list[str]:
-    """Return the list of registry keys in registration order."""
+    """Return the list of registry keys in registration order.
+
+    Registration order is the category-grouped order of
+    :data:`SETTINGS_SPEC`; the FE relies on it to render grouped sections
+    deterministically.
+    """
     return [s.key for s in SETTINGS_SPEC]
 
 
 def defaults() -> dict[str, Any]:
-    """Return ``{key: default}`` for every spec entry."""
+    """Return ``{key: default}`` for every spec entry.
+
+    Used by :class:`backend.settings_store.SettingsStore` to seed its
+    first snapshot. A fresh boot therefore matches the exact ``backend.config``
+    defaults, guaranteeing the Settings Console is a no-op until the operator
+    edits something.
+    """
     return {s.key: s.default for s in SETTINGS_SPEC}
 
 
@@ -365,6 +404,17 @@ def coerce(key: str, value: Any) -> Any:
     a 422), strict on the spec contract (returns the canonical type).
     Returns ``value`` unchanged when ``key`` is unknown — the caller
     decides whether unknown keys are an error.
+
+    Inputs:
+        key: Registry key; unknown keys pass through untouched.
+        value: Raw JSON-decoded value from the request body.
+    Outputs:
+        Value converted to the declared ``spec.type``.
+    Validation:
+        * ``bool`` accepts the common truthy strings (``1``, ``true``,
+          ``yes``, ``on``) to be tolerant of FE checkbox submission.
+        * ``enum`` is lowercased and stripped before matching.
+    Side effects: none.
     """
     spec = spec_for(key)
     if spec is None:
@@ -385,6 +435,10 @@ def coerce(key: str, value: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
+# ``ValidationError`` is a lightweight alias — we return plain dicts of the
+# form ``{"key": str, "reason": str}`` rather than a dataclass so the API
+# layer can pass the list straight through to the 422 body without
+# remarshalling.
 ValidationError = dict  # {key, reason}
 
 
@@ -393,6 +447,15 @@ def _per_key_errors(merged: dict[str, Any]) -> list[ValidationError]:
 
     ``merged`` is the prospective full snapshot after a diff is folded in
     — i.e. it contains every registry key, not just changed ones.
+
+    Validation layers, short-circuiting per key:
+      1. Presence  (missing key → error, continue to next key)
+      2. Type      (int / float / bool / str / enum)
+      3. Range     (min/max for numeric types)
+      4. Enum set  (membership in ``spec.enum_values``)
+
+    Note: ``bool`` is excluded from the numeric check via
+    ``isinstance(v, bool)`` because Python's ``bool`` subclasses ``int``.
     """
     errs: list[ValidationError] = []
     for spec in SETTINGS_SPEC:
@@ -430,7 +493,16 @@ def _per_key_errors(merged: dict[str, Any]) -> list[ValidationError]:
 
 
 def _cross_field_errors(merged: dict[str, Any]) -> list[ValidationError]:
-    """Cross-field invariants. Hand-authored — keep this list short."""
+    """Cross-field invariants. Hand-authored — keep this list short.
+
+    Each rule encodes a semantic relationship that isolated per-key bounds
+    cannot express (e.g. MED thresholds must be strictly looser than HIGH
+    thresholds, otherwise the risk-tier classifier collapses).
+
+    The ``KeyError`` fallback protects against a partially-constructed
+    ``merged`` snapshot during dev; in production ``_per_key_errors`` runs
+    first and would already have flagged the absence.
+    """
     errs: list[ValidationError] = []
     try:
         if merged["TTC_MED_SEC"] <= merged["TTC_HIGH_SEC"]:
@@ -458,14 +530,25 @@ def validate(merged: dict[str, Any]) -> list[ValidationError]:
     snapshot before calling this. This separation keeps the validator a
     pure function of the prospective end state.
 
-    Returns:
+    Inputs:
+        merged: Candidate full snapshot — must contain every registry key.
+    Outputs:
         Flat list of ``{key, reason}`` dicts. Empty list means "valid".
+    Side effects: none (pure function, safe to call from the API layer
+        before any mutation).
     """
+    # Per-key errors first so cross-field rules can safely assume all keys
+    # are present and of the right type.
     return _per_key_errors(merged) + _cross_field_errors(merged)
 
 
 def changed_mutability(diff: dict[str, Any]) -> dict[str, list[str]]:
     """Bucket the keys touched by ``diff`` by their mutability class.
+
+    Used by :meth:`SettingsStore.apply_diff` to populate
+    ``applied_now`` vs ``pending_restart`` in the API response, letting the
+    FE show "effective immediately" vs "restart required" chips without
+    round-tripping the schema.
 
     Returns a dict like::
 
@@ -475,6 +558,8 @@ def changed_mutability(diff: dict[str, Any]) -> dict[str, list[str]]:
             "restart_required": ["TARGET_FPS"],
             "read_only": [],   # rejected upstream, but reported for UI clarity
         }
+
+    Unknown keys are silently skipped (the store already warns on those).
     """
     out: dict[str, list[str]] = {
         "hot_apply": [],
@@ -491,7 +576,22 @@ def changed_mutability(diff: dict[str, Any]) -> dict[str, list[str]]:
 
 
 def schema_payload() -> dict[str, Any]:
-    """JSON-serializable description of the registry, for ``GET /api/settings/schema``."""
+    """JSON-serializable description of the registry, for ``GET /api/settings/schema``.
+
+    Consumers:
+        * FE hook ``useSettings`` (see
+          ``frontend/src/features/settings/useSettings.ts``) — drives the
+          dynamic form on SettingsPage.
+        * ``scripts/generate_ts_types.py`` does NOT read this; TS types
+          come from the pydantic models in ``backend/api/models.py``.
+          Only the schema *data* travels over the wire at runtime.
+
+    Spec-to-schema projection: collapses :class:`SettingSpec` dataclass
+    fields into the key names the FE expects (``min_value`` → ``min``,
+    ``max_value`` → ``max``, ``enum_values`` → ``enum``). The category list
+    is derived from the spec at call time so new categories light up in
+    the UI without any frontend code change.
+    """
     return {
         "schema_version": SCHEMA_VERSION,
         "categories": sorted({s.category for s in SETTINGS_SPEC}),

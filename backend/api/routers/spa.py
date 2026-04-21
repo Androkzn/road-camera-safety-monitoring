@@ -1,18 +1,42 @@
 """Serve the built React SPA + SPA-fallback catch-all.
 
-Mounts `/assets/*` as static files from the built Vite bundle, serves
-`index.html` at `/`, and returns `index.html` for every unknown URL so
-React Router can handle client-side routing. Also owns small utility
-endpoints like `/favicon.ico` and the app shell health ping.
+Mounts `/assets/*` as static files from the built Vite bundle (via the
+mount declared in ``backend/server.py``), serves `index.html` at `/`,
+and exposes per-page shell routes so React Router deep-links survive a
+refresh. Also owns ``/favicon.ico`` and a legacy ``/api/summary``
+endpoint that reads batch output from ``analyze.py``.
+
+Endpoints
+---------
+* ``GET /`` — SPA entry (``index.html``).
+* ``GET /favicon.ico`` — tab icon, 404 when missing.
+* ``GET /admin`` / ``/dashboard`` / ``/monitoring`` / ``/settings`` —
+  identical page shells; React Router picks the component client-side.
+* ``GET /api/summary`` — legacy batch summary JSON.
 
 UI connection
 -------------
 Page: ALL pages (this is the file that actually serves the HTML and JS
-bundle that renders every page).
+bundle that renders every page). Consumed implicitly by every component
+since it serves the bundle; no specific FE hook calls these routes.
 UI element: None directly — this is the plumbing that delivers the React
 bundle to the browser. Without this router, the SPA would 404 on a deep
 link like /settings or /monitoring.
-Backend route(s): GET /, GET /assets/*, GET /{catch-all} (SPA fallback).
+
+Backend services used
+---------------------
+* ``backend.config.STATIC_DIR`` — path to built Vite output
+  (``frontend/dist``). ``start.py`` builds it before boot.
+* ``backend.config.DATA_DIR`` — read by the legacy ``/api/summary``.
+
+Security notes
+--------------
+* SPA fallback must NOT leak dotfiles / source files — this router
+  returns ``index.html`` only for explicit, whitelisted routes above,
+  never a raw ``FileResponse`` built from request path. The static
+  ``/assets/*`` mount (in ``server.py``) is confined to ``STATIC_DIR``.
+* POC has no auth on the page shells themselves; per-endpoint data APIs
+  (``/api/settings/*``) enforce their own admin bearer gating.
 """
 
 import json

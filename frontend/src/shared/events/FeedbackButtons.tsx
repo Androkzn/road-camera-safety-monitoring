@@ -1,7 +1,8 @@
 /**
  * FeedbackButtons — "Correct" / "False alarm" pair rendered at the bottom
- * of each EventCard. POSTs the operator's verdict to `/api/feedback`,
- * which feeds into the drift / precision tracker (services/drift.py).
+ * of each EventCard. POSTs the operator's verdict to `/api/feedback`
+ * (the event-scoped endpoint is `/api/events/{id}/feedback`), which
+ * feeds into the drift / precision tracker (services/drift.py).
  *
  * Lives in `shared/events/` because both Dashboard and Admin event
  * surfaces reuse it.
@@ -10,6 +11,11 @@
  * Used on: DashboardPage, AdminPage (and anywhere EventCard is shown).
  * UI element: a "Correct" / "False alarm" button pair at the bottom of
  *   each event card, with a "thanks" acknowledgement after submission.
+ *
+ * --- Backend endpoint ---
+ *  POST `/api/feedback` with body `{event_id, verdict: "tp" | "fp"}`.
+ *  Only the event_id + verdict are sent — no frame data, no plate text
+ *  (raw plate text never reaches the FE anyway; stripped at ingest).
  */
 
 import { useState, useCallback } from "react";
@@ -23,8 +29,17 @@ interface FeedbackButtonsProps {
 }
 
 /**
- * Single-shot verdict submitter. Once `submitted` is true, both buttons
- * are disabled so the operator can't flip-flop and skew the drift signal.
+ * FeedbackButtons — single-shot verdict submitter. Once `submitted` is
+ * true, both buttons are disabled so the operator can't flip-flop and
+ * skew the drift signal.
+ *
+ * Props:
+ *  - eventId: the SafetyEvent.event_id to attribute the verdict to.
+ *
+ * UI connections: styled buttons + inline SVG icons; emits its own
+ * "thanks"/"retry" acknowledgement inline — no portal, no toast system.
+ *
+ * Backend calls: POST /api/feedback { event_id, verdict }.
  */
 export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
   // One useState holds a small state-machine object. Simpler than four
@@ -38,8 +53,16 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
 
   // `useCallback` memoises the function identity across renders —
   // matters when it's passed to child components via props.
+  //
+  // Submission is intentionally NOT optimistic: we flip to `loading`
+  // first, wait for the POST to succeed, then commit `submitted + verdict`
+  // so a network failure resets cleanly and the user can retry. Showing a
+  // chosen-verdict state before the server confirms would risk logging a
+  // verdict we never actually persisted.
   const submit = useCallback(
     async (verdict: "tp" | "fp") => {
+      // Guard against double-clicks and post-submission clicks — once
+      // committed, a verdict is final (see submitted-disables-both note).
       if (state.submitted || state.loading) return;
       setState({
         submitted: false,
@@ -52,8 +75,11 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
           event_id: eventId,
           verdict,
         });
+        // Success: commit the verdict — this also disables both buttons.
         setState({ submitted: true, verdict, error: false, loading: false });
       } catch {
+        // Failure: surface a small "(retry)" hint and leave both buttons
+        // enabled so the operator can try again.
         setState({
           submitted: false,
           verdict: null,

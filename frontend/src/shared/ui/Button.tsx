@@ -33,6 +33,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   rightIcon?: ReactNode;
 }
 
+// Lookup tables keyed by variant/size. `?? ""` guards against CSS-module
+// hashing failures so a missing class never injects `undefined` into
+// className (which would break the output string).
 const variantClass: Record<ButtonVariant, string> = {
   default: "",
   primary: styles.primary ?? "",

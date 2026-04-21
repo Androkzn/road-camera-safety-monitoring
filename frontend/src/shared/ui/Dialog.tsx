@@ -147,6 +147,8 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Publish/unpublish this provider instance as the module-level singleton
+  // so the `dialog` export routes through it while it's mounted.
   useEffect(() => {
     _dialogApi = api;
     return () => {
@@ -156,6 +158,9 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 
   const current = queue[0];
 
+  // Drive the native <dialog> open/close imperatively. `showModal()` is
+  // what activates the browser's built-in focus trap + inert background +
+  // Esc-to-cancel; a plain `open` attribute would not.
   useEffect(() => {
     const el = dialogRef.current;
     if (!el) return;
@@ -163,6 +168,8 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     if (!current && el.open) el.close();
   }, [current]);
 
+  // Pops the head of the queue and resolves its promise. Alerts always
+  // resolve to `true`; confirms resolve to the caller-provided value.
   const dismiss = useCallback(
     (value: boolean) => {
       const entry = queue[0];
@@ -173,6 +180,9 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     [queue],
   );
 
+  // Intercept the browser's "cancel" event (fired on Esc) so we resolve
+  // the pending promise with `false` instead of letting <dialog> close
+  // silently and leaving the caller awaiting forever.
   useEffect(() => {
     const el = dialogRef.current;
     if (!el) return;

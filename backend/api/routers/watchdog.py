@@ -1,20 +1,57 @@
 """Watchdog + shadow-validator control routes.
 
-The "watchdog" groups repeated errors into fingerprinted incidents. The
-"shadow validator" is a background worker that cross-checks events
-against a secondary model. Both are controlled here.
+The "watchdog" groups repeated errors into fingerprinted incidents
+persisted as JSONL at ``data/watchdog.jsonl`` (see
+``backend/services/watchdog/storage.py``). The "shadow validator" is a
+background worker that cross-checks events against a secondary model.
+Both are controlled here.
+
+Rule findings win on fingerprint OR title collision with AI findings —
+the deterministic rule layer is the source of truth; AI output is
+strictly additive and drops silently when the LLM stack is unavailable.
+Keep this invariant intact when extending: see
+``backend/services/watchdog/ai.py`` and ``rules.py``.
+
+Endpoints
+---------
+* ``GET  /api/watchdog`` — status + grouped-finding counts.
+* ``GET  /api/watchdog/recent`` — tail of recent findings (n ≤ 200).
+* ``DELETE /api/watchdog/findings`` — ``clear_all=true`` wipes JSONL.
+* ``POST /api/watchdog/findings/delete`` — delete by composite keys.
+* ``GET  /api/validator/status`` — shadow-validator status.
+* ``POST /api/validator/toggle`` — pause/resume the validator.
 
 UI connection
 -------------
-Page: MonitoringPage — [file](frontend/src/features/watchdog/components/WatchdogDrawer.tsx)
-       (the watchdog badge + drawer is also mounted on every page header)
-       and ValidationPage — [file](frontend/src/features/validation/components/ValidatorControl.tsx).
+Page: MonitoringPage (primary) + every page header (badge mounts
+globally) + ValidationPage (validator toggle).
+FE consumers:
+* ``WatchdogContext`` / ``useWatchdogCtx`` (frontend/src/features/
+  watchdog/WatchdogContext.tsx) — shared provider that polls
+  ``/api/watchdog`` and exposes findings to every badge/drawer.
+* ``WatchdogBadge`` (frontend/src/features/watchdog/components/
+  WatchdogBadge.tsx) — header pill showing live incident count.
+* ``WatchdogDrawer`` (frontend/src/features/watchdog/components/
+  WatchdogDrawer.tsx) — drawer with per-finding rows + delete.
+* ``ValidationPage`` — calls ``/api/validator/*``.
 UI element: the watchdog badge in the page header (with the incident drawer
 that lists each finding and a delete button), plus the "shadow validator"
 on/off toggle card on the Validation page.
-Backend route(s): GET /api/watchdog, GET /api/watchdog/recent,
-DELETE /api/watchdog/findings, POST /api/watchdog/findings/delete,
-GET /api/validator/status, POST /api/validator/toggle.
+
+Backend services used
+---------------------
+* ``backend.services.watchdog`` — ``tail`` / ``delete_findings`` /
+  ``delete_findings_by_id`` wrap the JSONL store.
+* ``backend.state.state.watchdog`` — the running background loop
+  exposing ``.status()``.
+* ``backend.state.state.validator`` — shadow-validator handle
+  exposing ``.status()`` / ``.set_paused()``.
+
+Security notes
+--------------
+* POC has no auth; mutating DELETE/POST endpoints are open on the
+  network. Deletes are append-only in the sense that JSONL history can
+  be wiped but not re-ordered — production must front this with auth.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -57,6 +94,14 @@ def watchdog_summary():
     HTTP: GET /api/watchdog
     Returns: ``{"enabled": False}`` if the watchdog is not wired up,
         else status dict with counts + last-seen timestamps.
+
+    FE caller: ``WatchdogContext`` / ``useWatchdogCtx`` — the shared
+    provider polls this to drive the global badge and drawer.
+
+    Fingerprint collisions: the returned counts are already de-duped
+    against rule-vs-AI fingerprint/title collisions (rule wins). Raw
+    JSONL in ``data/watchdog.jsonl`` may contain both rows; this
+    summary reflects the merged view.
     """
     if state.watchdog is None:
         return {"enabled": False}

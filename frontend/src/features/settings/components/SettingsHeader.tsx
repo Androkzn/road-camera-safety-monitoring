@@ -9,6 +9,10 @@
  *   ([file](frontend/src/features/settings/SettingsPage.tsx))
  * UI element: the title row at the very top of the page, with the Discard
  *   and Apply buttons on the right.
+ *
+ * Backend: no direct calls. Emits `onDiscard` / `onApply` callbacks; the
+ *   parent page turns those into the POST /api/settings/apply request
+ *   (and a local reset of the draft map on discard).
  */
 import styles from "../SettingsPage.module.css";
 
@@ -19,6 +23,16 @@ interface SettingsHeaderProps {
   onApply: () => void;
 }
 
+/**
+ * Render the title + pending-changes counter + action buttons.
+ *
+ * Parent: SettingsPage (owns the draft map, mutation state, and handlers).
+ * Children: none — just text and two <button>s.
+ * BE: indirect via `onApply` → parent calls POST /api/settings/apply.
+ *
+ * `submitting` drives the button label ("Applying…") and disables Apply
+ * to block double-submits while the mutation is in flight.
+ */
 export function SettingsHeader({
   dirtyCount,
   submitting,

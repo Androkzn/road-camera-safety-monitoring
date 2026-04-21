@@ -9,6 +9,23 @@ This module is intentionally small. It owns only:
 
 It should stay the composition root for the edge server and nothing more.
 
+Role in the system
+------------------
+``backend.server:app`` is the ASGI entrypoint launched by uvicorn (see
+``start.py`` and ``Makefile``). Every HTTP request and SSE stream that
+the React SPA makes — whether it is fetching the live status from
+``AdminPage``'s status widget, streaming detections into the admin grid,
+polling ``/api/watchdog`` for the Monitoring page, or POSTing feedback
+from the Review drawer — is served by the app created here.
+
+Key consumers
+-------------
+* ``start.py`` / ``docker-compose.yml`` — launch ``uvicorn backend.server:app``.
+* Every React page (``AdminPage``, ``DashboardPage``, ``MonitoringPage``,
+  ``SettingsPage``) — talks to the routers mounted below.
+* ``tests/`` — imports ``create_app()`` to build a fresh app for
+  integration tests without touching the module-level singleton.
+
 Python / FastAPI primer for this file
 -------------------------------------
 * ``FastAPI`` is a web framework: you create an ``app`` object, attach
@@ -187,6 +204,10 @@ def create_app() -> FastAPI:
 
 
 # Module-level singleton used by uvicorn: `uvicorn backend.server:app`.
+# Everything downstream — the React SPA, SSE subscribers, the
+# admin live grid, the Settings console, the Watchdog queue — is served
+# through this single ``FastAPI`` instance. Tests that need isolation
+# should call ``create_app()`` instead of reaching for this module global.
 app = create_app()
 
 # ``__all__`` controls what ``from backend.server import *`` exposes.

@@ -1,11 +1,18 @@
 /**
  * ImpactCard — before/after deltas + ops + severity bars + recommendation.
  *
+ * Summarises what the pending/applied setting changes are doing to the
+ * system: event rate, confidence, TTC percentile, sample size, severity
+ * mix, and an overall "apply / rollback / monitor" recommendation plus a
+ * narrative explanation.
+ *
  * --- UI mapping ---
  * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
  * UI element: the impact card on the right column showing the predicted
  *   change in alert volume (with severity bars and ops deltas inside).
- * Backend: GET /api/settings/impact (via the useImpact hook).
+ * Backend: GET /api/settings/impact (via the useImpact hook) — returns
+ *   a baseline + after_window + deltas + recommendation narrative. The
+ *   card re-fetches every 5s plus on manual Refresh.
  */
 import { useUptimeTicker } from "../../../shared/hooks/useUptimeTicker";
 import { fmt, humanize, metricLabel, reasonLabel, tierClass } from "../utils/formatting";
@@ -23,6 +30,18 @@ interface ImpactCardProps {
   onRefresh: () => void;
 }
 
+/**
+ * Render the Impact card.
+ *
+ * Parent: SettingsPage — owns the `useImpact` query, passes the report
+ *   and a refresh callback down.
+ * Children: OpsDeltas (fps/CPU/latency rows) and SeverityBars (stacked
+ *   severity counts).
+ * BE: indirect — renders the shape of GET /api/settings/impact.
+ *
+ * Renders a small placeholder card until the backend starts returning an
+ * impact report (first apply or first baseline capture).
+ */
 export function ImpactCard({ report: r, refreshing, lastUpdatedTs, onRefresh }: ImpactCardProps) {
   // Tick once a second so the "Xs ago" label stays live between polls.
   // `lastUpdatedTs` is epoch-millis; convert to the unix-seconds shape
@@ -72,6 +91,13 @@ export function ImpactCard({ report: r, refreshing, lastUpdatedTs, onRefresh }: 
         </div>
       )}
 
+      {/* Three-column grid: metric label, before→after values, % delta.
+          Delta colouring is hand-picked per metric because "up is bad"
+          vs "up is good" depends on what the metric means:
+            - event_rate UP   → deltaNeg (noisier alerts)
+            - confidence_p50 UP → deltaPos (we trust events more)
+            - ttc_p95 UP      → deltaPos (more headroom before impact)
+          sample_size has no delta cell — it's raw counts, not a ratio. */}
       {r.baseline && r.after_window && (
         <>
           <div className={styles.deltaList}>
@@ -116,6 +142,9 @@ export function ImpactCard({ report: r, refreshing, lastUpdatedTs, onRefresh }: 
         </>
       )}
 
+      {/* Narrative line: uppercase recommendation (APPLY / ROLLBACK /
+          MONITOR — "monitor" is the safe default if the BE omits it)
+          followed by a one-line explanation from the impact service. */}
       {r.narrative && (
         <div className={styles.narrative}>
           <strong>{(r.recommendation ?? "monitor").toUpperCase()}</strong>: {r.narrative}

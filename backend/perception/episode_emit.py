@@ -4,6 +4,12 @@ Called from the perception thread (inside ``on_frame``'s idle-flush loop).
 Writes dual thumbnails to disk and schedules :func:`emit_event` on the
 asyncio loop.
 
+Thread model:
+    This module runs on the *perception background thread* (one per
+    ``StreamSlot``), NOT the asyncio loop. Disk I/O + JPEG encoding
+    happen here so we don't block the loop; the handoff to async egress
+    is a single ``run_coroutine_threadsafe`` at the end.
+
 Extracted from ``server.py`` (step 7).
 
 UI connection
@@ -57,6 +63,15 @@ def flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
           Shared channels (SSE, Slack, cloud) reference ONLY the public copy.
         * Schedules ``emit_event`` on the asyncio loop.
         * Sets ``ep.emitted = True`` so repeated flush calls are no-ops.
+        * Enqueues a deep-recheck ``ValidatorJob`` if the validator is
+          configured, for offline peak-frame re-scoring.
+
+    Privacy notes:
+        ``write_thumbnails`` in ``services/redact.py`` is the SINGLE
+        point where both JPEG variants are produced. The event dict's
+        ``thumbnail`` field points at the ``_public`` basename — the
+        internal filename is passed separately to ``emit_event`` solely
+        for optional ALPR pixel access.
 
     Args:
         slot: The ``StreamSlot`` whose perception thread observed the episode.
@@ -64,6 +79,9 @@ def flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
         wall_ts: Current wall-clock timestamp (unused inside the body but
             kept for call-site symmetry with the idle-flush check).
     """
+    # Idempotence guard: flush can be triggered by end-of-episode OR by
+    # the idle-flush timer; whichever fires first wins. Second call is
+    # a no-op so we never double-emit.
     if ep.emitted or ep.peak_frame is None:
         return
     ep.emitted = True
@@ -166,15 +184,25 @@ def flush_episode(slot: StreamSlot, ep: Episode, wall_ts: float) -> None:
 
     # Hand off to the asyncio loop — LLM enrichment + SSE broadcast + Slack
     # dispatch all happen there, not in this background thread.
+    # ``run_coroutine_threadsafe`` is the safe cross-thread primitive:
+    # it schedules ``emit_event`` on ``state.loop`` from this worker
+    # thread without blocking and without touching loop-affine state.
     asyncio.run_coroutine_threadsafe(emit_event(event, internal_name), state.loop)
+    # BE-D5.A closing sample — stage timer stopped after the handoff.
     slot.record_stage_ms("emit", (time.perf_counter() - _emit_t0) * 1000.0)
 
     # ----- Validator deep re-check of the peak frame -----
+    # Optional offline pass: runs a heavier model on just the peak
+    # frame to corroborate / refute the live detection. Queued onto the
+    # loop via ``call_soon_threadsafe`` so the perception thread never
+    # touches the validator queue directly.
     if (
         state.validator is not None
         and state.loop is not None
         and ep.peak_frame is not None
     ):
+        # Record that this slot has a primary event in-flight so the
+        # validator can correlate subsequent frames.
         state.validator.mark_primary_event(slot.source_id, wall_ts)
         state.loop.call_soon_threadsafe(
             state.validator.enqueue,

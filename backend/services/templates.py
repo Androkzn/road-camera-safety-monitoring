@@ -62,11 +62,25 @@ class TemplateApplyPlan:
 # Hashing helper
 # ---------------------------------------------------------------------------
 def _hash_payload(payload: dict[str, Any]) -> str:
+    """Return a stable 16-hex-char content hash for a settings payload.
+
+    Used as the ``payload_hash`` column on each stored revision so a
+    revision can be compared / deduplicated without re-reading the full
+    JSON. Truncated sha256 is plenty for collision avoidance at the
+    handful-of-revisions-per-template scale we expect.
+
+    The hash is deterministic because we ``sort_keys=True`` and fall back
+    to ``str()`` for anything json can't handle natively (datetimes, paths).
+    """
+    # sort_keys ensures {"a":1,"b":2} and {"b":2,"a":1} hash identically —
+    # critical so the caller does not fabricate a "new revision" just
+    # because dict insertion order differed between writes.
     raw = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def _new_id() -> str:
+    """Generate a fresh ``tpl_<12hex>`` template id (96 bits of entropy)."""
     return f"tpl_{secrets.token_hex(6)}"
 
 
@@ -157,6 +171,13 @@ def list_revisions(template_id: str) -> list[dict[str, Any]]:
 
 
 def _synthetic_default_template() -> dict[str, Any]:
+    """Build the virtual "Default" template on the fly from the spec.
+
+    Not stored in SQLite — regenerating from :func:`settings_spec.defaults`
+    every call guarantees it tracks schema changes without any migration.
+    Returned in the shape that :func:`list_templates` / :func:`get_template`
+    produce for real rows so the UI can treat it uniformly.
+    """
     payload = settings_spec.defaults()
     return {
         "id": DEFAULT_TEMPLATE_ID,
@@ -196,6 +217,8 @@ def prepare_template_apply(
     audit-logs the dropped/filled key lists and 422s on non-empty
     ``validation_errors``.
     """
+    # Source the "stored" payload: default template is synthesised from
+    # spec defaults, all others fetch the most recent persisted revision.
     if template_id == DEFAULT_TEMPLATE_ID:
         stored_payload = settings_spec.defaults()
     else:
@@ -207,6 +230,8 @@ def prepare_template_apply(
     valid_keys = set(settings_spec.all_keys())
     stored_keys = set(stored_payload.keys())
 
+    # Set arithmetic: dropped = gone from spec, filled = newly added to spec
+    # since this template was saved. Both lists are audit-logged upstream.
     dropped = sorted(stored_keys - valid_keys)
     filled = sorted(valid_keys - stored_keys)
 
@@ -214,11 +239,16 @@ def prepare_template_apply(
     for key in valid_keys:
         if key in stored_payload:
             try:
+                # coerce repairs harmless type drift (e.g. "0.5" → 0.5)
+                # without bouncing the whole apply.
                 cleaned[key] = settings_spec.coerce(key, stored_payload[key])
             except (TypeError, ValueError) as exc:
+                # Unsalvageable value: fall back to the current default and
+                # note the failure in the audit trail.
                 cleaned[key] = settings_spec.spec_for(key).default
                 dropped.append(f"{key} (coercion failed: {exc})")
         else:
+            # Key newly introduced by the spec — seed with its default.
             cleaned[key] = settings_spec.spec_for(key).default
 
     # Build the prospective merged snapshot for validation.

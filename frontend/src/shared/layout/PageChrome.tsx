@@ -24,6 +24,17 @@
  * underlying TopBar has no slot for them yet and we don't want to
  * widen TopBar in this patch.
  *
+ * --- Backend coupling ---
+ * No direct backend calls. PageChrome reads only from React context
+ * providers (`WatchdogProvider`, drift/validation context) that are
+ * mounted once in `app/providers.tsx`. Those providers own the
+ * network traffic — PageChrome just subscribes.
+ *
+ * --- Child components hosted ---
+ * - `TopBar` (this folder): the actual rendered header strip.
+ * - `testBadge` slot: consumers pass in a `<TestBadge />` from
+ *   `features/tests` which PageChrome forwards as `children` to TopBar.
+ *
  * --- UI mapping ---
  * Used on: All pages (global layout). Wraps the body of AdminPage,
  *   DashboardPage, MonitoringPage, SettingsPage and ValidationPage.
@@ -68,6 +79,17 @@ export interface PageChromeProps {
 
 /**
  * PageChrome — renders the shared TopBar above `children`.
+ *
+ * Layout outlet: produces a fragment of `<TopBar /> + children`. The
+ * TopBar is the "chrome" (fixed header row); `children` is the page's
+ * own main/section markup rendered directly below, with no intervening
+ * container so per-page layouts stay free.
+ *
+ * Props: see `PageChromeProps` above for the full shape. The only two
+ * that affect rendering today are `connected`/`sourceName` (forwarded
+ * to TopBar's live-status pill) and `errorCount`/`driftCount` (override
+ * the context-derived red-bubble counts). `testBadge` is slotted into
+ * TopBar's right-side children outlet.
  *
  * How it works: reads watchdog + validator counts from context so callers
  * don't have to. Props take precedence (`??`) when explicitly passed so

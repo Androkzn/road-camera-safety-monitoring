@@ -1,17 +1,48 @@
 """Thumbnail serving (fully open POC).
 
-Serves event thumbnails on disk. Every access is audit-logged so a
-reviewer can reconstruct who viewed which redacted image. The POC has
-no authentication — production deployments must gate this behind a
-real auth layer before exposing publicly.
+Serves event thumbnails on disk. Two variants exist per event:
+``<id>.jpg`` (internal, unredacted) and ``<id>_public.jpg`` (face/plate
+blurred — the only variant shared channels like Slack should link to;
+see ``backend/services/redact.py::write_thumbnails``). Every access is
+audit-logged so a reviewer can reconstruct who viewed which image,
+with ``_public`` vs unredacted tagged separately in the log.
+
+Endpoints
+---------
+* ``GET /thumbnails/{name}`` — stream a thumbnail by filename.
 
 UI connection
 -------------
-Page: DashboardPage + AdminPage + MonitoringPage + ValidationPage —
-       [file](frontend/src/shared/events/EventCard.tsx)
+Page: DashboardPage + AdminPage + MonitoringPage + ValidationPage.
+FE consumers:
+* ``EventCard`` (frontend/src/shared/events/EventCard.tsx) — the small
+  preview image on every event card (uses ``thumb_url`` from the
+  SafetyEvent, typically pointing at the ``_public`` variant).
+* ``EventDialog`` (frontend/src/shared/events/EventDialog.tsx) — the
+  larger image inside the event-detail dialog.
+* ``AdminEventCard`` / ``HistoryPanel`` — admin-only variants.
 UI element: the small redacted preview image on every event card across
 all pages, and the larger image inside the event-detail dialog.
-Backend route(s): GET /thumbnails/{name}.
+
+Backend services used
+---------------------
+* ``backend.config.THUMBS_DIR`` — on-disk root for thumbnail writes.
+* ``backend.compliance.audit`` — every access is audit-logged (public
+  vs unredacted variants tagged separately, plus client IP).
+
+Privacy / security notes
+------------------------
+* The ``_public`` variant is the ONLY variant that may be exposed on
+  shared channels (Slack links, cloud receiver, external dashboards).
+  This router currently serves both variants by name; external channels
+  must link only to ``*_public.*`` names. The audit log differentiates
+  variants so unauthorised access to unredacted files is detectable.
+* A path-traversal guard rejects ``/``, ``\\``, and leading ``.`` — the
+  last also prevents accidental exposure of dotfiles inside the
+  thumbnails directory.
+* POC has no request authentication. Production deployments must gate
+  this behind a real auth layer before exposing publicly — see
+  CLAUDE.md "Access model".
 """
 
 from fastapi import APIRouter, HTTPException, Request
@@ -37,7 +68,15 @@ def thumbnail(name: str, request: Request):
         (400 for a traversal-ish name, 404 when missing).
     Side effects:
         Every access is recorded to the audit log (public vs unredacted
-        variants are tagged separately).
+        variants are tagged separately so reviewer can spot unredacted
+        leaks).
+
+    FE caller: ``EventCard`` / ``EventDialog`` / ``AdminEventCard`` via
+    the ``thumb_url`` field on a ``SafetyEvent``.
+
+    Privacy: shared/external channels must only reference ``*_public.*``
+    names. The unredacted variant stays on this endpoint for in-house
+    review; audit tagging distinguishes the two.
     """
     # Defensive check against path-traversal — reject ``..``, absolute-
     # path separators, and hidden-file names.

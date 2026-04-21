@@ -136,6 +136,9 @@ def on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
 
     # ----- Detection-disabled bypass -----
     # Operator unchecked the "detection" toggle for this slot.
+    # We still re-encode the raw frame for any active viewers so the live
+    # tile keeps updating; we just skip every perception gate below. No
+    # episodes progress, no events fire, no quality/scene/ego state moves.
     if not slot.detection_enabled:
         if not slot.has_viewers():
             return
@@ -158,6 +161,10 @@ def on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
     frame_w = frame.shape[1]
 
     # ----- Shadow-mode validator tee (sampled) -----
+    # Off the hot path: sampled frames are enqueued to a background
+    # validator that re-runs detection with a second model/config to
+    # estimate drift. Must not block the reader — we hand off a frame
+    # copy and return immediately.
     if state.validator is not None and state.loop is not None:
         if state.validator.should_sample(slot.source_id, wall_ts):
             state.loop.call_soon_threadsafe(
@@ -331,6 +338,13 @@ def on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
             slot.pair_cooldown[key] = wall_ts + PAIR_COOLDOWN_SEC
 
     # ----- Admin video feed + detections broadcast -----
+    # Produces two artefacts for the AdminPage tile:
+    #   (a) the annotated JPEG (bboxes + interaction lines) rendered only
+    #       if the slot has viewers — saves CPU when nobody's watching.
+    #   (b) a per-detection snapshot (cls/conf/bbox/distance) broadcast
+    #       over SSE so the admin side-panel can list objects live.
+    # Both are published atomically under ``slot._frame_lock`` so the
+    # polling endpoint never sees a torn write.
     try:
         has_viewers = slot.has_viewers()
         cam_cal = slot.calibration

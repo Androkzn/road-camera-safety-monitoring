@@ -1,16 +1,23 @@
 """LLM observability routes (stats + recent calls).
 
 Exposes two read-only endpoints on top of the in-process ``llm_observer``
-so operators can eyeball cost / latency / error rates without a separate
-metrics backend.
+(``backend.services.llm_obs``) so operators can eyeball cost / latency /
+error rates without a separate metrics backend. The observer itself is
+updated every time ``backend.services.llm`` makes a provider call, so
+these routes reflect whatever work the enrichment layer is doing right now.
 
 UI connection
 -------------
 Page: None (operator-only debugging endpoints, not surfaced in the React frontend).
 UI element: No direct UI — operators hit these endpoints directly to check
 LLM cost / latency / error rates. Referenced in tooltip copy on the
-Settings page (`/api/llm/stats`) but not actually fetched there.
+Settings page (``frontend/src/features/settings/constants.ts`` mentions
+``/api/llm/stats`` in a throttling-mode explainer string) but not
+actually fetched by any React hook.
 Backend route(s): GET /api/llm/stats, GET /api/llm/recent.
+Backend services used: ``backend.services.llm_obs.observer`` (in-process
+rolling aggregator populated by every call made through
+``backend.services.llm``).
 """
 
 from fastapi import APIRouter
@@ -32,6 +39,11 @@ def llm_stats(window_sec: float | None = None):
     HTTP: GET /api/llm/stats[?window_sec=<float>]
     Query params:
         window_sec: Optional rolling window. Defaults to observer's config.
+    Returns: dict with cost totals, p50/p95 latency, error counts, skip
+        reasons (rate-budget / circuit-breaker) — exactly what
+        ``llm_observer.stats()`` emits.
+    FE caller: none directly.
+    Side effects: none (read-only).
     """
     return llm_observer.stats(window_sec)
 
@@ -42,6 +54,11 @@ def llm_recent(limit: int = 50):
 
     HTTP: GET /api/llm/recent[?limit=<int>]
     Query params:
-        limit: Max records (capped at 200 server-side to prevent abuse).
+        limit: Max records (clamped at 200 server-side so a caller can't
+            force the observer to serialise its entire ring buffer).
+    Returns: ``{"items": [call_record, ...]}`` — newest last; each record
+        carries provider, model, latency, cost, and outcome.
+    FE caller: none directly.
+    Side effects: none (read-only).
     """
     return {"items": llm_observer.recent(min(limit, 200))}

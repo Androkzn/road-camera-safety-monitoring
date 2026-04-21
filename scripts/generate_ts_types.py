@@ -59,6 +59,13 @@ OUTPUT_PATH = REPO_ROOT / "frontend" / "src" / "shared" / "types" / "generated.t
 # Python code, but the frontend reads nicer if we keep the historical
 # ``SafetyEvent`` alias + a couple of others. Everything else just
 # drops the ``Model`` suffix.
+#
+# IMPORTANT: This mapping is the *only* place where the Python class
+# name is decoupled from the emitted TS name. Adding an override here
+# does not change any wire format — it only changes the identifier the
+# frontend imports. If you rename a pydantic model, prefer updating
+# callers over adding a back-compat entry here; the shim at
+# ``frontend/src/shared/types/common.ts`` already handles legacy imports.
 TS_NAME_OVERRIDES: dict[str, str] = {
     "EventModel": "SafetyEvent",
     "SourceStatusModel": "LiveSourceStatus",
@@ -85,7 +92,19 @@ TS_NAME_OVERRIDES: dict[str, str] = {
 
 
 def ts_name(python_name: str) -> str:
-    """Return the TS interface/alias name for a pydantic class name."""
+    """Return the TS interface/alias name for a pydantic class name.
+
+    Resolution order:
+        1. Explicit alias in :data:`TS_NAME_OVERRIDES` (e.g. ``EventModel``
+           → ``SafetyEvent``).
+        2. Drop trailing ``Model`` suffix (``DetectionObjectModel`` →
+           ``DetectionObject``) — keeps frontend identifiers concise.
+        3. Pass through unchanged.
+
+    Called both while walking schemas (to render ``$ref`` targets) and
+    while emitting top-level declarations, so the same name always lands
+    on both sides.
+    """
     if python_name in TS_NAME_OVERRIDES:
         return TS_NAME_OVERRIDES[python_name]
     if python_name.endswith("Model"):
@@ -288,6 +307,10 @@ def build_definitions_index() -> dict[str, dict[str, Any]]:
     return index
 
 
+# Fixed banner prepended to every generated file. The ``eslint-disable``
+# is deliberate — ESLint rules tuned for hand-written code flag things
+# like unused unions that are normal for schema-derived types, and the
+# file is regenerated on every launch so lint fixes would never stick.
 HEADER = """\
 /**
  * AUTO-GENERATED — DO NOT EDIT BY HAND.
@@ -303,6 +326,20 @@ HEADER = """\
 
 
 def generate() -> str:
+    """Build the full ``generated.ts`` source text in memory.
+
+    Walks the combined ``{root models + nested $defs}`` index in
+    alphabetical order (sort keeps the diff stable across runs so code
+    review surfaces *real* shape changes, not a re-ordering of unrelated
+    definitions). Each entry lands as one of three TS forms:
+
+      * ``type: object`` → ``export interface Name { ... }``
+      * top-level ``enum`` → ``export type Name = "a" | "b";``
+      * anything else (unions, ``$ref`` aliases) → ``export type Name = ...;``
+
+    Returns the concatenated source (header + blocks). Writing to disk
+    is the caller's job so the function stays pure and unit-testable.
+    """
     index = build_definitions_index()
     root_defs = index
     blocks: list[str] = []
@@ -324,6 +361,18 @@ def generate() -> str:
 
 
 def main() -> int:
+    """CLI entry point. Regenerate ``generated.ts`` only if the text changed.
+
+    The "skip the write if unchanged" step keeps filesystem mtimes stable,
+    which matters for Vite's dev-server HMR (a touched file triggers a
+    full rebuild even when the contents are identical) and for ``make``'s
+    staleness heuristics.
+
+    Returns:
+        ``0`` on success — currently the only code path; kept as ``int``
+        so ``raise SystemExit(main())`` propagates a real exit status to
+        callers that chain this behind ``&&``.
+    """
     out = generate()
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     existing = OUTPUT_PATH.read_text() if OUTPUT_PATH.exists() else ""

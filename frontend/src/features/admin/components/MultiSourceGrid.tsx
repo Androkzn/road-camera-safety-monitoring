@@ -15,8 +15,11 @@
  *   with a small toolbar above it for "start all" / "pause all". When
  *   one tile is focused, the grid switches to a maximized layout for
  *   that tile.
- * Backend: GET /api/live/sources for the list of tiles; bulk start/pause
- *   fans out POST /api/live/sources/{id}/start|pause.
+ * Backend: registry reads + writes go through GET/POST /api/streams
+ *   (the `useLiveSourcesList` + `useStreamRegistry` hooks). Per-tile
+ *   start/pause/detection/remove are issued by each <StreamTile>; this
+ *   grid only orchestrates the bulk start-all / pause-all fan-out via
+ *   `useStreamRegistry().bulkSetRunning`.
  */
 import { useEffect } from "react";
 
@@ -28,16 +31,51 @@ import { useStreamRegistry } from "../hooks/useStreamRegistry";
 import styles from "./MultiSourceGrid.module.css";
 import { StreamTile } from "./StreamTile";
 
+// TEACH: Focus state is *lifted* to AdminPage (hence props, not local
+// useState) because the SelectedStreamHeader above the grid also needs
+// to read it. Child tiles request a toggle via `onFocusChange`.
 interface MultiSourceGridProps {
   focusedId: string | null;
   onFocusChange: (id: string | null) => void;
 }
 
+/**
+ * MultiSourceGrid — layout container for the admin multi-camera grid.
+ *
+ * UI connections:
+ *   - Parent: AdminPage passes `focusedId` + `onFocusChange` so the page
+ *     header can stay in sync with the grid's maximized tile.
+ *   - Child elements: a toolbar with start-all / pause-all <button>s and
+ *     a running-count label; zero or more <StreamTile> children laid out
+ *     as either a grid (no focus) or a focused-slot + minimized strip.
+ *   - CSS: MultiSourceGrid.module.css — `.gridWrap`, `.toolbar`,
+ *     `.toolbarLabel`, `.toolbarActions`, `.toolbarBtn`,
+ *     `.toolbarBtnStart`, `.empty`, `.focusedLayout`, `.focusedSlot`,
+ *     `.miniStrip`, `.grid`.
+ *
+ * Backend endpoints:
+ *   - Source list and per-source status come from `useLiveSourcesList`,
+ *     which polls GET /api/streams.
+ *   - Bulk start/pause calls in the toolbar go through
+ *     `useStreamRegistry().bulkSetRunning`, which fans out per-source
+ *     POSTs against the /api/streams registry.
+ *   - No video URLs are opened here — tiles own their own /admin/frame
+ *     connections.
+ */
 export function MultiSourceGrid({ focusedId, onFocusChange }: MultiSourceGridProps) {
+  // `sources` is polled from GET /api/streams via TanStack Query under the
+  // hood (see hooks/useLiveSourcesList). `bulkSetRunning` fans one-click
+  // toolbar actions out to per-source mutations; `bulkBusy` lets us disable
+  // the buttons while any of those mutations is still pending.
   const { sources, loading, error } = useLiveSourcesList();
   const { bulkSetRunning, bulkBusy } = useStreamRegistry();
 
   // Esc exits focus mode — common expectation for "maximized" UI.
+  // useEffect side effect: subscribes a global `keydown` listener while
+  // focus mode is active, and returns a cleanup that removes it. Guarded
+  // by an early `return` when nothing is focused so we never attach a
+  // listener unnecessarily. Re-runs when `focusedId` or the callback
+  // identity changes.
   useEffect(() => {
     if (!focusedId) return;
     const onKey = (e: KeyboardEvent) => {
@@ -70,6 +108,10 @@ export function MultiSourceGrid({ focusedId, onFocusChange }: MultiSourceGridPro
       sources.filter((s) => s.running).map((s) => s.id),
     );
 
+  // Resolve the id-based focus selection to an actual source object so the
+  // render code below can branch on "do we have a focused tile?". If the
+  // focused id no longer exists (e.g. the stream was removed elsewhere),
+  // treat it as "no focus" — the grid view returns.
   const focusedSource = focusedId ? (sources.find((s) => s.id === focusedId) ?? null) : null;
   const minimizedSources = focusedSource ? sources.filter((s) => s.id !== focusedSource.id) : [];
 

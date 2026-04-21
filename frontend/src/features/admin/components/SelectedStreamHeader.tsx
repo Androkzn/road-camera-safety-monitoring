@@ -20,6 +20,10 @@
  *   selected camera's name, hostname, running/paused state, uptime, and
  *   throughput numbers, plus a small "focused" badge when a tile was
  *   explicitly selected.
+ * Backend: none called directly. The `source` prop is one entry from the
+ *   GET /api/streams snapshot (polled by AdminPage / MultiSourceGrid);
+ *   cross-checked against GET /api/live/status and GET /api/admin/health
+ *   upstream. This component is pure view.
  */
 import { useUptimeTicker } from "../../../shared/hooks/useUptimeTicker";
 import type { LiveSourceStatus } from "../../../shared/types/common";
@@ -65,9 +69,25 @@ interface SelectedStreamHeaderProps {
 }
 
 /**
- * Renders the stream-identity bar. The component is data-light (no
- * fetching) — parents pass in the currently selected source and a
- * clear handler.
+ * SelectedStreamHeader — the identity/stats bar above the video grid.
+ *
+ * UI connections:
+ *   - Parent: AdminPage renders this between the HealthStrip and the
+ *     MultiSourceGrid, passing whichever source is currently focused (or
+ *     the primary).
+ *   - Child elements: a colored status dot, the camera name + hostname,
+ *     a row of <Stat> pills (status / uptime / frames / active episodes
+ *     / perception), an optional "Restore grid" button, and a last-error
+ *     line.
+ *   - CSS: SelectedStreamHeader.module.css — `.bar`, `.identity`, `.dot`,
+ *     `.dotRunning` / `.dotPaused`, `.nameWrap`, `.nameRow`, `.name`,
+ *     `.focusBadge` / `.primaryBadge`, `.detectionOff`, `.host`,
+ *     `.stats`, `.stat`, `.statLabel`, `.statValue`, `.warn`,
+ *     `.clearBtn`, `.error`, `.empty`.
+ *
+ * Backend endpoints: none called directly. The `source` payload is a
+ *   LiveSourceStatus row the parent retrieves from GET /api/streams
+ *   (health cross-referenced with /api/live/status and /api/admin/health).
  */
 export function SelectedStreamHeader({
   source,
@@ -79,6 +99,8 @@ export function SelectedStreamHeader({
   // backend hasn't pushed a fresh snapshot in the last few seconds. We
   // only want the ticker to run while the source is actively running —
   // paused sources should freeze on their last `uptime_sec` snapshot.
+  // Passing `null` to useUptimeTicker tells it to stop the internal
+  // setInterval, so no wasted renders while paused.
   const startedAt = source?.started_at ?? null;
   const tickKey = source?.running ? startedAt : null;
   const elapsed = useUptimeTicker(tickKey);

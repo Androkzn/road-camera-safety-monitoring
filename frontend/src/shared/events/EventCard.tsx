@@ -11,6 +11,16 @@
  * UI element: rich event card row with thumbnail, risk badge, event
  *   type, time, TTC/distance tags, narration text, plate hash, and
  *   embedded Correct / False alarm feedback buttons.
+ *
+ * --- Backend endpoints (indirect) ---
+ *  - The SafetyEvent it renders originates from `/api/events/stream`
+ *    (SSE; see EventStreamProvider) or `/api/events/history` when pages
+ *    backfill past events.
+ *  - The embedded FeedbackButtons POSTs to `/api/events/{id}/feedback`.
+ *  - Thumbnails referenced here are the `_public` redacted variant only
+ *    (the internal full-frame variant never leaves the server). Plate
+ *    text is stripped at ingest in enrich_event(); only `plate_hash`
+ *    ever appears on the wire.
  */
 
 import { useState, useEffect } from "react";
@@ -42,6 +52,23 @@ interface EventCardProps {
  * EventCard — interactive card for a SafetyEvent. When `onSelect` is
  * provided, the whole card becomes a button that opens the parent's
  * detail dialog; otherwise it's a static read-only card.
+ *
+ * Props:
+ *  - event: the SafetyEvent payload (already privacy-scrubbed by the BE).
+ *  - isNew: optional; if true, a brief highlight flash plays once on
+ *    mount to draw the operator's eye to a fresh row.
+ *  - onSelect: optional click handler; when present the card becomes an
+ *    accessible button (role+tabIndex+Enter/Space) and typically opens
+ *    an <EventDialog/> in the parent.
+ *
+ * UI connections:
+ *  - Renders a <RiskBadge/> + <Tag/> primitives from shared/ui.
+ *  - Embeds <FeedbackButtons/> whose clicks are stopPropagation'd so the
+ *    card-level onSelect handler doesn't also fire.
+ *
+ * Backend calls (indirect): none directly. Thumbnails resolved via
+ * normalizeThumbnail() always point at the `_public` variant; raw plate
+ * text is never present on `event` (invariant enforced at ingest).
  */
 export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
   // `isNew` triggers a brief highlight flash so operators spot fresh
@@ -56,9 +83,15 @@ export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
     return () => clearTimeout(t);
   }, [isNew]);
 
+  // `normalizeThumbnail` resolves the relative path from the event into a
+  // loadable URL. The BE only ever emits the redacted `_public` variant on
+  // shared channels — the internal full-frame thumb stays server-side.
   const thumb = normalizeThumbnail(e.thumbnail);
   const objs = e.objects?.length ? e.objects.join(" · ") : "—";
   const enr = e.enrichment;
+  // The card is only interactive (button semantics) when a click handler
+  // is actually wired up — prevents confusing keyboard focus rings on
+  // static/embedded usages.
   const interactive = typeof onSelect === "function";
 
   // Friendly copy for per-event skip reasons. The backend only stamps
