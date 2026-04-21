@@ -1,14 +1,57 @@
-"""AI hypothesis layer: strictly additive Claude-powered analyzer.
+"""Claude hypothesis layer — strictly additive on top of the rule detectors.
 
-When the LLM stack is unconfigured, unreachable, or returns garbage,
-this layer produces zero findings and the rule-based layer
-([rules.py](rules.py)) carries on alone. Every finding produced here is
-labeled ``source="ai"`` and ``cause_confidence="inferred"`` so the UI
-can style hypotheses distinctly from deterministic observations.
+This module asks a large-language model (Claude, via the project's
+internal LLM wrapper) to look at a health snapshot and *guess* at
+issues that the deterministic rule detectors in
+[rules.py](rules.py) might have missed. It is intentionally the
+weaker, optional half of the watchdog: if the LLM provider is down,
+misconfigured, slow, or returns nonsense, this module returns an
+empty list (``[]``) and the rule layer simply carries on alone. That
+behaviour is an **architectural invariant** — rules are the source of
+truth, AI is sprinkles on top. Do not change it without also updating
+the dedupe logic in [api.py](api.py).
 
-The LLM call is routed through ``services/llm.py`` so this module
-inherits the project's failover, rate budget, circuit breaker, and
-cost tracking — do not bypass it with a direct provider call.
+Every finding produced here is labelled ``source="ai"`` and
+``cause_confidence="inferred"`` so the UI can style hypotheses
+distinctly from the rule-based observations. The rule-wins-on-
+fingerprint (and title) deduplication happens in [api.py](api.py) —
+**not here** — so this module never needs to know what the rule layer
+emitted.
+
+All LLM traffic goes through [backend/services/llm.py](../llm.py),
+which is the single egress point for model calls. That wrapper is
+where failover, per-minute rate budgeting, circuit-breaker back-off,
+and cost/token tracking live; bypassing it with a direct provider
+call would break all of those at once.
+
+Python primer
+-------------
+- ``from __future__ import annotations`` — a compatibility toggle that
+  makes type hints (``str | None`` etc.) behave as strings at import
+  time. Lets modern syntax run on older Python versions.
+- ``async def`` / ``await`` — declares a coroutine. Calling the function
+  does not run it; scheduling it on an asyncio event loop does. This
+  module is async because the LLM call is a network round-trip, and
+  we do not want to block the event loop while we wait for Claude.
+- ``list[WatchdogFinding]`` — a type hint meaning "list of
+  ``WatchdogFinding`` objects". Purely for documentation / type
+  checkers; Python does not enforce it at runtime.
+- ``try / except Exception`` — the catch-all equivalent of a generic
+  "if anything goes wrong". Used deliberately here because this is a
+  monitoring layer: any failure should be a no-op, never a crash.
+
+UI connection
+-------------
+Page: MonitoringPage ([file](frontend/src/features/monitoring/MonitoringPage.tsx))
+       and the Watchdog drawer ([file](frontend/src/features/watchdog/components/WatchdogDrawer.tsx)).
+UI element: Incident cards inside the Watchdog drawer. AI-sourced
+       findings are rendered with a distinct "AI hypothesis" badge
+       (driven by ``source == "ai"``) so operators can tell an
+       inferred finding from a deterministic rule observation.
+Backend route(s): Indirectly feeds ``GET /api/watchdog`` and
+       ``GET /api/watchdog/recent`` — this module emits findings,
+       [api.py](api.py) dedupes and persists them, and those two
+       routes read the stored records back out.
 """
 
 from __future__ import annotations
@@ -44,19 +87,41 @@ _ANALYSIS_SYSTEM = (
 
 
 async def ai_analyze(snapshot: dict, prev_snapshot: dict | None) -> list[WatchdogFinding]:
-    """Ask Claude to hypothesize incidents from a snapshot; best-effort.
+    """Ask Claude to hypothesise incidents from a snapshot; best-effort.
+
+    This is the single public entry point of the AI hypothesis layer.
+    The watchdog loop in [api.py](api.py) calls it once per tick,
+    *after* the rule layer has already run, and merges the return
+    value in after deduplication.
+
+    ``async def`` means this is a coroutine: you cannot simply call it
+    and get a result, you have to ``await`` it (which the caller in
+    [api.py](api.py) does inside its own ``async`` loop). Under the
+    hood the ``await`` releases the event loop while Claude is
+    thinking, so the rest of the server keeps serving requests.
 
     Args:
-        snapshot: Current health snapshot.
-        prev_snapshot: Previous tick's snapshot, if any. Used only to
-            compute per-key deltas that help the LLM reason about
-            trends.
+        snapshot: Dict-shaped health snapshot produced by the watchdog
+            collector (``perception`` / ``drift`` / ``llm`` /
+            ``pipeline`` / ``server`` sections). Serialised to JSON and
+            handed to the model verbatim.
+        prev_snapshot: The previous tick's snapshot, if any. Used only
+            to compute per-key deltas (current vs previous vs diff)
+            that help the LLM reason about trends instead of
+            instantaneous values. ``None`` on the very first tick.
 
     Returns:
-        Up to 3 WatchdogFinding objects on success; an empty list when
-        the LLM stack is unconfigured, unreachable, returns invalid
-        JSON, or any other error occurs. Findings are capped at 3 so
-        the incident queue never drowns in AI speculation.
+        Up to 3 :class:`WatchdogFinding` objects on success, each
+        stamped ``source="ai"`` and ``cause_confidence="inferred"``.
+        An empty list (``[]``) when:
+
+        - the LLM stack is not importable (unit-test environments),
+        - :func:`llm_configured` reports no provider is set up,
+        - the model returns invalid JSON or a non-list value,
+        - any other exception bubbles up.
+
+        The 3-finding cap is deliberate — without it, a chatty model
+        could drown the operator's incident queue in speculation.
     """
     # Lazy import so this module still imports cleanly when the LLM
     # stack is entirely absent (e.g. in unit tests).

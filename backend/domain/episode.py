@@ -1,17 +1,24 @@
-"""Temporal de-duplication for conflict-detection events.
+"""Per-source Episode — a short sliding window of high-risk frames.
 
-An :class:`Episode` aggregates consecutive frames that observe the *same*
-pair of tracked objects into a single emitted safety event. Without this
-layer the SSE feed would spew a hundred high-risk alerts for one near-miss.
+An Episode groups consecutive frames where the risk signal stays above
+threshold, so an alert can fire once per "event" instead of once per
+frame. When risk drops for long enough, the Episode closes and becomes
+a SafetyEvent. Constants like MIN_HIGH_RISK_FRAMES / MIN_HIGH_RISK_EPISODE_SEC
+live here and are re-exported by backend/state.py for backwards compat.
 
-The sustained-risk downgrade — peak risk demoted one level unless
-supported by ≥2 frames over ≥1s — suppresses per-frame bbox-jitter spam
-before it reaches the emit path.
+Python primer: This is a regular class (not a dataclass) because it owns
+mutable state that evolves each frame. The `@property` decorator wraps a
+method so callers use `ep.duration_sec` like an attribute while the class
+computes it on the fly.
 
-Moved here from ``backend/state.py`` in the refactor that split domain
-objects out of the state singleton. Behaviour is unchanged; only the
-file location moved. The tunable constants travel with the class because
-they are only meaningful as part of the sustained-risk logic.
+UI connection
+-------------
+Page: DashboardPage ([file](frontend/src/features/dashboard/DashboardPage.tsx))
+       and AdminPage ([file](frontend/src/features/admin/AdminPage.tsx)).
+UI element: When an Episode closes and emits a SafetyEvent, the event
+appears as an EventCard in the DashboardPage recent-events column and in
+the AdminPage live-events tab. The risk-level chip on each card is driven
+by whether the Episode hit high_risk vs medium_risk thresholds.
 """
 
 from __future__ import annotations

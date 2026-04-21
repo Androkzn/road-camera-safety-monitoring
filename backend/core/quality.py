@@ -1,47 +1,24 @@
-"""Camera / perception quality monitor.
+"""Image-quality gating — blur / exposure / sun-glare / nighttime detectors.
 
-Role in the pipeline
---------------------
-Detection is only as good as the pixels flowing in. If the lens is smeared
-with salt spray, the sun has just cleared the visor, or dusk has dropped the
-scene into low contrast, YOLO's bounding boxes become noisier — and noisier
-bounding boxes are the dominant source of **false-positive** safety alerts
-(ghost pedestrians from JPEG blocks, "approaching" vehicles that are really
-the focus breathing on a dirty lens).
+Runs cheap per-frame checks before we pay YOLO's cost. If a frame is too
+blurry or too dark, we skip detection for that frame and annotate the
+quality state on the StreamSlot so downstream gates (and the UI's quality
+panel) can react.
 
-This module samples three cheap per-frame features plus one slow running
-average of detector confidence, classifies the pipeline as ``nominal`` or one
-of four ``degraded_*`` states, and exposes a small ``risk_adjustment`` dict
-that the hot-path in ``backend.perception.on_frame`` reads to:
+Python primer: Uses NumPy for array math on pixel buffers (cv2 returns
+numpy arrays) — `.mean()`, `.std()`, boolean masks. `scipy`/`cv2`-style
+image transforms are applied inline; docstrings call out what each does
+in plain English.
 
-  1. SUPPRESS event emission / LLM enrichment when the camera is degraded,
-  2. Widen TTC and pixel-distance thresholds so borderline cases don't fire.
-
-**Design note**: "degraded => suppress events" is an **intentional** choice,
-not a bug. We would rather miss a marginal detection in a dirty-lens frame
-than publish a false alert that erodes operator trust. The Monitoring page
-surfaces the state so operators can see *why* the system went quiet.
-
-Consumers
----------
-- ``backend.perception.on_frame`` — gates emission.
-- API routes / dashboards — read the published state for the health banner.
-- ``frontend/src/pages/MonitoringPage.tsx`` — renders the live state.
-
-Python idioms used in this file (explained once):
-- ``import threading`` — standard library concurrency primitives. We use
-  ``threading.Lock`` because ``observe_frame`` is written by the capture
-  thread while ``state()`` is read by the HTTP/FastAPI thread.
-- ``numpy`` (``np``) — numerical array library. ``np.mean(arr)`` returns the
-  scalar mean of an array; boolean masks like ``(gray > 240) | (gray < 15)``
-  produce a per-pixel ``True/False`` array that ``mean`` converts to a
-  fraction of ``True`` pixels.
-- ``cv2`` — OpenCV. ``cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)`` converts a
-  BGR image to single-channel grayscale; ``cv2.Laplacian(img, cv2.CV_64F)``
-  runs a second-derivative edge filter whose ``.var()`` is the classic
-  Pech-Pacheco sharpness proxy; ``cv2.resize`` downsamples the frame.
-- ``dict`` literals like ``_THRESH`` — module-level tunables kept as plain
-  dicts so tests can monkey-patch them if needed.
+UI connection
+-------------
+Page: AdminPage ([file](frontend/src/features/admin/AdminPage.tsx))
+       and DashboardPage ([file](frontend/src/features/dashboard/DashboardPage.tsx)).
+UI element: The "quality" chip on each StreamTile (green=good, yellow=low,
+red=blocked) reflects this module's latest verdict. The HealthStrip on
+AdminPage aggregates quality-state counts across all slots. Drift-category
+watchdog findings also read quality state to avoid false alarms when bad
+frames trigger classifier confusion.
 """
 
 import threading

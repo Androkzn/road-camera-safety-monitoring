@@ -1,11 +1,15 @@
 /**
- * watchdog feature — public surface (barrel file).
+ * watchdog — public surface of the watchdog feature.
  *
- * The watchdog is the incident queue: the backend groups repeated
- * errors into fingerprinted findings, and this feature renders them
- * in a drawer plus surfaces a severity badge in the TopBar.
+ * Exposes `WatchdogProvider` / `useWatchdogCtx` (context),
+ * `WatchdogBadge` (TopBar severity indicator), and `WatchdogDrawer`
+ * (incident queue UI). The backend groups repeated errors into
+ * fingerprinted findings; this feature renders them. Other features
+ * must import only from this barrel.
  *
- * Other features should import only from this barrel.
+ * --- UI mapping ---
+ * Page: ALL pages (WatchdogProvider wraps the app; badge lives in TopBar).
+ * UI element: WatchdogBadge in TopBar; WatchdogDrawer opens on click.
  */
 
 export { WatchdogProvider, useWatchdogCtx } from "./WatchdogContext";

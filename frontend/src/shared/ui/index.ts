@@ -1,9 +1,16 @@
 /**
- * Shared UI primitives barrel.
+ * shared/ui — barrel for all shared UI primitives.
  *
- * Adding a new primitive? Re-export it here so consumers can write a
- * single import:
- *   import { Button, Card, EmptyState } from "../../shared/ui";
+ * Exposes Button, Card, Dialog, Input, Pill, Dot, Tag, RiskBadge, Tabs,
+ * Section, Skeleton, Spinner, EmptyState, ErrorBoundary, ErrorList, and
+ * EventFilterBar. Consumed by every page. Adding a new primitive? Re-
+ * export it here so consumers can write one import:
+ *   `import { Button, Card, EmptyState } from "../../shared/ui";`
+ *
+ * --- UI mapping ---
+ * Page: ALL pages.
+ * UI element: indirect; every feature page composes its layout from
+ *              the primitives re-exported by this barrel.
  */
 
 export { Button } from "./Button";

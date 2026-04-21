@@ -1,4 +1,11 @@
-"""Drift monitor + active-learning sampler for the road-safety pipeline.
+"""Drift monitoring + active-learning sampling.
+
+This module owns the question: "Is the classifier still good in the
+field?" — it tracks per-class false-positive / false-negative rates as
+operators feed back "correct" / "wrong" on events, and emits a drift
+report. It *also* samples borderline events into an active-learning
+queue so that human labeling effort lands where the model is least
+confident (see ``data/active_learning/pending/``).
 
 ROLE IN THE SYSTEM
 ------------------
@@ -13,6 +20,19 @@ into two products:
 
 It is read-mostly, fault-tolerant, and never runs inside the perception
 loop — all work happens behind an HTTP endpoint or a sampler callback.
+
+Consumers
+---------
+  * [backend/services/watchdog/rules.py](backend/services/watchdog/rules.py)
+    reads drift stats (precision, feedback coverage, worst bucket) to
+    raise drift-category findings that surface on MonitoringPage.
+  * [backend/api/routers/live.py](backend/api/routers/live.py) exposes
+    ``GET /api/drift`` — returns ``DriftReport.as_dict()`` verbatim.
+  * [backend/api/routers/active_learning.py](backend/api/routers/active_learning.py)
+    exposes ``POST /api/active_learning/export`` which calls
+    ``ActiveLearningSampler.export_batch()``.
+  * The feedback handler calls ``ActiveLearningSampler.sample_disputed``
+    whenever an operator marks a verdict=fp.
 
 Two responsibilities, intentionally colocated because they share the same
 "what went wrong?" signal:
@@ -78,6 +98,32 @@ PYTHON IDIOMS USED IN THIS FILE (first-time reader notes)
     that yields (bucket, verdict) pairs.
   * ``random.Random()`` — a local RNG instance (vs. module-global
     ``random.random()``) so tests can seed it without touching global state.
+  * ``@dataclass`` vs plain class: a plain ``class`` requires the author
+    to spell out ``__init__`` / ``__repr__`` / equality by hand. The
+    ``@dataclass`` decorator does all of that from the typed field
+    declarations underneath it. Both ``DriftReport`` and
+    ``ActiveLearningSample`` below use this shortcut because they are
+    "just a bag of named values", not behaviour-carrying objects.
+  * Thread safety: this module does NOT hold a ``threading.Lock`` because
+    it only *reads* append-only files and calls idempotent closures. If
+    you later add an in-memory counter, wrap mutations in a ``Lock`` (a
+    ``with self._lock:`` block) to avoid torn reads from concurrent
+    request handlers.
+
+UI connection
+-------------
+Page: DashboardPage ([file](frontend/src/features/dashboard/DashboardPage.tsx))
+       and ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx)).
+UI element: The "Drift" banner tile on DashboardPage (shows current drift
+score + precision per class). On ValidationPage, the borderline-event queue
+that operators triage is fed by this module's active-learning sampler. The
+watchdog also raises drift-category findings that surface on MonitoringPage
+IncidentCards
+([file](frontend/src/features/monitoring/MonitoringPage.tsx)).
+Backend route(s): Indirect — exposed via ``GET /api/drift`` (served by
+[backend/api/routers/live.py](backend/api/routers/live.py)) and
+``POST /api/active_learning/export`` (served by
+[backend/api/routers/active_learning.py](backend/api/routers/active_learning.py)).
 """
 
 from __future__ import annotations
@@ -654,11 +700,12 @@ class DriftMonitor:
 def drift_warning_message(report: DriftReport) -> str | None:
     """Slack-ready warning string, or None if no alert.
 
-    Consumed by ``services/watchdog.py`` — when an alert is live, the
-    watchdog creates a fingerprinted incident with this message as the
-    human-readable description. Identifies the worst event_type bucket
-    (lowest precision with enough labels) so the on-call engineer knows
-    where to look first.
+    Consumed by
+    [backend/services/watchdog/rules.py](backend/services/watchdog/rules.py)
+    — when an alert is live, the watchdog creates a fingerprinted
+    incident with this message as the human-readable description.
+    Identifies the worst event_type bucket (lowest precision with enough
+    labels) so the on-call engineer knows where to look first.
 
     Args:
         report: The most recent ``DriftReport``.

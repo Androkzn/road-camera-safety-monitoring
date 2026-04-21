@@ -1,12 +1,15 @@
-"""HTTP API route modules.
+"""FastAPI routers + Pydantic wire-contract models.
 
-This package groups FastAPI route modules that are wired into the main
-application from ``backend.server``. The server file is the composition
-root; feature endpoints live here (plus the settings and feedback mounts)
-so they can evolve and be tested independently.
+The HTTP surface the SPA talks to. Route modules live under
+[routers/](routers/) and are wired into the app from
+[../server.py](../server.py); request/response shapes live in
+[models.py](models.py). A few larger feature areas (settings, feedback)
+expose ``mount(app, ...)`` helpers because they need extra shared state
+at registration time.
 
-Most modules in this package expose a single ``router = APIRouter()``
-object. A few larger feature areas, such as settings and feedback, expose
-``mount(app, ...)`` helpers because they need extra shared callbacks or
-state at registration time.
+UI connection
+-------------
+Page: ALL pages
+UI element: indirect; every API call the SPA makes is served by a
+            router defined under this package.
 """

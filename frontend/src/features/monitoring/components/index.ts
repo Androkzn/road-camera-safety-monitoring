@@ -1,9 +1,15 @@
 /**
- * Internal barrel for monitoring components.
+ * monitoring/components — barrel for monitoring subcomponents.
  *
- * "Internal" because this barrel is consumed only by `MonitoringPage.tsx`
- * inside the same feature. It is NOT re-exported from `features/monitoring/index.ts`.
- * Lets the page do one clean import instead of eight.
+ * Exposes IncidentCard, IncidentFeed, SelectionBar, SummaryGrid,
+ * SummaryHeader, FilterTile, MetaGrid, and ImmediateActions. Consumed
+ * only by `MonitoringPage.tsx` inside the same feature — NOT re-exported
+ * from `features/monitoring/index.ts`, so the internals stay private.
+ *
+ * --- UI mapping ---
+ * Page: MonitoringPage ([file](frontend/src/features/monitoring/MonitoringPage.tsx))
+ * UI element: indirect; MonitoringPage imports the re-exported
+ *              components from this barrel to compose the page.
  */
 export { FilterTile } from "./FilterTile";
 export { SummaryHeader } from "./SummaryHeader";

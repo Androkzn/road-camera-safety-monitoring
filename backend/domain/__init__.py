@@ -1,25 +1,25 @@
-"""Domain objects owned by the live perception pipeline.
+"""Per-source domain objects (Episode + StreamSlot) + constants.
 
-This package holds the value / stateful classes that model the perception
-pipeline's *shape* — as opposed to:
+Lives outside ``state.py`` to keep that file small. :class:`Episode`
+handles temporal de-duplication of conflict pairs across frames;
+:class:`StreamSlot` holds per-source perception state. ``state.py``
+still re-exports these names so legacy
+``from backend.state import Episode`` imports keep working.
 
-    * ``backend/state.py``         — the process-wide singleton glue.
-    * ``backend/core/``            — frame-level perception primitives
-                                      (YOLO, egomotion, quality, scene).
-    * ``backend/api/models.py``    — wire-format request/response shapes.
-    * ``backend/services/``        — cross-cutting long-lived services
-                                      (LLM, drift, watchdog, registry).
+Re-exports
+----------
+Makes the following names importable from this package:
+- ``Episode`` — from [episode.py](episode.py)
+- ``MIN_HIGH_RISK_EPISODE_SEC`` — from [episode.py](episode.py)
+- ``MIN_HIGH_RISK_FRAMES`` — from [episode.py](episode.py)
+- ``MIN_MEDIUM_RISK_FRAMES`` — from [episode.py](episode.py)
+- ``StreamSlot`` — from [stream_slot.py](stream_slot.py)
 
-Today it contains :class:`Episode` (temporal de-duplication of conflict
-pairs across frames) and :class:`StreamSlot` (per-source perception state).
-Both classes used to live inline in ``backend/state.py`` — that file grew
-past 800 lines and mixed three concerns (domain objects, the ``LiveState``
-singleton, and identity resolution). Splitting them out keeps each file
-focused on one job.
-
-For backwards compatibility ``backend/state.py`` re-exports these names,
-so existing ``from backend.state import Episode, StreamSlot`` lines keep
-working unchanged.
+UI connection
+-------------
+Page: Live page, Events page
+UI element: indirect; every rendered event card corresponds to an
+            ``Episode`` materialised from a ``StreamSlot``.
 """
 
 from __future__ import annotations

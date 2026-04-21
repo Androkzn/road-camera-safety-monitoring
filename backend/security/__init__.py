@@ -1,15 +1,16 @@
-"""Network-level guards only.
+"""Request-side guards: SSRF check + per-IP rate limit.
 
-This POC has no user accounts, no roles, and no request authentication.
-The helpers that live in this package guard against *network-level* abuse,
-not against unauthorised callers:
+Network-level defence only — this POC has no user accounts, roles, or
+request authentication. [ssrf.py](ssrf.py) rejects operator-supplied
+stream URLs that resolve to private / loopback / cloud-metadata IPs;
+[rate_limit.py](rate_limit.py) throttles the expensive annotated clip
+render so a single caller cannot pin the CPU. The cloud receiver's
+HMAC verification is message-level and lives elsewhere
+(``cloud.receiver``).
 
-* :mod:`backend.security.ssrf` — reject operator-supplied stream URLs that
-  resolve to private / loopback / cloud-metadata IPs.
-* :mod:`backend.security.rate_limit` — throttle the expensive annotated
-  clip render so a single caller cannot pin the CPU.
-
-The cloud receiver (:mod:`cloud.receiver`) owns its own HMAC verification
-for edge-to-cloud event ingest; that signing is message authentication,
-not user authentication, and is unrelated to this package.
+UI connection
+-------------
+Page: Sources page (URL submission), Events page (clip render)
+UI element: indirect; blocks a submitted stream URL before it is
+            accepted, and throttles clip-render requests.
 """

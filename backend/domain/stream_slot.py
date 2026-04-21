@@ -1,15 +1,25 @@
-"""Per-source perception state.
+"""Per-source StreamSlot — one lane of live video.
 
-A :class:`StreamSlot` bundles everything that is one-per-camera: the
-:class:`~backend.core.stream.StreamReader`, the per-frame annotated JPEG
-buffer used by the admin MJPEG/polling endpoints, and every per-source
-perception estimator (quality, scene, ego, track history, episodes,
-pair cooldown). Detected events land in the *shared*
-``LiveState.recent_events`` buffer with ``source_id``/``source_name``
-tags so downstream consumers (UI, Slack, cloud) can disambiguate.
+Each configured source (a YouTube live URL, dashcam file, etc.) gets its
+own StreamSlot holding: the StreamReader thread, per-slot detection
+toggle, viewer-presence counter for MJPEG subscribers, last frame
+timestamp, and the Episode currently in flight. `backend/state.py.slots`
+is a dict of these, keyed by source_id.
 
-Moved here from ``backend/state.py`` in the refactor that split domain
-objects out of the state singleton; behaviour is unchanged.
+Python primer: `dataclass` here auto-generates __init__ from annotated
+fields; threading primitives like `threading.Lock()` guard concurrent
+access because the capture thread and request handlers both touch these
+fields.
+
+UI connection
+-------------
+Page: AdminPage — the multi-source live grid
+       ([file](frontend/src/features/admin/AdminPage.tsx)).
+UI element: Each StreamTile on the AdminPage MultiSourceGrid corresponds
+to one StreamSlot. The per-tile detection on/off toggle reads/writes
+`slot.detection_enabled`; the "frames behind" indicator reads
+`slot.last_frame_ts`; the "encode only when watched" optimisation uses
+`slot.has_viewers`.
 """
 
 from __future__ import annotations
@@ -50,6 +60,31 @@ class StreamSlot:
     """
 
     def __init__(self, source_id: str, name: str, original_source: str):
+        """Build a fresh slot for one camera / video source.
+
+        Called once per configured source at server boot (and again when
+        an operator adds a new source through the admin UI). The slot
+        starts "empty" — no StreamReader thread yet, no frames yet. The
+        reader is lazily attached later by ``start_slot`` in
+        ``backend/server.py`` once the operator presses Play.
+
+        Python note: ``__init__`` is Python's constructor — the method
+        that runs when you write ``StreamSlot(...)``. Every ``self.x = y``
+        line below creates an instance attribute, which is just a named
+        value attached to this particular StreamSlot object.
+
+        Args:
+            source_id: Short stable identifier (e.g. ``"cam_front"``).
+                Used as the dict key in ``state.slots`` and in every API
+                response that refers to this camera.
+            name: Human-readable label shown in the admin grid tile.
+            original_source: The raw URL / file path the operator typed.
+                The resolved URL (after yt-dlp) is stored later on
+                ``self.reader.source_url``.
+
+        Returns:
+            ``None`` — ``__init__`` never returns a value in Python.
+        """
         self.source_id = source_id
         self.name = name
         # Per-camera calibration: focal length (px), mount height (m),
@@ -180,6 +215,22 @@ class StreamSlot:
         return out
 
     def has_viewers(self) -> bool:
+        """Return True if anyone is currently watching this slot's video.
+
+        Called every frame by the perception loop in
+        ``backend/server.py::_on_frame`` so we can skip the expensive
+        annotated-JPEG encode when no one is looking at this tile. A
+        viewer is either an open MJPEG connection (``_mjpeg_subscribers``)
+        or a recent hit on the polling endpoint within the last 2 seconds.
+
+        Python note: ``time.monotonic()`` returns a number of seconds
+        from an arbitrary start point. It only ever goes forward (unlike
+        ``time.time()`` which can jump if the system clock is adjusted),
+        so it is the correct choice for measuring elapsed time.
+
+        Returns:
+            ``True`` if at least one viewer is active, else ``False``.
+        """
         # Int read is atomic in CPython; a one-frame stale value is harmless
         # (at worst we skip one encode the frame a viewer connects on).
         if self._mjpeg_subscribers > 0:
@@ -190,6 +241,16 @@ class StreamSlot:
         return (time.monotonic() - self._last_poll_monotonic) < 2.0
 
     def mark_polled(self) -> None:
+        """Record that a poll-based viewer just asked for a frame.
+
+        Called by the ``/admin/frame/{id}`` route every time the admin
+        grid fetches a JPEG for this slot. Stores the current monotonic
+        timestamp so ``has_viewers`` can count this slot as watched for
+        the next 2 seconds.
+
+        Returns:
+            ``None``. Side effect: updates ``self._last_poll_monotonic``.
+        """
         self._last_poll_monotonic = time.monotonic()
 
     def _acquire_viewer(self) -> None:
@@ -212,6 +273,22 @@ class StreamSlot:
             #      placeholder JPEG. The next encode overwrites it anyway.
 
     def is_running(self) -> bool:
+        """Return True when this slot's capture thread is actively producing frames.
+
+        Called by ``status_dict`` (for the admin UI's running indicator)
+        and by supervisor code that decides whether to restart a dead
+        stream. "Running" here means the OS thread is alive AND the
+        reader is not paused — a paused reader is still technically
+        alive but the UI (and the operator) sees frozen frames.
+
+        Python note: ``self.reader is not None`` is the idiomatic way to
+        check "has a reader been assigned yet?". ``is`` compares identity
+        (the same object in memory), while ``==`` compares value; for
+        ``None`` comparisons ``is`` is always the right call.
+
+        Returns:
+            ``True`` if the capture thread is alive and unpaused.
+        """
         # A paused reader is still "alive" (its capture thread is looping on
         # the pause gate) but from the UI's perspective it is not running —
         # frames are frozen, detection is off. Returning False while paused
@@ -224,7 +301,20 @@ class StreamSlot:
         )
 
     def status_dict(self) -> dict[str, Any]:
-        """Public snapshot for ``/api/live/sources``."""
+        """Public snapshot for ``/api/live/sources``.
+
+        Called by the sources-list API route whenever the admin UI polls
+        for the live grid. Returns a plain dict (Python's built-in
+        key/value container) that FastAPI then serialises to JSON. No
+        locks are taken — the fields read here are either immutable
+        (id, name, url) or tolerate a slightly stale read.
+
+        Returns:
+            A dict with id, name, url, stream type, running flag, error
+            message, frame counters, uptime, playback position, episode
+            count, and perception-state snapshot. Safe to send straight
+            over the wire.
+        """
         q = self.quality.state()
         r = self.reader
         # Playback position: populated for looped local-file sources so the

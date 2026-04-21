@@ -1,34 +1,16 @@
-"""Core detection pipeline: YOLO + ByteTrack, ego-motion, scene context, quality.
+"""Perception hot path: stream capture, detection, gating, egomotion, depth.
 
-This package is the perception layer — the "eyes" of the fleet-safety system.
-Every frame that flows through the server passes through the modules defined
-here before any business logic (alerting, Slack, cloud publish) is considered.
+The "eyes" of the system. Every frame passes through modules here
+before any business logic runs: [stream.py](stream.py) pulls frames,
+[detection.py](detection.py) runs YOLO + ByteTrack with TTC / distance
+math, [egomotion.py](egomotion.py) estimates ego-speed, [context.py](context.py)
+classifies the scene, and [quality.py](quality.py) suppresses events
+when the feed itself is degraded. The invariant: a real conflict must
+pass every gate; noise fails early.
 
-Package contents (read these in roughly this order to understand the pipeline):
-
-  - ``stream.py``     — ``StreamReader``: pulls frames from HLS, files,
-                         webcams, or YouTube (via ``yt-dlp``). Runs in a
-                         background OS thread so OpenCV's blocking ``.read()``
-                         call does not stall the FastAPI event loop.
-  - ``detection.py``  — YOLOv8 + ByteTrack detection, per-track history ring
-                         buffers, monocular distance estimation (pinhole /
-                         ground-plane geometry), time-to-collision (TTC) math,
-                         convergence-angle filtering, and physical-unit risk
-                         classification.
-  - ``egomotion.py``  — optical-flow ego-speed proxy (how fast is *our* car
-                         moving?). Used by the ``LOW_SPEED_FLOOR_MPS`` gate to
-                         suppress false alerts when the ego vehicle is
-                         stopped at a red light / parked.
-  - ``context.py``    — scene classifier (urban vs. highway vs. parking).
-                         Rescales TTC / distance thresholds via
-                         ``AdaptiveThresholds`` because a "close call" means
-                         very different things at 60 mph vs. 5 mph.
-  - ``quality.py``    — ``QualityMonitor``: suppresses events when the camera
-                         feed itself is degraded (blur, darkness, dropped
-                         frames) so we don't alert on garbage inputs.
-
-The hot-path conflict-detection *gates* are orchestrated by
-``backend.perception.on_frame``. Each module here contributes one or more
-gates; see ``CLAUDE.md`` for the full gate list. The key invariant is:
-**a real conflict must pass all gates; noise fails early.**
+UI connection
+-------------
+Page: Live page, Events page
+UI element: indirect; every bbox, TTC value, and risk badge rendered in
+            the SPA traces back to a gate defined in this package.
 """

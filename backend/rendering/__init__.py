@@ -1,15 +1,15 @@
-"""Image + video rendering helpers for the admin UI.
+"""Image output: JPEG encoding, MJPEG streaming, clip assembly.
 
-Three cohesive concerns split into submodules:
+Three cohesive rendering concerns: [frame.py](frame.py) draws per-frame
+bbox overlays for the live admin tile (``render_annotated_frame``) and
+provides the boot-time ``WARMING_UP_JPEG`` placeholder;
+[clip.py](clip.py) builds on-demand annotated MP4 clips for the
+``/api/events/{id}/clip`` endpoint; [mjpeg.py](mjpeg.py) wraps the
+MJPEG ``StreamingResponse`` used by the live video feed.
 
-* :mod:`backend.rendering.frame` — per-frame bbox overlay for the live
-  admin tile (``render_annotated_frame``) and the boot-time warming-up
-  placeholder JPEG (``WARMING_UP_JPEG``).
-* :mod:`backend.rendering.clip` — on-demand annotated MP4 clip
-  rendering for ``/api/events/{id}/clip`` (``render_annotated_event_clip``).
-* :mod:`backend.rendering.mjpeg` — ``StreamingResponse`` builder for
-  the MJPEG video feed (``mjpeg_response``).
-
-Extracted from ``server.py`` as part of the refactor plan, step 3.
-Behaviour unchanged.
+UI connection
+-------------
+Page: Live page, Events page
+UI element: the ``<img>`` MJPEG tile, annotated event thumbnails, and
+            the clip-playback video element on event detail views.
 """

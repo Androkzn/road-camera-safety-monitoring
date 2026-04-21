@@ -3,9 +3,64 @@
 This module owns the *data shape* of a watchdog finding and everything
 needed to construct, normalize, and aggregate one. It is deliberately
 free of I/O and of any detector logic so that both the rule-based
-detectors ([rules.py](rules.py)) and the AI hypothesis layer
-([ai.py](ai.py)) can depend on it without pulling in the rest of the
-package.
+detectors ([file](backend/services/watchdog/rules.py)) and the AI
+hypothesis layer ([file](backend/services/watchdog/ai.py)) can depend
+on it without pulling in the rest of the package.
+
+What this module owns
+---------------------
+- The in-memory schema of a "finding" (one observation of a potential
+  problem made by some detector — e.g. "LLM error rate too high").
+- The *fingerprint* function that collapses many repeat observations of
+  the same symptom down to a single stable key so the UI can show
+  "this incident happened 12 times" instead of 12 separate rows.
+- The per-category default copy (owner team, runbook hint, impact copy,
+  likely cause, investigation steps, debug commands) so every detector
+  produces richly-filled-in cards without duplicating boilerplate.
+- The grouping helper that turns a stream of individual findings into
+  the list of incidents the operator actually sees.
+
+What this module does NOT own
+-----------------------------
+- No rule logic (who decides when a finding should fire) — that lives
+  in [file](backend/services/watchdog/rules.py).
+- No AI / LLM calls — the AI hypothesis layer lives in
+  [file](backend/services/watchdog/ai.py).
+- No I/O, disk, or HTTP — the JSONL writer / reader and the HTTP routes
+  live in [file](backend/services/watchdog/__init__.py) and
+  [file](backend/api/routers/watchdog.py).
+
+Who calls this module
+---------------------
+``rules.py``, ``ai.py``, and the watchdog API router all build
+``WatchdogFinding`` values via :func:`make_finding` and normalize them
+via :func:`normalize_finding_payload` before emitting them.
+
+Python primer (what some of the Python-specific things below do)
+----------------------------------------------------------------
+- ``@dataclass``: a decorator that tells Python "this class is mostly a
+  bag of named fields" — Python then auto-generates ``__init__``,
+  ``__repr__``, and ``__eq__`` methods from the annotated fields. Saves
+  writing a constructor by hand.
+- ``field(default_factory=list)``: dataclass fields with a mutable
+  default (list / dict) cannot use a plain ``= []`` default because
+  then every instance would share the *same* list. ``default_factory``
+  takes a zero-arg callable and calls it once per new instance, so each
+  instance gets its own fresh list.
+- ``@dataclass(frozen=True)``: not used here, but its siblings in the
+  codebase use it — means the instance is immutable after construction.
+- ``*`` in a function signature (e.g. ``def f(*, a, b)``): everything
+  after the ``*`` must be passed by keyword, never positionally. Used
+  on :func:`make_finding` so callers write
+  ``make_finding(severity=..., category=...)`` instead of being able
+  to mix up positional arguments.
+- ``str | None``: Python 3.10+ type-union syntax. Means "either a
+  string or the ``None`` sentinel". ``from __future__ import
+  annotations`` makes these hints lazy strings so they cost nothing at
+  runtime.
+- ``dict[str, Any]``: a dict whose keys are strings and whose values
+  are "anything". Just a type hint for documentation — Python does not
+  enforce it at runtime.
 
 Public surface (also re-exported from ``backend.services.watchdog``):
 
@@ -16,6 +71,23 @@ Public surface (also re-exported from ``backend.services.watchdog``):
 - Helpers: :func:`severity_rank`, :func:`priority_score`,
   :func:`evidence`, :func:`top_bucket`, :func:`parse_ts`,
   :func:`fingerprint_for`, :func:`defaults_for`.
+
+UI connection
+-------------
+Page: MonitoringPage ([file](frontend/src/features/monitoring/MonitoringPage.tsx))
+       and the Watchdog drawer ([file](frontend/src/features/watchdog/components/WatchdogDrawer.tsx)).
+UI element: Each IncidentCard on MonitoringPage (title, severity,
+evidence rows, "debug commands" copy-buttons, "runbook" link) is a
+direct rendering of a WatchdogFinding produced via this module's
+helpers. The red/yellow/blue severity chips on the WatchdogBadge in
+the TopBar also read fields (``severity``, ``category``, ``count``)
+defined here.
+Backend route(s): GET /api/watchdog, GET /api/watchdog/recent — see
+[file](backend/api/routers/watchdog.py).
+Data flow: detector emits finding -> :func:`make_finding` fills
+defaults -> :func:`normalize_finding_payload` coerces shape -> JSONL
+writer persists -> :func:`group_findings` collapses repeats into
+incidents -> API router returns to MonitoringPage / Watchdog drawer.
 """
 
 from __future__ import annotations
@@ -70,13 +142,36 @@ _DEFAULT_IMPACT_BY_CATEGORY = {
 # ----- small utilities -----
 
 def _slugify(text: str) -> str:
-    """Turn a free-form title into a URL-safe, fingerprint-friendly slug."""
+    """Turn a free-form title into a URL-safe, fingerprint-friendly slug.
+
+    Lowercases the input, replaces every run of non-alphanumeric
+    characters with a single ``-``, and trims any leading/trailing
+    ``-``. Example: ``"LLM Error Rate!"`` -> ``"llm-error-rate"``.
+
+    The leading underscore in the name is a Python convention that
+    means "module-private" — readers should treat this as an internal
+    helper, not part of the public API. (Python doesn't enforce this;
+    it's just a social signal.) Returns ``"finding"`` as a safe
+    fallback if the input is empty or all punctuation, so we never
+    produce an empty fingerprint segment.
+    """
     text = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
     return text or "finding"
 
 
 def severity_rank(severity: str) -> int:
-    """Return a numeric rank for a severity string (higher == more severe)."""
+    """Return a numeric rank for a severity string (higher == more severe).
+
+    Used by :func:`group_findings` when many observations collapse into
+    one incident — the grouped row takes the *worst* severity ever seen
+    for that fingerprint, so we need a way to compare strings like
+    ``"error"`` vs ``"warning"`` numerically. Unknown / missing
+    severities rank ``0`` so they never win against a real severity.
+
+    ``dict.get(key, default)`` returns the default when the key is
+    missing instead of raising ``KeyError`` — a common Python idiom for
+    "look up with fallback".
+    """
     return _SEVERITY_ORDER.get((severity or "").lower(), 0)
 
 
@@ -84,8 +179,19 @@ def priority_score(severity: str, source: str, evidence_count: int) -> int:
     """Compute the cross-incident sort key used by the UI.
 
     Severity provides the base weight (error=90, warning=60, info=30);
-    rule-based findings get +5 because they are deterministic; each piece
-    of evidence adds +2, capped at 5 chips.
+    rule-based findings get +5 because they are deterministic (a rule
+    either fires or doesn't, while AI-sourced findings are just
+    hypotheses); each piece of attached evidence adds +2, capped at 5
+    chips so one noisy detector can't dominate the ranking.
+
+    Called from :func:`make_finding` and :func:`normalize_finding_payload`
+    — anywhere a finding is first built or re-read from disk. The
+    returned integer is stored on the finding and drives the order in
+    the MonitoringPage incident list.
+
+    ``min(max(x, 0), 5)`` is a common Python idiom for "clamp x into
+    the range [0, 5]" — first bound below with ``max``, then bound
+    above with ``min``.
     """
     base = {"error": 90, "warning": 60, "info": 30}.get((severity or "").lower(), 10)
     if source == "rule":
@@ -96,9 +202,21 @@ def priority_score(severity: str, source: str, evidence_count: int) -> int:
 def evidence(label: str, value: Any, *, threshold: str | None = None, status: str = "observed") -> dict[str, str]:
     """Build a single evidence chip dict for attachment to a finding.
 
+    Each incident card on MonitoringPage shows a small list of "evidence
+    chips" — one-line facts like ``"error rate: 12% (threshold 5%)"``.
+    This helper builds one such chip; detectors accumulate a list of
+    them and pass the list to :func:`make_finding` as the ``evidence``
+    argument.
+
+    The ``*`` in the signature forces ``threshold`` and ``status`` to
+    be passed by keyword only (e.g. ``evidence("fps", 1.3,
+    threshold="2.0")``) — this prevents positional-argument mix-ups
+    since ``label`` and ``value`` are already two positional slots.
+
     ``status`` defaults to ``"observed"`` which is elided from the output
     to keep the JSON small; use ``"breach"``, ``"trend"``, or ``"context"``
-    to mark non-default semantics.
+    to mark non-default semantics. ``str(value)`` is used so numeric /
+    boolean values render cleanly in the UI.
     """
     item = {"label": label, "value": str(value)}
     if threshold:
@@ -111,9 +229,21 @@ def evidence(label: str, value: Any, *, threshold: str | None = None, status: st
 def top_bucket(buckets: dict[str, Any], *, prefer_low_precision: bool = False) -> tuple[str, dict[str, Any]] | None:
     """Pick the most interesting bucket from a drift breakdown.
 
-    When ``prefer_low_precision`` is True the worst slice wins (used to
-    surface failing event types); otherwise the best-precision slice wins.
-    Returns ``(key, stats)`` or ``None`` if no usable bucket exists.
+    The drift monitor reports precision broken down by "bucket" —
+    typically event type (near-miss, red-light-run, etc.) or risk
+    slice. This helper scans those buckets and picks the single one
+    worth surfacing on the incident card.
+
+    When ``prefer_low_precision`` is True the *worst* slice wins (used
+    to surface failing event types when reporting a problem);
+    otherwise the *best-precision* slice wins (used for celebratory /
+    context rows). Returns a two-element tuple ``(key, stats)`` — the
+    Python way to return "more than one value" — or ``None`` if no
+    usable bucket exists.
+
+    ``isinstance(stats, dict)`` is the Python "is this value a dict?"
+    check; we skip malformed rows defensively because this data can
+    come from older JSONL files with slightly different shapes.
     """
     best_key = ""
     best_stats: dict[str, Any] | None = None
@@ -144,8 +274,17 @@ def top_bucket(buckets: dict[str, Any], *, prefer_low_precision: bool = False) -
 def parse_ts(ts: str | None) -> datetime | None:
     """Parse an ISO-8601 timestamp (tolerates the trailing ``Z`` form).
 
+    Timestamps on findings are stored as strings like
+    ``"2026-04-20T14:32:10.123Z"`` (the trailing ``Z`` means "UTC").
+    Python's built-in ``datetime.fromisoformat`` on older 3.10 didn't
+    understand ``Z``, so we rewrite it to ``+00:00`` first — the
+    equivalent explicit UTC offset.
+
     Returns ``None`` for missing or malformed inputs so aggregation
-    functions can skip bad rows instead of raising.
+    functions can skip bad rows instead of raising. The ``try / except
+    ValueError`` pattern is Python's exception handling — run the
+    code, and if ``fromisoformat`` raises ``ValueError`` (bad format)
+    catch it and fall through to ``return None`` instead of crashing.
     """
     if not ts:
         return None
@@ -160,11 +299,21 @@ def parse_ts(ts: str | None) -> datetime | None:
 def fingerprint_for(category: str, title: str) -> str:
     """Compute the stable fingerprint (dedupe key) for a finding.
 
-    Two findings with the same fingerprint group into one incident row
-    with ``count`` incremented. Well-known detector titles map to
-    canonical slash-separated fingerprints; unknown titles fall back to
-    ``{category}/{slugified-title}`` so ad-hoc findings still dedupe
-    across repeats.
+    A "fingerprint" here is a short string that uniquely identifies
+    *the kind of problem*, independent of when it happened or what the
+    exact numbers were. Two findings with the same fingerprint group
+    into one incident row with ``count`` incremented — so the UI shows
+    "LLM error rate (12 occurrences)" instead of 12 separate cards.
+
+    Well-known detector titles map to canonical slash-separated
+    fingerprints (``"llm/error-rate"``, ``"stream/frame-drop"``);
+    unknown titles fall back to ``{category}/{slugified-title}`` so
+    ad-hoc findings still dedupe across repeats. The mapping is hard-
+    coded (a series of ``if`` statements) because the set of canonical
+    fingerprints is small and explicit.
+
+    Called by :func:`defaults_for` and any detector that wants to
+    compute a fingerprint without going through the builder.
     """
     cat = (category or "system").lower()
     ttl = (title or "").lower()
@@ -204,11 +353,21 @@ def fingerprint_for(category: str, title: str) -> str:
 def defaults_for(category: str, title: str, severity: str) -> dict[str, Any]:
     """Derive default fields (cause, impact, steps, commands) for a finding.
 
-    Every finding needs owner/runbook/impact/cause/steps/commands. Rather
-    than forcing each detector to repeat boilerplate, this helper picks
-    defaults based on category and title keywords. The returned dict is
-    merged into the final record by :func:`normalize_finding_payload` and
-    :func:`make_finding`.
+    Every finding needs owner/runbook/impact/cause/steps/commands so
+    the operator sees a rich, actionable incident card. Rather than
+    forcing each detector to repeat that boilerplate, this helper
+    picks category-specific defaults based on the category and any
+    keyword matches in the title. The returned dict is merged into the
+    final record by :func:`normalize_finding_payload` and
+    :func:`make_finding` — caller-supplied values always win, these are
+    just the fallbacks.
+
+    Returns a plain dict (not a dataclass) because the keys line up
+    one-for-one with fields on :class:`WatchdogFinding` and the merge
+    logic in the callers works by dict key lookup.
+
+    ``if/elif/else`` is Python's if-then-else chain — only the first
+    matching branch runs, and ``else`` handles "none of the above".
     """
     cat = (category or "system").lower()
     ttl = (title or "").lower()
@@ -350,11 +509,44 @@ def defaults_for(category: str, title: str, severity: str) -> dict[str, Any]:
 class WatchdogFinding:
     """Canonical in-memory representation of one watchdog observation.
 
-    Flows from detectors → :func:`normalize_finding` → the JSONL writer,
-    and (after grouping) onto the operator's incident queue. Required
-    fields (``severity``, ``category``, ``title``, ``detail``) have no
-    defaults; everything else defaults to sensible empties so constructing
-    a finding with just the required fields still yields a valid record.
+    This is a ``@dataclass``, so Python auto-generates ``__init__``,
+    ``__repr__``, and ``__eq__`` from the annotated fields below. That
+    means you can write ``WatchdogFinding(severity="error", ...)`` and
+    the constructor "just works" without us writing one by hand.
+
+    Flows from detectors -> :func:`normalize_finding` -> the JSONL
+    writer, and (after grouping) onto the operator's incident queue.
+    Required fields (``severity``, ``category``, ``title``, ``detail``)
+    have no defaults; everything else defaults to sensible empties so
+    constructing a finding with just the required fields still yields
+    a valid record.
+
+    Field guide (most important only):
+        severity      — ``"error"`` / ``"warning"`` / ``"info"``; drives
+                        the colored chip on the incident card.
+        category      — coarse bucket (``"llm"``, ``"perception"``,
+                        ``"stream"``...) used to select owner + runbook.
+        title         — short headline shown on the card.
+        detail        — human-readable sentence explaining the
+                        observation.
+        fingerprint   — stable dedupe key; see :func:`fingerprint_for`.
+        source        — ``"rule"`` (deterministic detector) or ``"ai"``
+                        (LLM-inferred hypothesis).
+        cause_confidence — ``"observed"`` vs ``"inferred"``; set to
+                        ``"inferred"`` for AI findings so the UI never
+                        presents them with rule-level authority.
+        evidence      — list of chip dicts (label/value/threshold).
+        ts            — ISO-8601 UTC timestamp; auto-set via
+                        ``default_factory`` to "now" at construction.
+        snapshot_id   — random 12-char hex id so two findings emitted
+                        in the same millisecond can still be
+                        distinguished.
+
+    Fields with ``field(default_factory=...)``: a mutable default like
+    ``[]`` or the current timestamp must be produced *per instance*,
+    not shared across instances. ``default_factory`` takes a zero-arg
+    callable (often a ``lambda`` — an anonymous one-line function) and
+    calls it once every time a new ``WatchdogFinding`` is built.
     """
 
     severity: str
@@ -377,7 +569,15 @@ class WatchdogFinding:
     snapshot_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
     def as_dict(self) -> dict:
-        """Return the finding as a plain JSON-safe dict."""
+        """Return the finding as a plain JSON-safe dict.
+
+        ``dataclasses.asdict`` recursively walks the dataclass and
+        converts it (plus any nested dataclasses, lists, dicts) into
+        plain Python dicts / lists / primitives — the exact shape
+        Python's JSON serializer can emit. Used by the JSONL writer
+        and by :func:`normalize_finding` when it needs to round-trip
+        the finding through :func:`normalize_finding_payload`.
+        """
         return asdict(self)
 
 
@@ -387,8 +587,21 @@ def normalize_finding_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Coerce a raw finding dict into the canonical shape used by the UI.
 
     Called both when a fresh finding is persisted and when an existing
-    jsonl row is read back, so historical rows with missing fields still
-    render correctly.
+    ``.jsonl`` row is read back, so historical rows with missing fields
+    still render correctly. For each field, if the payload already
+    supplies a value we keep it; otherwise we fall back to the
+    category-specific default computed by :func:`defaults_for`.
+
+    Takes and returns plain dicts (not :class:`WatchdogFinding`
+    instances) because the watchdog writer and reader work with
+    ``dict`` rows straight from JSONL — this function is the single
+    bottleneck where every row (new or historical) gets its shape
+    fixed up.
+
+    The special AI-safety rule: findings with ``source == "ai"`` are
+    always marked ``cause_confidence == "inferred"`` so the UI never
+    presents LLM-generated hypotheses with the authority of a
+    deterministic rule match.
     """
     severity = (payload.get("severity") or "info").lower()
     category = payload.get("category") or "system"
@@ -431,7 +644,19 @@ def normalize_finding_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_finding(finding: WatchdogFinding) -> WatchdogFinding:
-    """Round-trip a :class:`WatchdogFinding` through the payload normalizer."""
+    """Round-trip a :class:`WatchdogFinding` through the payload normalizer.
+
+    Convert the finding to a dict with :meth:`WatchdogFinding.as_dict`,
+    pass it through :func:`normalize_finding_payload` (which fills any
+    missing defaults), and reconstruct a new :class:`WatchdogFinding`
+    from the result. Useful when a detector builds a finding by hand
+    and wants the same default-filling treatment the JSONL path gets.
+
+    ``WatchdogFinding(**payload)`` is Python's "unpack keyword
+    arguments" syntax — equivalent to writing
+    ``WatchdogFinding(severity=payload["severity"],
+    category=payload["category"], ...)`` for every key in the dict.
+    """
     payload = normalize_finding_payload(finding.as_dict())
     return WatchdogFinding(**payload)
 
@@ -441,9 +666,27 @@ def normalize_finding(finding: WatchdogFinding) -> WatchdogFinding:
 def group_findings(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Collapse raw findings into one row per fingerprint (the incident view).
 
-    This is what turns N repeat observations of the same symptom into a
-    single incident with ``count = N``, ``first_seen_ts``/``last_seen_ts``,
-    worst-seen severity, and a ``latest`` payload for drill-down.
+    This is what turns N repeat observations of the same symptom into
+    a single incident with ``count = N``, ``first_seen_ts`` /
+    ``last_seen_ts``, worst-seen severity, and a ``latest`` payload
+    for drill-down. It's what the MonitoringPage incident list and
+    the TopBar watchdog badge are actually reading.
+
+    Algorithm: walk every record, compute its fingerprint, and either
+    start a new group (first time we've seen that fingerprint) or
+    merge into the existing group (bump count, expand time window,
+    keep the worst-seen severity, and replace ``latest`` if this
+    record is newer than the previous "latest").
+
+    The ``_latest_dt`` key with the leading underscore is an internal
+    scratch field — we store the parsed ``datetime`` here to avoid
+    re-parsing the string on every comparison, then callers can
+    either keep or drop it depending on whether they need sortable
+    datetime objects.
+
+    Returns: a list of incident dicts (one per unique fingerprint)
+    in insertion order. ``list(groups.values())`` is the Python way
+    to get a list of all the values in a dict.
     """
     groups: dict[str, dict[str, Any]] = {}
     for record in records:
@@ -503,9 +746,28 @@ def make_finding(
 ) -> WatchdogFinding:
     """Construct a WatchdogFinding with category defaults already applied.
 
-    Arguments are keyword-only. Unspecified impact / likely_cause /
-    investigation_steps / debug_commands / fingerprint fall back to the
-    per-category defaults from :func:`defaults_for`.
+    This is the preferred public builder — called by every detector
+    in [file](backend/services/watchdog/rules.py) and
+    [file](backend/services/watchdog/ai.py) instead of constructing
+    :class:`WatchdogFinding` directly. It fills in the missing
+    boilerplate (owner team, runbook URL, impact copy, default
+    investigation steps, etc.) from :func:`defaults_for` so detectors
+    only supply the parts that differ per observation.
+
+    All arguments are keyword-only (because of the leading ``*`` in
+    the signature) — callers must write ``make_finding(severity=...,
+    category=..., ...)``. This prevents confusing positional mix-ups
+    given the large number of parameters.
+
+    Unspecified ``impact`` / ``likely_cause`` / ``investigation_steps``
+    / ``debug_commands`` / ``fingerprint`` fall back to the per-category
+    defaults from :func:`defaults_for`. ``cause_confidence`` defaults to
+    ``"inferred"`` for AI-sourced findings (so the UI never treats
+    them as deterministic) and ``"observed"`` for rule findings.
+
+    ``evidence or []`` is a common Python idiom for "use this if it's
+    truthy, else an empty list" — protects against a caller passing
+    ``None``.
     """
     defaults = defaults_for(category, title, severity)
     items = evidence or []

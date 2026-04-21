@@ -1,16 +1,17 @@
-"""Perception hot path + event emission, extracted from ``server.py``.
+"""Orchestration glue between the hot path and the rest of the app.
 
-Structure (refactor plan step 7):
+Wires [core/](../core/) detections into event emission, risk scoring,
+and slot control. Split into [risk.py](risk.py) (pure classification
+utilities), [broadcast.py](broadcast.py) (SSE fan-out),
+[emit.py](emit.py) (async event emission + feedback hook),
+[episode_emit.py](episode_emit.py) (episode-to-event materialisation),
+[on_frame.py](on_frame.py) (the perception hot path dispatcher),
+[slot_control.py](slot_control.py) (per-slot lifecycle), and
+[score_decay.py](score_decay.py) (background driver-score decay).
 
-* :mod:`backend.perception.risk` — pure utilities (``classify_with_scene``,
-  ``pair_key``, ``_none_coro``).
-* :mod:`backend.perception.broadcast` — SSE fan-out helpers.
-* :mod:`backend.perception.emit` — async event emission + feedback hook +
-  event lookup.
-* :mod:`backend.perception.episode_emit` — episode-to-event materialisation.
-* :mod:`backend.perception.on_frame` — the perception hot path.
-* :mod:`backend.perception.slot_control` — per-slot lifecycle helpers.
-* :mod:`backend.perception.score_decay` — background score-decay task.
-
-Nothing in this package changed behaviourally — only the location.
+UI connection
+-------------
+Page: Live page, Events page
+UI element: indirect; the SSE stream consumed by the live dashboard
+            and every emitted event card flows through ``emit``.
 """

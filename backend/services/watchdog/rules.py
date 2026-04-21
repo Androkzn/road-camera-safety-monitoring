@@ -1,14 +1,71 @@
-"""Rule-based detectors: the deterministic core of the watchdog.
+"""Deterministic rule-based watchdog detectors.
 
+This module owns the rule-based detectors that scan the live system
+"snapshot" (a plain dictionary of health numbers collected once per
+tick) for known failure patterns — precision dropping, the LLM circuit
+breaking, the video stream going dead, perception going blind, and so
+on. Each detector that fires produces a ``WatchdogFinding`` object
+(see [model.py](model.py)) via the ``make_finding`` factory.
+
+This is the "always available" monitoring tier. The LLM-based
+hypothesis layer in [ai.py](ai.py) is *additive* on top of this file:
+it can suggest extra findings, but monitoring has to keep working even
+when the LLM provider is down, rate-limited, or misconfigured. When
+both tiers produce a finding with the same ``fingerprint``, the rule
+wins because it is grounded in observed numbers rather than inferred
+reasoning.
+
+The entry point ``rule_checks`` is called on a timer from
+[api.py](api.py) (the in-process ``Watchdog`` driver). The findings it
+returns are persisted via [storage.py](storage.py) and then served to
+the UI through the HTTP routes in
+[backend/api/routers/watchdog.py](../../api/routers/watchdog.py).
+
+Python idioms used in this file (quick primer for readers new to
+Python):
+
+- ``from __future__ import annotations`` — a special import that tells
+  Python to treat all type hints (the ``: dict`` / ``-> list[...]``
+  notes) as plain strings at runtime. This lets us use modern hint
+  syntax on older interpreters without breaking anything.
+- ``list[WatchdogFinding]`` — the generic/parameterised type syntax,
+  meaning "a list whose items are ``WatchdogFinding`` objects".
+- ``dict | None`` — the union operator on types, meaning "either a
+  dict or the special value ``None``".
+- ``snapshot.get("key", default)`` — read a value from a dictionary,
+  returning ``default`` if the key is missing. Used defensively here
+  so a partial snapshot never crashes a detector.
+- *Early returns* / guard ``if`` blocks — each detector appends to the
+  ``findings`` list only when its specific preconditions are met and
+  otherwise falls through silently. This keeps every detector compact
+  and independent.
+
+UI connection
+-------------
+Page: MonitoringPage
+([frontend/src/features/monitoring/MonitoringPage.tsx](../../../frontend/src/features/monitoring/MonitoringPage.tsx))
+
+UI element: the rule-sourced ``IncidentCard`` tiles on MonitoringPage —
+these are the findings whose ``source`` field is ``"rule"``. The
+title, severity chip, evidence rows, and debug commands shown on each
+card are all produced by one of the detectors in this file.
+
+Backend route(s): indirect — findings reach the UI via
+``GET /api/watchdog`` and the watchdog SSE (server-sent events) stream
+wired up in
+[backend/api/routers/watchdog.py](../../api/routers/watchdog.py).
+
+Design notes
+------------
 These checks run on every tick and always produce ``source="rule"`` /
-``cause_confidence="observed"`` findings. Monitoring must never depend on
-LLM availability, so this module has no LLM imports — if the AI layer
-([ai.py](ai.py)) is unreachable, the queue still fires here.
+``cause_confidence="observed"`` findings. Monitoring must never depend
+on LLM availability, so this module has no LLM imports — if the AI
+layer ([ai.py](ai.py)) is unreachable, the queue still fires here.
 
-The detectors are grouped in a fixed order (perception → drift → LLM →
-stream). Each gate targets a specific false-positive class; tightening
-one gate with another is fine, but removing a gate to "catch more"
-will produce alert noise.
+The detectors are grouped in a fixed order (perception -> drift ->
+LLM -> stream). Each gate targets a specific false-positive class;
+tightening one gate with another is fine, but removing a gate to
+"catch more" will produce alert noise.
 """
 
 from __future__ import annotations
@@ -19,19 +76,68 @@ from .model import WatchdogFinding, evidence, make_finding, top_bucket
 
 
 def rule_checks(snapshot: dict, prev_snapshot: dict | None) -> list[WatchdogFinding]:
-    """Run the full rule battery on a snapshot, returning any findings.
+    """Run every rule-based detector against the current snapshot.
+
+    This is the single public function of this module. The watchdog
+    driver in [api.py](api.py) calls it on a timer, once per tick. The
+    function steps through the detectors in a fixed order (perception,
+    drift, LLM, stream) and appends a ``WatchdogFinding`` to the local
+    ``findings`` list for every failure pattern that matches.
+
+    What this function catches (each detector below corresponds to one
+    card that can appear on the MonitoringPage UI):
+
+    - *Camera / perception quality* — the perception subsystem reports
+      ``degraded`` or ``failed``, or average detector confidence stays
+      stubbornly low. Fires ``category="perception"`` findings, usually
+      at ``warning`` but ``error`` when perception has fully failed.
+    - *Drift and feedback loop* — the model's rolling precision is
+      trending down, operators have stopped labeling events, the
+      window has collapsed to zero duration, or false positives are
+      arriving without any true positives. Fires ``category="drift"``
+      findings, severities ``info`` -> ``warning`` -> ``error`` as the
+      evidence strengthens.
+    - *LLM reliability* — too many LLM calls are erroring, the
+      provider has gotten slow (high p95 latency), or token counts
+      look broken. Fires ``category="llm"`` findings; rate limiting
+      (HTTP 429) is called out explicitly when detected.
+    - *Stream throughput* — the stream reader thread has died, no
+      frames moved during an interval, or the processed FPS is well
+      below the configured target. Fires ``category="stream"``
+      findings, usually ``error``.
+
+    Operational symptoms that trigger these detectors include a
+    darkened / blurry / obstructed camera feed, operators no longer
+    giving feedback on recent events, a surge of provider 429 errors,
+    the video URL becoming unreachable, or the host being too loaded
+    to keep up with the configured frame rate.
+
+    In plain English, the severity field on each finding means:
+
+    - ``info`` — worth noting, does not require action.
+    - ``warning`` — a trend the operator should look at soon.
+    - ``error`` — a live incident; the system is probably producing
+      incorrect or missing alerts right now.
 
     Args:
         snapshot: The most recent health snapshot produced by the
-            caller-supplied ``collect_fn`` in :class:`Watchdog`.
-        prev_snapshot: The snapshot from the previous tick, or ``None``
-            on the very first run. Several detectors skip themselves
-            when this is absent because deltas are undefined.
+            caller-supplied ``collect_fn`` in the ``Watchdog`` driver.
+            A snapshot is a nested dictionary with subsections for
+            ``perception``, ``drift``, ``llm``, ``pipeline``,
+            ``server``, and ``taxonomy``. See
+            [backend/state.py](../../state.py) for where the
+            underlying live state is defined.
+        prev_snapshot: The snapshot from the previous tick, or
+            ``None`` on the very first run. Several detectors skip
+            themselves when this is absent because they need a delta
+            (e.g. "no frames processed since last tick") that is
+            undefined without a prior observation.
 
     Returns:
-        A list of WatchdogFinding objects (possibly empty). All findings
-        share a single ``snapshot_id`` so grouping by that id tells you
-        what co-fired in one tick.
+        A ``list`` of ``WatchdogFinding`` objects. The list is empty
+        when everything is healthy. All findings produced in a single
+        call share one ``snapshot_id`` so that grouping by that id
+        tells you exactly which problems co-fired in the same tick.
     """
     findings: list[WatchdogFinding] = []
     snap_id = uuid.uuid4().hex[:12]
