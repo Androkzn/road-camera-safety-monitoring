@@ -1,8 +1,8 @@
 """Tests for the Settings Console FastAPI router.
 
 Covers: validation 422 shape, revision 409, apply-rate-limit 429,
-ticket exchange + single-use consumption, template CRUD via HTTP,
-baseline + impact reads. POC: routes are open (no bearer checks).
+ticket exchange + single-use consumption. POC: routes are open (no
+bearer checks).
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from backend.api.settings import (
     mount as mount_settings_routes,
 )
 from backend.services import settings_db
-from backend.services.impact import ImpactMonitor
 from backend.settings_store import SettingsStore
 
 
@@ -43,10 +42,9 @@ def settings_client(tmp_path, fresh_store, monkeypatch):
     _last_apply_at.clear()
 
     app = FastAPI()
-    mon = ImpactMonitor(events_source=lambda: [])
-    mount_settings_routes(app, impact_monitor=mon, impact_subscribers=[])
+    mount_settings_routes(app)
     client = TestClient(app)
-    yield client, mon
+    yield client, None
     settings_db._reset_for_tests(None)
 
 
@@ -75,15 +73,6 @@ def test_get_effective(settings_client):
     payload = r.json()
     assert "values" in payload
     assert "revision_hash" in payload
-
-
-def test_default_template_present_in_list(settings_client):
-    client, _ = settings_client
-    r = client.get("/api/settings/templates")
-    assert r.status_code == 200
-    tmpls = r.json()["templates"]
-    assert tmpls[0]["id"] == "tpl_default"
-    assert tmpls[0]["system"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -262,86 +251,6 @@ def test_revision_conflict_does_not_burn_cooldown(settings_client):
         },
     )
     assert good.status_code == 200, good.json()
-
-
-def test_template_apply_missing_does_not_burn_cooldown(settings_client):
-    """404 on a missing template must not lock the operator out."""
-    client, _ = settings_client
-    actor = "missing-template"
-    miss = client.post(
-        "/api/settings/templates/tpl_does_not_exist/apply",
-        json={"operator_label": actor},
-    )
-    assert miss.status_code == 404
-    good = client.post(
-        "/api/settings/apply",
-        json={
-            "diff": {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65},
-            "operator_label": actor,
-        },
-    )
-    assert good.status_code == 200, good.json()
-
-
-# ---------------------------------------------------------------------------
-# Templates
-# ---------------------------------------------------------------------------
-def test_template_create_apply_delete_round_trip(settings_client):
-    client, _ = settings_client
-    r = client.post(
-        "/api/settings/templates",
-        json={
-            "name": "tight",
-            "description": "tighter",
-            "payload": {"CONF_THRESHOLD": 0.65, "SLACK_HIGH_MIN_CONFIDENCE": 0.7},
-        },
-    )
-    assert r.status_code == 200
-    tmpl = r.json()
-    tmpl_id = tmpl["id"]
-
-    # Apply it via HTTP.
-    _last_apply_at.clear()
-    r = client.post(
-        f"/api/settings/templates/{tmpl_id}/apply",
-        json={"operator_label": "tester"},
-    )
-    assert r.status_code == 200
-    assert r.json()["ok"] is True
-
-    # Delete it.
-    r = client.delete(f"/api/settings/templates/{tmpl_id}")
-    assert r.status_code == 200
-    assert r.json()["deleted"] is True
-
-    # System template delete is rejected.
-    r = client.delete("/api/settings/templates/tpl_default")
-    assert r.status_code == 409
-
-
-# ---------------------------------------------------------------------------
-# Tickets + SSE
-# ---------------------------------------------------------------------------
-def test_stream_ticket_issue_and_consume(settings_client):
-    client, _ = settings_client
-    r = client.post(
-        "/api/settings/stream_ticket",
-        json={"operator_label": "tester"},
-    )
-    assert r.status_code == 200
-    ticket = r.json()["ticket"]
-    assert len(ticket) >= 16
-
-    # Replay rejected (single-use). We check the consume helper directly to
-    # avoid keeping the SSE connection open in the test client.
-    import asyncio
-
-    from backend.api.settings import _consume_ticket
-
-    actor1 = asyncio.run(_consume_ticket(ticket))
-    assert actor1 == "tester"
-    actor2 = asyncio.run(_consume_ticket(ticket))
-    assert actor2 is None
 
 
 def test_observability_counters_exposed(settings_client):

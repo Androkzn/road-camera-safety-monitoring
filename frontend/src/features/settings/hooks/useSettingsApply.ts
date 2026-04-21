@@ -1,8 +1,8 @@
 /**
  * useSettingsApply — owns the Settings Console draft lifecycle.
  *
- * Composes on top of `useSettings`, `useSettingsTemplates`, `useImpact`,
- * and turns them into a single page-shaped state object.
+ * Composes on top of `useSettings` and turns it into a single
+ * page-shaped state object.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -14,13 +14,9 @@ import { extractValidationErrors, isPrivacyConfirmRequired } from "../utils/vali
 import type { ApplyResultPayload, DraftValue } from "../types";
 
 import type { SettingsState } from "./useSettings";
-import type { SettingsTemplatesState } from "./useSettingsTemplates";
-import type { ImpactState } from "./useImpact";
 
 interface UseSettingsApplyArgs {
   settings: SettingsState;
-  templates: SettingsTemplatesState;
-  impact: ImpactState;
   dialog: DialogApi;
 }
 
@@ -50,15 +46,12 @@ export interface UseSettingsApplyResult {
   submitting: boolean;
   apply: () => Promise<void>;
   rollback: () => Promise<void>;
-  applyTemplate: (id: string) => Promise<void>;
   discardDraft: () => void;
   dismissApplyResult: () => void;
 }
 
 export function useSettingsApply({
   settings,
-  templates,
-  impact,
   dialog,
 }: UseSettingsApplyArgs): UseSettingsApplyResult {
   const [draft, setDraft] = useState<Record<string, DraftValue>>({});
@@ -124,7 +117,6 @@ export function useSettingsApply({
           warnings: res.warnings,
         });
         setDraft({});
-        void impact.refresh();
       } catch (exc) {
         console.warn("[settings] apply failed", exc);
         const kind = classifyApplyError(exc);
@@ -176,7 +168,7 @@ export function useSettingsApply({
         setSubmitting(false);
       }
     },
-    [dirtyKeys, draft, settings, impact, dialog],
+    [dirtyKeys, draft, settings, dialog],
   );
 
   const apply = useCallback(async () => {
@@ -210,7 +202,6 @@ export function useSettingsApply({
         pending_restart: res.pending_restart,
       });
       setDraft({});
-      await impact.refresh();
     } catch (exc) {
       await dialog.alert({
         title: "Rollback failed",
@@ -220,55 +211,7 @@ export function useSettingsApply({
     } finally {
       setSubmitting(false);
     }
-  }, [settings, impact, dialog]);
-
-  const applyTemplate = useCallback(
-    async (id: string) => {
-      setSubmitting(true);
-      try {
-        const res = await templates.applyTemplate(id);
-        setWarnings(res.warnings || []);
-        setApplyResult({
-          kind: "template",
-          diff: {},
-          applied_now: res.applied_now || [],
-          pending_restart: res.pending_restart || [],
-          audit_id: res.audit_id ?? null,
-        });
-
-        console.info("[settings] template apply ok", {
-          template_id: id,
-          applied_now: res.applied_now,
-          pending_restart: res.pending_restart,
-        });
-        setDraft({});
-        await impact.refresh();
-      } catch (exc) {
-        if (isPrivacyConfirmRequired(exc)) {
-          const confirmed = await dialog.confirm({
-            title: "Template touches privacy setting",
-            message:
-              "This template changes a privacy-sensitive setting (ALPR_MODE). Confirm to proceed.",
-            okLabel: "Apply template",
-            variant: "warning",
-          });
-          if (confirmed) {
-            await templates.applyTemplate(id, { confirm_privacy_change: true });
-            await settings.refresh();
-          }
-          return;
-        }
-        await dialog.alert({
-          title: "Apply template failed",
-          message: (exc as Error).message,
-          variant: "danger",
-        });
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [templates, settings, impact, dialog],
-  );
+  }, [settings, dialog]);
 
   const discardDraft = useCallback(() => setDraft({}), []);
   const dismissApplyResult = useCallback(() => setApplyResult(null), []);
@@ -283,7 +226,6 @@ export function useSettingsApply({
     submitting,
     apply,
     rollback,
-    applyTemplate,
     discardDraft,
     dismissApplyResult,
   };

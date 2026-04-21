@@ -198,43 +198,6 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
   },
 };
 
-/** Pretty labels for impact-engine metric keys. */
-export const METRIC_LABELS: Record<string, string> = {
-  event_rate_per_min: "Events / min",
-  confidence_p50: "Confidence p50",
-  confidence_p95: "Confidence p95",
-  ttc_p50: "TTC p50",
-  ttc_p95: "TTC p95",
-  distance_p50_m: "Distance p50, m",
-  distance_p95_m: "Distance p95, m",
-  sample_size: "Sample size",
-  fp_rate: "False-positive rate",
-  drift_precision: "Drift precision",
-  feedback_coverage: "Feedback coverage",
-  llm_cost_usd_per_min: "LLM cost, $ / min",
-  llm_tokens_per_min: "LLM tokens / min",
-  llm_latency_p95_ms: "LLM latency p95, ms",
-  llm_skip_rate: "LLM skip rate",
-  enrichment_skipped_rate: "Enrichment skipped rate",
-  episode_duration_mean: "Episode duration, mean",
-  episode_duration_p95: "Episode duration p95",
-  frames_processed_ratio: "Frames processed ratio",
-  actual_fps_p50: "Actual fps, p50",
-  actual_fps_p95: "Actual fps, p95",
-  frames_dropped_ratio_p95: "Frames dropped p95",
-  cpu_p50: "CPU %, p50",
-  cpu_p95: "CPU %, p95",
-  memory_p95: "Memory %, p95",
-};
-
-/** Reason codes returned by the comparability gate. */
-export const REASON_LABELS: Record<string, string> = {
-  insufficient_events: "Insufficient events",
-  scene_mix_drift: "Scene mix drifted",
-  quality_drift: "Quality drifted",
-  no_baseline_or_after: "No baseline or after-window yet",
-};
-
 export const SEVERITY_LABELS: Record<string, string> = {
   high: "High",
   medium: "Medium",

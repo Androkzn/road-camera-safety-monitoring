@@ -5,7 +5,7 @@
  * `refetchIntervalInBackground: false` so background tabs stay quiet.
  */
 import { useCallback, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { POLL_INTERVAL_MS } from "../../../shared/config/runtime";
 
@@ -36,8 +36,6 @@ function errorMessage(exc: unknown): string | null {
 }
 
 export function useSettings(): SettingsState {
-  const qc = useQueryClient();
-
   const schemaQuery = useQuery({
     queryKey: settingsQueryKeys.schema,
     queryFn: ({ signal }) => settingsApi.getSchema({ signal }),
@@ -77,18 +75,16 @@ export function useSettings(): SettingsState {
         note: opts.note ?? null,
       });
       await effectiveQuery.refetch();
-      void qc.invalidateQueries({ queryKey: settingsQueryKeys.impact });
       return result;
     },
-    [effective?.revision_hash, effectiveQuery, qc],
+    [effective?.revision_hash, effectiveQuery],
   );
 
   const rollback = useCallback(async () => {
     const result = await settingsApi.rollback();
     await effectiveQuery.refetch();
-    void qc.invalidateQueries({ queryKey: settingsQueryKeys.impact });
     return result;
-  }, [effectiveQuery, qc]);
+  }, [effectiveQuery]);
 
   return {
     schema: schemaQuery.data ?? null,

@@ -1,6 +1,6 @@
 ---
 name: Backend Settings Console
-overview: Add a production-grade Settings experience that lets operators tune backend detection parameters, compare live impact against a captured baseline, and switch among saved templates without weakening the existing safety-gate architecture. (Revision tightens route/auth/consistency gaps identified in review; Round-3 revision adds S0 prereq hardening, four-bucket reloadability, cross-field validation, SSE ticket-exchange, SQLite persistence, restart-durable impact sessions, multi-tab If-Match protection, comparability algorithm, ALPR privacy special-case, and concrete retention/observability commitments.)
+overview: Add a production-grade Settings experience that lets operators tune backend detection parameters, compare live impact against a captured baseline, and switch among saved templates without weakening the existing safety-gate architecture. (Revision tightens route/consistency gaps identified in review; Round-3 revision adds S0 prereq hardening, four-bucket reloadability, cross-field validation, SQLite persistence, restart-durable impact sessions, multi-tab If-Match protection, comparability algorithm, ALPR privacy special-case, and concrete retention/observability commitments.)
 todos:
   - id: s0-prereq-hardening
     status: pending
@@ -9,13 +9,11 @@ todos:
     status: pending
   - id: contract-cleanup
     status: pending
-  - id: frontend-bearer
-    status: pending
   - id: apply-safety
     content: Add atomic apply semantics, dry-run validation, cross-field validators, subscriber-failure isolation, MIN_CHANGE_INTERVAL_SEC debounce, and safe rollback behavior.
     status: pending
   - id: settings-runtime
-    content: Design a single runtime settings schema, SQLite persistence layer (data/settings.db with migrations table), and authenticated settings/template APIs with audit logging.
+    content: Design a single runtime settings schema, SQLite persistence layer (data/settings.db with migrations table), and settings/template APIs with audit logging.
     status: pending
   - id: template-migration
     content: Define apply-time template re-validation + schema-version migration map; reject with 409 + diff if migration is undefined.
@@ -55,7 +53,7 @@ Create a new top-level `Settings` tab in `TopBar` (alongside **Admin**, **Dashbo
 - **Comparability risk**: baseline vs current was underspecified and could be invalid when traffic mix, scene label, or camera quality changes between windows.
 - **Apply safety gap**: no atomic apply contract (partial updates, mid-frame mutation, or invalid mixed state risk).
 - **Template governance gap**: no revision history or immutable versioning for reproducibility and rollback.
-- **Contract ambiguity**: settings endpoints were listed, but no explicit read/write auth tier split or compatibility policy.
+- **Contract ambiguity**: settings endpoints were listed, but no explicit compatibility policy.
 - **Testing gap**: no concrete acceptance criteria for hot-reload, restart-required behavior, failure handling, or regression protection.
 
 ## Additional Critical Review (Round 2 — Gaps, Inconsistencies, Improvements)
@@ -64,13 +62,6 @@ Create a new top-level `Settings` tab in `TopBar` (alongside **Admin**, **Dashbo
 - **"Next to Monitoring"** is correct for *placement* (add a fourth `<Link>` in `TopBar`), but the live MJPEG feed today lives on the **`/` (Admin)** page, not on Monitoring. Monitoring is the watchdog incident queue. The Settings page will *reuse* `VideoFeed` like Admin; call that out in UX copy so operators are not confused about two "live" pages (`/` vs `/settings`).
 - **`/admin` is a legacy redirect** to `/` (`App.tsx`). New work should use **`/settings`** (or another explicit path), not resurrect `/admin` as the primary settings URL.
 - **`TopBar.tsx` file header** claims it is rendered above `<Routes>` in `App.tsx`; in the current codebase each page imports `TopBar` itself. When implementing Settings, follow the existing per-page pattern unless you introduce a shared layout route.
-
-### Frontend auth is an explicit greenfield
-
-### Read vs write auth (tighten the contract)
-- Align wording with `CLAUDE.md`: today **`/api/admin/health`** is used from the public `api` helper for the health strip — that is separate from the new settings surface.
-
-### Audit "who" vs shared token
 
 ### Impact API shape
 - **`GET /api/settings/impact`** is not a pure resource fetch if it depends on selected baseline id, time window, or live cursor. Prefer **`GET ...?baseline_id=…&window=…`** with documented cache semantics, or **`POST /api/settings/impact/compute`** with a body — avoid a "GET" that mutates server comparison state unexpectedly.
@@ -87,7 +78,6 @@ Create a new top-level `Settings` tab in `TopBar` (alongside **Admin**, **Dashbo
 
 ### Definition of Done additions
 - **Retention** for template/baseline history is listed under Production Practices; add a concrete cap (count or age) to **Definition of Done** or it may slip.
-- **Settings UI works with the repo’s admin auth story** (token available to the SPA in dev/prod-appropriate ways) — without this, backend endpoints are useless.
 
 ### Non-goals (clarity)
 - **Fleet-wide template distribution** across many vehicles, **A/B routing** of live traffic, and **automatic** promotion of templates are out of scope for v1 unless explicitly added later.
@@ -101,10 +91,8 @@ This pass cross-checks the plan against the actual repo and against the Codex v1
 - **TopBar mounting**: the `TopBar.tsx` *file header* claims it is rendered above `<Routes>` in `App.tsx`, but `App.tsx` does **not** render it — each page imports `TopBar` itself. Plan already notes this; we keep the per-page pattern. Updating the stale TopBar header comment is a **prereq cleanup**, not a Settings deliverable.
 
 ### S0 prerequisite hardening (must precede launch)
-The Settings console expands the admin surface and operator foot traffic. Lock down already-known soft spots first:
-- **Public watchdog mutators are public** today: `DELETE /api/watchdog/findings` and `POST /api/watchdog/findings/delete` in `server.py` are documented as `AUTH: public`. Either move them behind `require_bearer_token` (recommended) or explicitly accept the risk in writing — but do not stack a new admin console on top of unaudited public destructive endpoints.
+Lock down already-known soft spots first:
 - **`recent_events` concurrency**: `state.recent_events.append()` in `_run_loop` (line ~1310) and `pop(0)` are read by many endpoints (and will be read by the new impact engine) without a lock. Add a small lock or move to a thread-safe deque before the impact engine starts sampling, or define explicit "best-effort, may miss" semantics for impact reads.
-- **Publish an explicit auth matrix** in the same PR (public read, admin write, DSAR), so the new `/api/settings/*` defaults to fail-closed and existing exceptions are documented.
 
 ### Hot-reload bucket needs a fourth class
 "Hot-reloadable / restart-required / read-only" is too coarse. Add a **`warm_reload`** class for settings that hot-apply but require a subsystem rebuild on the apply thread:
@@ -139,13 +127,6 @@ A saved template applied after a spec change can violate new validators or refer
 - Run a registered **migration map** (`schema_v_n → schema_v_n+1`) for known field renames/removals; reject with 409 + diff if migration is undefined.
 - Audit-log `settings.template.migrated` when migration ran.
 
-### SSE auth — pick one solution
-The plan correctly notes `EventSource` cannot set headers but stops there. Recommended v1 answer: **short-lived ticket exchange**:
-2. `GET /api/settings/impact/stream?ticket=...` validates and consumes the ticket, then upgrades to SSE.
-3. Tickets are single-use, in-memory, never logged in plaintext.
-
-Avoids the leak vectors of long-lived `?token=` (access logs, browser history, `Referer`). Fallback for older clients: `fetch`-based NDJSON streaming with `Authorization` header.
-
 ### Persistence — pick one storage
 "JSON files or SQLite" is unresolved. Pick **SQLite** at `data/settings.db` for v1:
 - Multi-row queries (revisions, baselines, history) are first-class.
@@ -175,13 +156,8 @@ Toggling ALPR changes the data-handling posture. Required:
 
 ### Apply-rate debounce
 Without a server-side cooldown, a misbehaving UI loop or a stuck slider can thrash the snapshot many times per second, polluting audit and triggering many baseline captures. Required:
-- `MIN_CHANGE_INTERVAL_SEC = 5` (or similar) per-token cooldown on `POST /api/settings/apply`. Returns 429 with `Retry-After`.
+- `MIN_CHANGE_INTERVAL_SEC = 5` (or similar) per-IP cooldown on `POST /api/settings/apply`. Returns 429 with `Retry-After`.
 - Frontend debounces slider drags into one PUT after ~400 ms quiescence.
-
-### Bootstrap UX in dev
-`require_bearer_token` fails closed (503) when — is unset. The Settings page in a freshly cloned repo will be unusable without docs. Add to the runbook:
-- A `.env.example` line with a generated dev token.
-- A clear "no token configured" empty state in the UI (read-only view of effective settings + a doc link), instead of repeated 503 toasts.
 
 ### Comparability algorithm — make it concrete
 "Comparability confidence" is currently hand-wavy. Spec one algorithm in v1:
@@ -207,11 +183,6 @@ These are knobs themselves and should appear in `SETTINGS_SPEC` as `read_only` i
 - The actual restart is **not** orchestrated by the Settings API in v1 (out of scope) — it is operator-initiated via the existing process supervisor / `docker compose restart`.
 - On boot, the server reads pending restart-required values from storage and applies them as the initial snapshot.
 
-### Audit identity — store fingerprint cautiously
-- Hash with HMAC-SHA256 keyed by a per-install secret (e.g. `ROAD_AUDIT_KEY`), not bare SHA256.
-- Truncate to the first 8 chars in the audit row; never log the full hash.
-- Prefer the optional `X-Operator-Label` and IP/UA only; treat fingerprint as a "best effort" tie-break.
-
 ### Frontend chart bundle hygiene
 Whatever chart library is chosen (recharts/visx/lightweight SVG) must be **route-split** (`React.lazy(() => import("./pages/SettingsPage"))`) so non-Settings users on `/`, `/dashboard`, `/monitoring` do not pay the bundle cost.
 
@@ -232,11 +203,11 @@ Beyond "metrics or structured logs", commit to specific signals so an alert can 
 - Existing detection gates remain intact; only configured thresholds change.
 - Tests cover settings API, runtime propagation, rollback, **subscriber-failure isolation**, **template re-validation/migration**, **multi-tab If-Match conflicts**, **`recent_events` concurrency under impact reads**, and backward compatibility.
 - Template/baseline/impact history has **concrete retention caps** (defaults: 100 revisions/template or 365 d; 200 baselines or 90 d; 500 impact sessions or 90 d).
-- **S0 prereq hardening done**: watchdog mutators are admin-gated (or explicitly accepted in writing), and `state.recent_events` access is concurrency-safe for the impact engine.
+- **S0 prereq hardening done**: `state.recent_events` access is concurrency-safe for the impact engine.
 - **Persistence chosen**: SQLite at `data/settings.db` with a documented schema migration table.
 - **Impact sessions survive process restart** (resumed if within `IMPACT_SESSION_MAX_AGE_SEC`).
 - **Privacy mode flips** (`ROAD_ALPR_MODE`) require `confirm_privacy_change=1` and emit `settings.privacy_change` audit rows for both directions.
-- **Apply-rate debounce**: `MIN_CHANGE_INTERVAL_SEC` server-side cooldown returns 429; UI debounces drag-PUTs to ~400 ms.
+- **Apply-rate debounce**: `MIN_CHANGE_INTERVAL_SEC` server-side cooldown returns 429 per IP; UI debounces drag-PUTs to ~400 ms.
 - **Restart-required UX defined**: split apply result into `applied_now` and `pending_restart`; persistent banner + diff; operator-initiated restart, not API-orchestrated.
 - **Observability signals** (`settings_apply_total{result}`, `settings_revision`, `settings_rollback_total`, `impact_comparability_blocked_total{reason}`, apply-latency histogram) are emitted.
 - Frontend chart library is **route-split** to `/settings`.
@@ -328,7 +299,7 @@ Refactor the hardcoded tunables now spread across:
 
 Use injected runtime settings rather than module-level literals for the tunable subset. Keep the existing gate structure intact; only parameter values should change.
 
-### 4. Add authenticated settings APIs with audit trail
+### 4. Add settings APIs with audit trail
 - `POST /api/settings/validate` (dry-run validation + compatibility check)
 - `GET /api/settings/schema` (current `SETTINGS_SPEC` for the UI to render rows)
 - `GET /api/settings/effective` (current values + raw vs scene-effective + revision_hash)
@@ -344,8 +315,7 @@ Use injected runtime settings rather than module-level literals for the tunable 
 - `POST /api/settings/impact/compute` (operator-driven, body-shaped recompute)
 - `GET /api/settings/impact/history?limit=...`
 - `POST /api/settings/rollback` (or `POST /api/settings/revert_last`)
-- `POST /api/settings/stream_ticket` (issues short-TTL one-time SSE ticket)
-- `GET /api/settings/impact/stream?ticket=...` (SSE — modeled on the existing `/stream/events` handler in `server.py`)
+- `GET /api/settings/impact/stream` (SSE — modeled on the existing `/stream/events` handler in `server.py`)
 
 
 ### 5. Persist settings templates and baseline snapshots
@@ -370,7 +340,7 @@ Edits create new immutable revisions so every experiment can be reproduced. Temp
 - **Subscriber isolation**: each `on_change`/`register_subscriber_for` callback runs inside its own `try/except` after the snapshot swap. A subscriber raising never reverts the snapshot — it is reported back as a warning.
 - **Concurrency for impact reads**: the impact engine samples `state.recent_events`; coordinate with the existing append/`pop(0)` path (small lock or thread-safe deque) — see Round-3 prereq hardening.
 - **Lost-update protection**: every settings/template response carries a `revision_hash`; mutating endpoints accept `If-Match` and return 409 on mismatch.
-- **Apply cooldown**: enforce `MIN_CHANGE_INTERVAL_SEC` per token; return 429 + `Retry-After` on bursts.
+- **Apply cooldown**: enforce `MIN_CHANGE_INTERVAL_SEC` per IP; return 429 + `Retry-After` on bursts.
 
 ### 7. Build a real impact engine, not just raw before/after numbers
 Use deterministic metrics as the primary comparison engine:

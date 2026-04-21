@@ -1,5 +1,5 @@
 /**
- * ApplyResultBanner — success/rollback/template summary that hangs
+ * ApplyResultBanner — success/rollback summary that hangs
  * around until the operator dismisses it.
  */
 import { humanize } from "../utils/formatting";
@@ -8,7 +8,7 @@ import type { DraftValue } from "../types";
 import styles from "../SettingsPage.module.css";
 
 export interface ApplyResultPayloadView {
-  kind: "apply" | "rollback" | "template";
+  kind: "apply" | "rollback";
   diff: Record<string, { before: DraftValue; after: DraftValue }>;
   applied_now: string[];
   pending_restart: string[];
@@ -29,9 +29,7 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
         <strong>
           {result.kind === "rollback"
             ? "Rolled back to last-known-good."
-            : result.kind === "template"
-              ? "Template applied."
-              : `Applied ${diffCount} change${diffCount === 1 ? "" : "s"}.`}
+            : `Applied ${diffCount} change${diffCount === 1 ? "" : "s"}.`}
         </strong>
         {result.applied_now.length > 0 && (
           <>

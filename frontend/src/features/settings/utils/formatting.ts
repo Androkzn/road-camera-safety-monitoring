@@ -4,33 +4,11 @@
  * Numeric formatting, key humanization, label lookups, source shortening,
  * tier-class picker. Pure functions — no React.
  */
-import {
-  METRIC_LABELS,
-  REASON_LABELS,
-  SEVERITY_LABELS,
-  TOKEN_REWRITES,
-  UNIT_TOKENS,
-} from "../constants";
-import type { ConfidenceTier } from "../types";
-
-import settingsStyles from "../SettingsPage.module.css";
+import { SEVERITY_LABELS, TOKEN_REWRITES, UNIT_TOKENS } from "../constants";
 
 export function fmt(v: number | null | undefined, digits = 2): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return Number(v).toFixed(digits);
-}
-
-export function tierClass(tier: ConfidenceTier): string {
-  switch (tier) {
-    case "high":
-      return settingsStyles.tierHigh ?? "";
-    case "medium":
-      return settingsStyles.tierMedium ?? "";
-    case "low":
-      return settingsStyles.tierLow ?? "";
-    default:
-      return settingsStyles.tierInsufficient ?? "";
-  }
 }
 
 function unitFromTail(tokens: string[]): {
@@ -68,14 +46,6 @@ export function humanize(raw: string): string {
 export function formatState(state: string): string {
   if (state === "monitoring_unattended") return "Monitoring (unattended)";
   return humanize(state);
-}
-
-export function metricLabel(key: string): string {
-  return METRIC_LABELS[key] ?? humanize(key);
-}
-
-export function reasonLabel(key: string): string {
-  return REASON_LABELS[key] ?? humanize(key);
 }
 
 export function severityLabel(key: string): string {

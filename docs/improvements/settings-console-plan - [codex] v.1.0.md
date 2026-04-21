@@ -75,29 +75,14 @@ The current offline harness still relies on shared artifacts such as
 The Settings Console cannot run benchmark jobs against shared live output
 paths. It needs isolated per-run output directories and a queued worker model.
 
-### 7. Security prerequisites were not framed as blockers
-
-The plan already called out hardening, but this needs to be explicit:
-mutation endpoints marked public today must be fixed before the Settings
-Console ships:
-
-- [server.py](../../backend/server.py#L2276)
-- [server.py](../../backend/server.py#L2292)
-
 ## Revised Implementation Approach
 
 ## S0 Prerequisite hardening
 
 This is a blocking phase. No Settings Console write path should ship before it.
 
-- Protect watchdog mutation endpoints with the existing admin bearer helper.
 - Resolve `recent_events` concurrency so reads, writes, and SSE replay operate
   on safe snapshots.
-- Document the auth split:
-  - public read telemetry may remain public where already intended
-  - all settings reads under `/api/settings/*` should be admin-only unless
-    explicitly approved as operator-safe
-  - all settings writes are admin-only
 - Publish an explicit control-plane rule: DB state is canonical, SSE is
   notification only.
 
@@ -143,7 +128,6 @@ Recommended first-pass classification:
 - `read_only`
   - secrets
   - fleet identity
-  - DSAR token
   - cloud signing secrets
 
 ### Apply contract
@@ -291,7 +275,7 @@ artifacts.
 
 ## Public API Surface
 
-### Admin write endpoints
+### Write endpoints
 
 - `POST /api/settings/validate`
 - `POST /api/settings/apply`
@@ -302,7 +286,7 @@ artifacts.
 - `POST /api/settings/baseline/capture`
 - `POST /api/settings/benchmark/run`
 
-### Admin read endpoints
+### Read endpoints
 
 - `GET /api/settings/effective`
 - `GET /api/settings/schema`
@@ -333,7 +317,6 @@ artifacts.
 
 - validate -> apply -> impact -> rollback lifecycle
 - failed-apply invariants
-- auth enforcement
 - audit logging
 - settings SSE ordering and replay behavior
 - benchmark queue execution and isolation
