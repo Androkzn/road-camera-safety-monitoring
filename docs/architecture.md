@@ -154,6 +154,78 @@ sustained high-risk frame count, and detection confidence; failed events
 route to the medium digest. High-risk Slack alerts are text-only by default;
 image relay is opt-in via `SLACK_ENABLE_IMAGE_RELAY=1`.
 
+## Domain objects vs state
+
+The per-source domain classes ([`Episode`](../backend/domain/episode.py) and
+[`StreamSlot`](../backend/domain/stream_slot.py)) live under
+[backend/domain/](../backend/domain/). They model the *shape* of the
+perception pipeline — temporal de-duplication across frames, per-camera
+estimator state, the MJPEG buffer, stage-timing ring buffers.
+
+The process-wide singleton ([`LiveState`](../backend/state.py)) stays in
+`backend/state.py`; it owns the YOLO model handle, the asyncio event loop,
+SSE subscribers, the recent-events buffer, and the slot registry. Splitting
+domain objects out of the singleton keeps each file focused on one
+responsibility — the 800-line `state.py` dropped to ~400 lines, and the
+domain classes no longer drag the whole singleton in when you import them.
+
+`backend/state.py` re-exports `Episode` and `StreamSlot` for backwards
+compatibility, so existing `from backend.state import Episode, StreamSlot`
+imports keep working. New code should import from `backend.domain`.
+
+## Wire Contract and Codegen
+
+Every cross-process JSON shape is declared once, as a `pydantic.BaseModel`
+in [backend/api/models.py](../backend/api/models.py). That module is the
+**single source of truth** for the SSE `SafetyEvent`, the `/api/live/status`
+dense summary, the `/api/admin/health` composite, per-source status,
+per-frame `DetectionSnapshot`, watchdog findings, test-runner output, and
+every other payload the backend emits.
+
+TypeScript interfaces are generated from those models into
+[frontend/src/shared/types/generated.ts](../frontend/src/shared/types/generated.ts)
+by [scripts/generate_ts_types.py](../scripts/generate_ts_types.py). The
+hand-maintained [frontend/src/shared/types/common.ts](../frontend/src/shared/types/common.ts)
+now re-exports the generated types so existing imports keep working.
+
+Pipeline:
+
+1. Edit a `BaseModel` in `backend/api/models.py`.
+2. `python scripts/generate_ts_types.py` (or `make generate-types`) walks
+   `EXPORTED_MODELS`, calls `model_json_schema()` on each, and emits a
+   TypeScript file — interfaces, JSDoc carried over from Python docstrings,
+   `Literal[...]` unions preserved as string-literal unions, nullable
+   optionals collapsed to the `field?: T` convention, and fixed-length
+   tuples emitted as TS tuples so indexing stays type-safe under
+   `noUncheckedIndexedAccess`.
+3. `start.py` runs the script **before** `npm run build`, so a model edit
+   that breaks the frontend fails at TS compile time in the same launch.
+
+**Do not hand-edit `generated.ts`** — it is clobbered on the next launch.
+
+## Type Checking
+
+Two tools run side-by-side:
+
+- **pyright** (basic mode, project-wide) — see `[tool.pyright]` in
+  `pyproject.toml`. Kept broad so everyday churn doesn't block on missing
+  annotations.
+- **mypy** (strict, narrow scope) — `[tool.mypy]` in `pyproject.toml`
+  enforces strict typing on two high-value slices:
+    - `backend/api/` — the wire contracts and the routers that serve them.
+      Router handlers keep `disallow_untyped_defs = false` because their
+      return values are already constrained by `response_model=…`; the
+      `backend.api.models` override flips it back on so the contract
+      module stays fully annotated.
+    - `backend/services/llm.py` — the LLM failover, rate budget, and
+      circuit breaker. Bugs there silently degrade enrichment and cost
+      visibility.
+  Run with `make typecheck-mypy`.
+
+Widening mypy coverage is tracked as a follow-up; each new slice pays for
+itself only after its initial annotations land, so we add them one module
+at a time.
+
 ## LLM Resilience
 
 - **Multi-provider failover:** if Anthropic returns an error, the completion

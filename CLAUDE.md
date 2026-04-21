@@ -10,7 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `python start.py --no-browser --port 8000` — headless start.
 - `make test` / `pytest tests/ -v` — full test suite.
 - `pytest tests/test_core.py::test_name -v` — run a single test.
-- `make lint` — cheap syntax check (`py_compile` on `backend/server.py`, `backend/config.py`, `start.py`); there is no formatter or type-checker wired up.
+- `make lint` — cheap syntax check (`py_compile` on `backend/server.py`, `backend/config.py`, `start.py`).
+- `make typecheck` — project-wide `pyright` (basic mode).
+- `make typecheck-mypy` — strict `mypy` on the narrow contract scope (`backend/api/**`, `backend/services/llm.py`). See `[tool.mypy]` in `pyproject.toml` for the tiered config.
+- `make generate-types` — regenerate `frontend/src/shared/types/generated.ts` from the pydantic models in `backend/api/models.py`. `start.py` runs this before the Vite build automatically; use the target only when iterating on a model without a full launch.
 - `cd frontend && npm run build` — TypeScript + Vite production build into `frontend/dist/`. `start.py` does this automatically before launching the server.
 - `cd frontend && npm run dev` — Vite dev server (only needed when iterating on frontend separate from the Python server).
 - `docker compose up --build` / `make docker-up` — containerized run; `--profile cloud` or `make docker-up-cloud` adds the receiver.
@@ -39,6 +42,15 @@ Each frame flows through an independent stack of gates in `backend/core/` and `b
 
 **Do not short-circuit these gates to "improve" detection** — each one exists to kill a specific class of false positive that was causing alert fatigue. If you change a gate, run the integration tests in `tests/test_core.py`.
 
+### Wire contract (single source of truth)
+
+Every cross-process payload shape — the SSE `SafetyEvent`, REST responses like `/api/live/status` and `/api/admin/health`, the admin detection stream, watchdog findings, test-runner output — is declared as a `pydantic.BaseModel` in [backend/api/models.py](backend/api/models.py). TypeScript equivalents are emitted to [frontend/src/shared/types/generated.ts](frontend/src/shared/types/generated.ts) by [scripts/generate_ts_types.py](scripts/generate_ts_types.py).
+
+- **To change a wire format**: edit the pydantic model. Do NOT hand-edit the generated `.ts` file — it will be clobbered on the next launch.
+- `start.py` regenerates before `npm run build`, so the FE compile catches a contract drift before it ships.
+- The hand-maintained re-export shim lives at `frontend/src/shared/types/common.ts` for backwards compatibility — every existing import of `shared/types/common` still works.
+- New model? Add it to `EXPORTED_MODELS` in `models.py` (alphabetical), then `make generate-types`.
+
 ### Privacy invariant (non-obvious)
 
 `enrich_event()` in [backend/services/llm.py](backend/services/llm.py) hashes the plate and strips `plate_text`/`plate_state` from the returned dict **before** it reaches any in-memory event buffer. The emit path in [backend/perception/emit.py](backend/perception/emit.py) keeps a defence-in-depth `pop()`, but the primary invariant — **no raw plate text in any buffer** — is enforced at ingest, not at egress. Any new code path that touches vision-enrichment output must preserve this. Dual thumbnails (internal + public) are produced by `services/redact.py::write_thumbnails`; shared channels must only use the `_public` variant.
@@ -50,6 +62,7 @@ Detection works with zero LLM calls. The LLM layer has multi-provider failover (
 ### Package layout
 
 - `backend/core/` — perception: detection, stream, egomotion, quality, context.
+- `backend/domain/` — per-source domain objects: [`Episode`](backend/domain/episode.py) (temporal de-duplication across frames, sustained-risk downgrade) and [`StreamSlot`](backend/domain/stream_slot.py) (per-camera perception state + MJPEG buffer + stage-timing ring buffers). `backend/state.py` re-exports both for backwards compat.
 - `backend/services/` — LLM, redaction, drift, watchdog, agents, registry, digest, test_runner.
 - `backend/compliance/` — `audit.py` (audit log) and `retention.py` (hourly retention sweeps).
 - `backend/integrations/` — `edge_publisher.py` (HMAC batched delivery), `slack.py`, `fnol.py`.
@@ -120,3 +133,5 @@ The package splits four concerns so monitoring never depends on LLM availability
 - **Don't add LLM calls outside the `services/llm.py` wrappers** — you'll bypass failover, rate budget, circuit breaker, and cost tracking.
 - **Don't widen an agent's tool set past 5** — `services/agents.py` enforces this deliberately (tool-overload hallucination grows past ~5 tools).
 - **Don't remove conflict-detection gates to "catch more"** — each gate targets a specific false-positive class; loosen thresholds per-scene via `AdaptiveThresholds` instead.
+- **Don't hand-edit `frontend/src/shared/types/generated.ts`** — regenerate from `backend/api/models.py` via `make generate-types` (or just run `python start.py`). Hand edits are clobbered on the next launch.
+- **Don't add new wire-format dicts outside `backend/api/models.py`** — the whole cross-process contract lives there so the TS codegen stays honest.

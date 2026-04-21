@@ -151,9 +151,20 @@ HTTP/2 (which needs TLS to activate in browsers) multiplexes everything over one
 
 ## 5. Watchdog — incident queue (not a log tail)
 
-**What changed.** `backend/services/watchdog.py` grew to roughly **1,800 LoC** and is explicitly designed as an incident queue, not a log wall. Repeated operational symptoms are grouped by `fingerprint` into findings carrying: `severity`, `category` (perception | drift | llm | stream | scene | system), `impact`, `likely_cause`, `owner`, `evidence` (structured label/value/threshold/status), `investigation_steps`, `debug_commands`, `runbook`, `priority_score`, `source` (`rule` | `ai`), `cause_confidence` (`observed` | `inferred`). Findings persist to `data/watchdog.jsonl`.
+**What changed.** `backend/services/watchdog.py` started as a ~1,800-line monolith and has been split into a `backend/services/watchdog/` package with one concern per file:
 
-Two stacked analyzers: deterministic rule-based detectors (always available) and an AI hypothesis layer (Claude), deduped against rule output so **rules win** on the same fingerprint. Design invariant: monitoring never depends on LLM availability.
+| File | Responsibility | LoC |
+| --- | --- | --- |
+| `model.py` | `WatchdogFinding` dataclass + fingerprinting + defaults table + normalization + grouping + `make_finding` | 530 |
+| `rules.py` | Deterministic rule-based detectors (`rule_checks`) — perception / drift / LLM / stream | 435 |
+| `api.py` | `Watchdog` background loop + `stats()` aggregator surfaced to `/api/watchdog` | 183 |
+| `storage.py` | Append-only JSONL writer/reader for `data/watchdog.jsonl` | 132 |
+| `ai.py` | Claude hypothesis layer (`ai_analyze`) — strictly additive | 130 |
+| `__init__.py` | Public surface + legacy `_rule_checks` / `_write_finding` aliases | 108 |
+
+The package is explicitly designed as an incident queue, not a log wall. Repeated operational symptoms are grouped by `fingerprint` into findings carrying: `severity`, `category` (perception | drift | llm | stream | scene | system), `impact`, `likely_cause`, `owner`, `evidence` (structured label/value/threshold/status), `investigation_steps`, `debug_commands`, `runbook`, `priority_score`, `source` (`rule` | `ai`), `cause_confidence` (`observed` | `inferred`). Findings persist to `data/watchdog.jsonl`.
+
+Two stacked analyzers: deterministic rule-based detectors in `rules.py` (always available) and an AI hypothesis layer in `ai.py` (Claude), deduped against rule output so **rules win** on the same fingerprint OR title. Design invariant: monitoring never depends on LLM availability — if the provider is unreachable, `ai_analyze` returns `[]` and the rule layer carries on alone.
 
 Frontend `frontend/src/features/watchdog/` + `frontend/src/features/monitoring/`: `IncidentCard`, `IncidentFeed`, `SummaryGrid`, `SummaryHeader`, `MetaGrid`, `SelectionBar`, `ImmediateActions`, `WatchdogContext`.
 
@@ -165,7 +176,7 @@ Frontend `frontend/src/features/watchdog/` + `frontend/src/features/monitoring/`
 - Owner auto-suggestion from CODEOWNERS.
 - SLO tracking: auto-open / auto-close an incident when the underlying metric recovers.
 - Alertmanager/PagerDuty webhook for `severity=error` findings only.
-- Continue the partial decomposition already underway: `model.py` and `storage.py` have been extracted, but rules/AI/orchestration still dominate `backend/services/watchdog.py`.
+- ~~Continue the decomposition already underway: `model.py` and `storage.py` have been extracted, but rules/AI/orchestration still dominate `backend/services/watchdog.py`~~ — **shipped.** The flat module is gone; rules, AI, and orchestration each live in their own file inside the `watchdog/` package (see table above).
 
 **Alternative solutions & trade-offs.**
 - **Alternative A: Ship logs to an APM (Datadog, Sentry, New Relic) and rely on their grouping.** *Pros:* mature UI, on-call integrations free, search / retention handled. *Cons:* per-event cost at fleet scale, no perception-domain knowledge (can't write "drift precision dropped below 0.8 for urban scenes"), needs outbound internet from edges — incompatible with air-gapped deployments.
@@ -547,7 +558,7 @@ Plus pragmatic relaxations (`disallow_untyped_calls = false`, `disallow_any_gene
 **Why it matters.** Combined with §17, the wire boundary is now type-checked end-to-end: Pydantic-validated on the way in, **mypy-strict** on the API + LLM slice when you run `mypy`, **pyright** on the broader included tree when you run `make typecheck`, and TypeScript-strict on the frontend — refactors tend to surface before runtime. The LLM module is the other mypy strict-typed island, which matches its outsized role in the architecture (§13).
 
 **Possible next improvements.**
-- Widen scope incrementally: `backend/services/watchdog.py` and `backend/services/impact.py` are the next candidates (both already have rich domain types).
+- Widen scope incrementally: `backend/services/watchdog/` (now split — each sub-module has rich domain types) and `backend/services/impact.py` are the next candidates.
 - Tighten relaxations one knob at a time (`disallow_untyped_calls` first — it catches the most real bugs).
 - Add `mypy` to the PostToolUse hook in `.claude/hooks/` once the in-scope module count grows beyond what `py_compile` covers usefully.
 - CI gate: fail the build on **`mypy`** errors in scope (orthogonal to **`make typecheck`**, which runs pyright).
@@ -567,7 +578,7 @@ If the interviewer asks "what is still weak?", answer directly:
 - **Auth is still the biggest product-readiness gap.** The doc is already honest about that; stating it proactively makes the rest of the architecture story more credible.
 - **Type contracts are closed-loop but not yet fully CI-gated.** §17 + §18 landed Pydantic → generated TS and **mypy** strict on API + LLM (plus **`make typecheck`** → **pyright** on a configured include set — a different tool). Remaining work: codegen drift-check (`make types && git diff --exit-code` once a `make types` target exists), **`mypy`** in CI, and tightening any stray dict responses on the tests router against the test models.
 - **A few frontend architecture rules are still aspirational.** The "no cross-feature imports" rule is directionally right, but the current tree still has exceptions that should be promoted into `shared/`.
-- **Second-level decomposition is still pending.** Breaking up `server.py` was the big win; `Episode` + `StreamSlot` still live in `backend/state.py` (no `backend/domain/` package on disk yet). Watchdog has started to split (`backend/services/watchdog/{model,storage}.py` exist), but the main file is still huge; other next file-level splits are `backend/services/impact.py` (813 LoC) and `backend/api/settings.py` (640 LoC).
+- **Second-level decomposition is partially done.** Breaking up `server.py` was the first big win; the watchdog package split (`watchdog/{model,rules,ai,storage,api}.py`) is the second. `Episode` + `StreamSlot` still live in `backend/state.py` (no `backend/domain/` package on disk yet), and `backend/services/impact.py` (813 LoC) and `backend/api/settings.py` (640 LoC) are the next file-level split candidates.
 - **Single-instance assumption.** `SettingsStore` is one in-memory singleton per edge process — no leader election, no fleet-wide config coordination yet.
 - **Operational durability of JSONL stores.** `data/audit.jsonl` and `data/watchdog.jsonl` grow unbounded — rotation/compaction policy is implicit, not enforced.
 - **No formal benchmarks.** Capacity envelope (§16) is order-of-magnitude reasoning, not measured numbers.
@@ -589,7 +600,7 @@ This section helps because it shows engineering judgment, not just feature enthu
 | *Why scrub plate at ingest, not egress?* | Defence in depth backwards. Egress scrub means every new buffer consumer must remember; ingest scrub means the raw plate was never in memory to leak. | KMS-encrypted at-rest with decrypt-on-egress — recoverable under audit but puts a KMS call on the hot path and doesn't shrink the in-memory leak surface. |
 | *Why no auth?* | POC explicitly. Half-built auth is worse than documented none. Cloud receiver still HMAC-verifies batches; audit log still records every access. Real auth goes at the reverse proxy on deploy. | Static admin bearer token — sniffable on HTTP dev, no rotation, creates false confidence while offering almost nothing. |
 | *Why TanStack Query?* | Kills hand-rolled `setInterval` polling, gives cache + `invalidateQueries`, supports `AbortSignal` out of the box for unmount cancellation, and integrates with React Suspense. | Redux Toolkit + RTK Query — single store but ceremony tax per slice and weaker Suspense/AbortSignal story than TanStack. |
-| *Why is watchdog.py 1,800 lines?* | The main file still owns most of the rules-before-AI logic and incident orchestration. `model.py` and `storage.py` have already been extracted, and the API lives separately under `backend/api/routers/watchdog.py`. Rules win on fingerprint collision so monitoring never depends on LLM availability. | Datadog / Sentry — mature UI but no perception-domain rules and needs outbound internet on the edge. |
+| *Why was watchdog.py 1,800 lines and how is it split now?* | It used to own rules-before-AI layering + incident grouping/fingerprinting + JSONL persistence + the orchestration loop in one file. It now lives as the `backend/services/watchdog/` package: `model.py` (dataclass + fingerprinting + grouping), `rules.py` (deterministic detectors), `ai.py` (Claude hypothesis layer), `storage.py` (JSONL I/O), `api.py` (`Watchdog` loop + `stats()`). Rules win on fingerprint *or* title collision so monitoring never depends on LLM availability. HTTP routes live separately under `backend/api/routers/watchdog.py`. | Datadog / Sentry — mature UI but no perception-domain rules and needs outbound internet on the edge. |
 | *Why strip dashcam?* | Two products were fighting — vehicle-mounted dashcam vs. fixed road-camera. Fixed-camera orientation policy (SAE J3063 N/S/E/W) is incoherent on a moving vehicle. One product done well. | `DEPLOYMENT_MODE` env flag to keep both — every gate branches, tests double, and the DMS privacy story is totally different from fixed-camera PII. |
 | *Why feature-folder frontend?* | One engineer owns a feature end-to-end; `features/*` can't cross-import, shared code promotes to `shared/`. Lazy routes per page so one bundle failure doesn't nuke the others. | Next.js app-router with server components — nothing to SSR on a live operator dashboard; Vite SPA keeps the dev loop fast. |
 | *Why `.claude` hooks + skills + rules?* | `py_compile` PostToolUse hook catches broken edits in <1 s. `.claude/rules/*.md` convert tribal invariants (no LLM outside `services/llm.py`, ≤5 tools/agent) into enforceable text for both humans and agents. | Heavy pre-commit with black/mypy/eslint — 30 s/commit, devs run `--no-verify`, no feedback mid-edit. |

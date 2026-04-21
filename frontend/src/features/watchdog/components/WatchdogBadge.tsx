@@ -1,6 +1,11 @@
 /**
  * WatchdogBadge — small "Monitoring" pill rendered in the TopBar. Surfaces
  * the worst-current severity with a coloured dot and the error count.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: the watchdog badge in the top bar showing a coloured dot
+ *   and the incident count; clicking it opens the WatchdogDrawer.
  */
 import type { WatchdogStatus } from "../../../shared/types/common";
 
