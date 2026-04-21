@@ -807,3 +807,6 @@
 {"ts": "2026-04-15T21:23:18.896Z", "action": "access_public_thumbnail", "resource": "evt_1776286690916_0009_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-15T21:24:06.861Z", "action": "access_public_thumbnail", "resource": "evt_1776288240521_0022_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-15T21:26:23.484Z", "action": "access_public_thumbnail", "resource": "evt_1776288376681_0023_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T14:33:41.658Z", "action": "access_public_thumbnail", "resource": "evt_1776782010773_0003_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T14:33:41.658Z", "action": "access_public_thumbnail", "resource": "evt_1776781994702_0002_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T14:33:41.658Z", "action": "access_public_thumbnail", "resource": "evt_1776781990053_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}

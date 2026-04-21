@@ -48,6 +48,9 @@ data/*.MOV
 *.log
 logs/
 
+# Process management
+*.pid
+
 # Test / coverage
 .pytest_cache/
 htmlcov/
