@@ -16,24 +16,51 @@ __pycache__/
 dist/
 build/
 
+# Node / frontend dependencies and build artifacts
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+.vite/
+frontend/data/
+
 # Runtime data (generated at runtime, never committed)
 data/events.json
 data/summary.json
 data/eval.json
 data/thumbnails/
-data/cloud.db
 data/feedback.jsonl
 data/outbound_queue.jsonl
 data/active_learning/pending/
 data/test_suite/results.json
 .test-report.json
 
+# SQLite databases + WAL/SHM sidecars
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
 # Input video (too large for git)
 data/*.mp4
 data/*.mov
 data/*.MOV
 
+# Logs
+*.log
+logs/
+
 # Test / coverage
 .pytest_cache/
 htmlcov/
 .coverage
+coverage/
+
+# Python tool caches
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
