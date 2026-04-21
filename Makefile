@@ -1,4 +1,4 @@
-.PHONY: install dev dev-hot dev-hot-lite dev-stop test test-be test-fe test-all lint typecheck typecheck-mypy generate-types run run-cloud start stop restart status logs docker-build docker-up docker-up-cloud docker-down clean
+.PHONY: install dev dev-hot dev-hot-lite dev-stop test test-be test-fe test-all lint typecheck typecheck-mypy generate-types run run-cloud start start-bg stop restart status logs docker-build docker-up docker-up-cloud docker-down clean
 
 # --- Background dev-server shortcuts ---
 # Terminal equivalents of the /start and /stop Claude Code slash commands.
@@ -104,7 +104,23 @@ dev-hot-lite:
 	( cd frontend && npm run dev ) & FE=$$!; \
 	wait $$BE $$FE
 
+# Foreground start: streams logs to the terminal, Ctrl+C stops the server.
+# Pre-flight frees :$(PORT) and kills stray stream workers so repeated
+# `make start` runs don't hit "Address already in use".
 start:
+	@echo "pre-flight: freeing :$(PORT), killing stray stream workers..."
+	@lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@pkill -9 -f "yt-dlp" 2>/dev/null || true
+	@pkill -9 -f "ffmpeg.*pipe" 2>/dev/null || true
+	@sleep 0.3
+	@echo "starting on http://localhost:$(PORT) — Ctrl+C to stop"
+	@trap 'echo; echo "shutting down..."; kill -TERM 0 2>/dev/null; sleep 0.5; kill -9 0 2>/dev/null; exit 0' INT TERM; \
+	.venv/bin/python start.py --skip-tests --no-browser --port $(PORT)
+
+# Background start: the old behavior. Writes logs to $(LOG_FILE) and the pid to
+# $(PID_FILE) so `make stop` / `make status` / `make logs` can manage it.
+# Use this for long-running demo sessions; use plain `make start` for dev.
+start-bg:
 	@if [ -f "$(PID_FILE)" ] && kill -0 "$$(cat $(PID_FILE))" 2>/dev/null; then \
 		echo "Already running (pid $$(cat $(PID_FILE))). Use 'make stop' first, or 'make restart'."; \
 		exit 1; \
@@ -137,7 +153,7 @@ stop:
 	fi
 	@echo "Stopped."
 
-restart: stop start
+restart: stop start-bg
 
 status:
 	@PID_ALIVE=""; \
