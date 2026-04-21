@@ -5,6 +5,13 @@
  *
  * POC: feeds use plain `/admin/video_feed/...` and `/admin/frame/...` URLs
  * (no signed query params or bearer headers).
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: just the moving picture inside one video tile — the
+ *   camera image itself, no buttons or labels around it.
+ * Backend: MJPEG /admin/video_feed/{id} on HTTPS, or polled
+ *   /admin/frame/{id} JPEG snapshots on HTTP.
  */
 import { useEffect, useRef, useState } from "react";
 

@@ -3,6 +3,23 @@
 These are the "read the live pipeline state" endpoints used by the
 operator UI: header status bar, event list, per-event detail, event
 clip download, and the drift + perception panels.
+
+Every handler in this file is synchronous (``def``, not ``async def``)
+because it only reads in-memory state — no I/O to await. FastAPI still
+runs them without blocking: sync handlers are dispatched to a thread
+pool automatically.
+
+UI connection
+-------------
+Page: DashboardPage — [file](frontend/src/features/dashboard/DashboardPage.tsx)
+       (also AdminPage and the shared event dialog).
+UI element: the header status strip on every page (running flag, frame
+counters, uptime), the dashboard's scene + drift banners, the recent-events
+list, and the "play clip" video that opens when an event card is clicked.
+Backend route(s): GET /api/live/status, GET /api/live/perception,
+GET /api/live/scene, GET /api/drift, GET /api/live/events, GET /api/events,
+GET /api/events/{event_id}, GET /api/events/{event_id}/clip,
+DELETE /api/events.
 """
 
 from pathlib import Path
@@ -23,13 +40,33 @@ from backend.logging import get_logger
 from backend.rendering.clip import render_annotated_event_clip
 from backend.security.rate_limit import clip_rate_limit_check
 from backend.services.llm import llm_configured
-from backend.state import state
+from backend.state import StreamSlot, state
+
+
+def _resolve_slot(source_id: str | None) -> StreamSlot:
+    """Return the slot for ``source_id`` or raise 404.
+
+    Centralises the two-line pattern used by every ``?source_id=`` route —
+    mypy flagged the old inline version for rebinding a variable from
+    ``StreamSlot`` to ``StreamSlot | None`` across branches. Extracting
+    this helper gives us one return path with a single concrete type.
+    """
+    if source_id is None:
+        return state.primary_slot
+    resolved = state.slots.get(source_id)
+    if resolved is None:
+        raise HTTPException(404, f"unknown source: {source_id}")
+    return resolved
 
 log = get_logger(__name__)
 
+# ``APIRouter`` — route grouping container that ``server.py`` mounts.
 router = APIRouter()
 
 
+# ``response_model=LiveStatusResponse`` validates + filters the returned
+# dict through a pydantic model. That shapes the OpenAPI schema for /docs
+# and guarantees the frontend contract.
 @router.get("/api/live/status", response_model=LiveStatusResponse)
 def live_status():
     """Public health + configuration snapshot for the operator UI.
@@ -90,13 +127,11 @@ def live_perception(source_id: str | None = None):
     """Return the perception-quality monitor's current state.
 
     HTTP: GET /api/live/perception[?source_id=<slot>]
+    Query params:
+        source_id: optional; defaults to the primary slot when omitted.
+    Raises: 404 when ``source_id`` is given but unknown.
 """
-    if source_id is None:
-        slot = state.primary_slot
-    else:
-        slot = state.slots.get(source_id)
-        if slot is None:
-            raise HTTPException(404, f"unknown source: {source_id}")
+    slot = _resolve_slot(source_id)
     return slot.quality.state()
 
 
@@ -105,13 +140,10 @@ def live_scene(source_id: str | None = None):
     """Current scene context + adaptive thresholds.
 
     HTTP: GET /api/live/scene[?source_id=<slot>]
+    Returns: label (urban/highway/parking), confidence, ego-flow proxy,
+        and the active risk thresholds that were rescaled for that scene.
 """
-    if source_id is None:
-        slot = state.primary_slot
-    else:
-        slot = state.slots.get(source_id)
-        if slot is None:
-            raise HTTPException(404, f"unknown source: {source_id}")
+    slot = _resolve_slot(source_id)
     ctx = slot.last_scene_ctx
     if ctx is None:
         return {"label": "unknown", "reason": "not yet observed"}
@@ -144,18 +176,25 @@ def live_scene(source_id: str | None = None):
 
 @router.get("/api/drift")
 def api_drift():
-    """Rolling precision report.
+    """Rolling precision report — tracks whether operator-labelled true/false
+    positives are trending over time.
 
     HTTP: GET /api/drift
 """
     return state.drift.compute().as_dict()
 
 
+# ``response_model=list[EventModel]`` — FastAPI validates the return value
+# is a list of events matching ``EventModel`` and uses that in OpenAPI.
 @router.get("/api/live/events", response_model=list[EventModel])
 def live_events(risk_level: str | None = None, event_type: str | None = None, limit: int = 100):
     """Paginated read of live events with optional filters.
 
-    HTTP: GET /api/live/events
+    HTTP: GET /api/live/events[?risk_level=high&event_type=...&limit=100]
+    Query params:
+        risk_level: optional substring match ("high" / "medium" / "low").
+        event_type: optional event-type filter.
+        limit: max records returned (slice of the most recent).
 """
     items = state.recent_events_snapshot()
     if risk_level:
@@ -192,7 +231,9 @@ def event(event_id: str):
     """Look up a single event by id.
 
     HTTP: GET /api/events/{event_id}
-Raises: 404 if no matching event is in the current buffer.
+    Path params:
+        event_id: the opaque event id emitted by the perception pipeline.
+    Raises: 404 if no matching event is in the current buffer.
     """
     ev = state.find_recent_event(event_id)
     if ev is not None:
@@ -214,6 +255,18 @@ def event_clip(
     """Serve a ±N-second MP4 clip centred on the event's timestamp.
 
     HTTP: GET /api/events/{event_id}/clip?before=3&after=3&annotated=1
+    Path params:
+        event_id: the event to clip around.
+    Query params:
+        before/after: seconds of context to include (allowed values only).
+        annotated: when True, draw bounding boxes over the clip.
+    Returns: ``FileResponse`` (video/mp4). First call for a given
+        (event,before,after,annotated) tuple renders + caches; later
+        calls are served from cache.
+    Raises:
+        400 on disallowed before/after values.
+        404 when the event or its source file cannot be located.
+        500 / 504 on ffmpeg failure / timeout.
     """
     import shlex
     import subprocess

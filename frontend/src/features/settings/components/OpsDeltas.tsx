@@ -4,6 +4,11 @@
  * "Lower is better" and "higher is better" are coloured separately:
  * CPU, latency, cost and skip-rate going UP is bad (red); fps going
  * DOWN is bad (red).
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the operations metric deltas section inside the impact card
+ *   (the rows showing fps, CPU, latency, cost and skip-rate before vs after).
  */
 import { Fragment } from "react";
 

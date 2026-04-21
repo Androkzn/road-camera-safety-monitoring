@@ -1,6 +1,17 @@
-"""Long-running asyncio task: periodic attribution safety-score decay.
+"""Background timer that slowly forgets old driver-safety-score events.
 
-Spawned from the lifespan hook. Extracted from ``server.py`` (step 7).
+Every driver in the system has a safety score that goes down when they
+are involved in an incident. To keep yesterday's mistakes from
+permanently dragging today's score down, this file runs a quiet timer
+in the background that nudges all scores back toward neutral on a fixed
+schedule. It does not look at video or detect anything itself.
+
+UI connection
+-------------
+No direct UI — runs inside the perception background tasks. Its output
+eventually appears as the per-driver safety-score numbers shown on the
+fleet dashboard ([DashboardPage.tsx](frontend/src/features/dashboard/DashboardPage.tsx)),
+which would otherwise stay stuck at old values forever.
 """
 
 import asyncio

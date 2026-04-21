@@ -7,8 +7,29 @@ start, background task spawning) lives here.
 
 Extracted from ``server.py`` (step 8). Behaviour unchanged — this is
 the same function body, moved.
+
+Python concept — ``@asynccontextmanager``:
+    A decorator from the stdlib that turns an async generator (a function
+    that uses ``async def`` + ``yield``) into an async context manager.
+    FastAPI calls ``async with lifespan(app):`` under the hood; the
+    startup block runs until ``yield``, then control returns to FastAPI,
+    and the shutdown block runs when the server is stopping.
+
+Python concept — ``asyncio.create_task(coro)``:
+    Schedules an async coroutine to run concurrently in the background.
+    Returns a ``Task`` handle we can later ``.cancel()`` on shutdown to
+    stop the background work cleanly.
+
+UI connection
+-------------
+Page: none directly.
+UI element: No direct UI — runs once at server boot to wire up perception streams whose live frames then appear on AdminPage.
 """
 
+# ``asyncio``   — event loop + background-task primitives.
+# ``threading`` — used for a brief non-async restart worker (perception
+#                 slot restart is heavy and would block the event loop).
+# ``asynccontextmanager`` — decorator: see module docstring.
 import asyncio
 import threading
 from contextlib import asynccontextmanager

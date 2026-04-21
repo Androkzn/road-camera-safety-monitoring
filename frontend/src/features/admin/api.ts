@@ -1,5 +1,13 @@
 /**
  * Admin API surface — health snapshot, live sources lifecycle, history.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: not visible on screen — this is the data-access layer that
+ *   the admin page's hooks call to populate the health pills, the video
+ *   grid tiles, the live event list, and the history list.
+ * Backend: GET /api/admin/health, GET/POST/DELETE /api/live/sources,
+ *   GET /api/live/events.
  */
 import { LIMITS } from "../../shared/config/runtime";
 import { fetchJson } from "../../shared/lib/fetchClient";

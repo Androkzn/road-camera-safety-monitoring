@@ -5,6 +5,16 @@ Three endpoints:
 * ``/stream/events`` — SSE of safety events.
 * ``/chat`` — copilot Q&A over recent events + statute corpus.
 * ``/admin/detections`` — SSE of per-frame detection snapshots.
+
+UI connection
+-------------
+Page: DashboardPage + AdminPage + MonitoringPage —
+       [file](frontend/src/shared/events/EventStreamProvider.tsx)
+UI element: the live event cards (every page subscribes to /stream/events
+through the shared provider); the dashboard's copilot chat input box
+(/chat); and the admin page's per-frame bounding-box overlays
+(/admin/detections SSE feeds the detection panel).
+Backend route(s): GET /stream/events, POST /chat, GET /admin/detections.
 """
 
 import asyncio

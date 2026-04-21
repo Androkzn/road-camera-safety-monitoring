@@ -5,6 +5,19 @@ Writes dual thumbnails to disk and schedules :func:`emit_event` on the
 asyncio loop.
 
 Extracted from ``server.py`` (step 7).
+
+UI connection
+-------------
+Page: [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — runs at the moment a multi-frame conflict
+       episode finishes, packages its peak frame into a typed event, and
+       writes the two thumbnails (internal + redacted public) to disk.
+       That event becomes one incident card in the Monitoring feed, with
+       the public thumbnail shown as the card's preview image.
+Data flow: Episode peak frame -> flush_episode() writes thumbnails +
+       builds event dict -> schedules emit_event() on the asyncio loop
+       -> SSE broadcast -> consumed by useEvents hook -> rendered as an
+       incident card with thumbnail (MonitoringPage).
 """
 
 import asyncio

@@ -80,6 +80,10 @@ def _match(
       * FP counts only detections whose own risk/type falls in the slice
       * FN counts only labels whose own risk/type falls in the slice
     A TP requires a joint match within each slice.
+
+    The ``*`` in the signature makes ``risk_filter`` and ``event_type_filter``
+    keyword-only — callers must write ``_match(..., risk_filter="high")``
+    rather than passing the value positionally. This prevents mix-ups.
     """
     def keep_event(ev: dict) -> bool:
         if event_type_filter and ev.get("event_type") != event_type_filter:
@@ -126,6 +130,14 @@ def _match(
 
 
 def _prf(tp: int, fp: int, fn: int) -> dict:
+    """Compute precision, recall, and F1 from raw TP/FP/FN counts.
+
+    precision = TP / (TP + FP)   — how often alerts were correct.
+    recall    = TP / (TP + FN)   — how many real events we caught.
+    F1        = harmonic mean; single number that falls hard when either
+                precision or recall collapses to 0.
+    The ``if (tp + fp)`` guard avoids ZeroDivisionError on empty slices.
+    """
     p = tp / (tp + fp) if (tp + fp) else 0.0
     r = tp / (tp + fn) if (tp + fn) else 0.0
     f1 = 2 * p * r / (p + r) if (p + r) else 0.0
@@ -171,17 +183,25 @@ def evaluate_clip(events: list[dict], labels: list[dict]) -> dict:
 # Dataclasses
 # ---------------------------------------------------------------------------
 
+# ``@dataclass`` auto-generates __init__, __repr__, __eq__ from the field
+# annotations below. Zero-boilerplate alternative to writing those by hand.
 @dataclass
 class ClipResult:
+    """Per-clip eval outcome (one entry in the suite report)."""
+
     name: str
     counts: dict
     by_risk: dict
     by_event_type: dict
     overall: dict
     latency: dict
+    # ``field(default_factory=list)`` creates a fresh list *per instance*.
+    # Using ``= []`` directly would share the same list across every
+    # instance — a classic Python footgun.
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
+        """Serialise to a plain dict for JSON output."""
         return {
             "name": self.name,
             "counts": self.counts,
@@ -195,11 +215,14 @@ class ClipResult:
 
 @dataclass
 class SuiteReport:
+    """Aggregate report covering every clip in a manifest run."""
+
     clips: list[ClipResult]
     macro: dict
     generated_at: str
 
     def to_dict(self) -> dict:
+        """Serialise the whole suite to JSON-ready dict."""
         return {
             "generated_at": self.generated_at,
             "macro": self.macro,
@@ -207,6 +230,7 @@ class SuiteReport:
         }
 
     def to_markdown(self) -> str:
+        """Render a compact Markdown table for the terminal + CI logs."""
         header = (
             "| clip | overall-P | overall-R | overall-F1 | high-R | "
             "med-FP-rate | events/sec | flags |\n"
@@ -259,6 +283,11 @@ class SuiteReport:
 # ---------------------------------------------------------------------------
 
 def run_single_clip() -> int:
+    """Evaluate a single pre-computed events.json against a labels.json.
+
+    Reads whatever is already on disk (no analyze.py run here), prints and
+    writes ``data/eval.json`` in the legacy shape. Returns an int exit code.
+    """
     events_path = DATA_DIR / "events.json"
     labels_path = DATA_DIR / "labels.json"
     if not events_path.exists():
@@ -298,6 +327,10 @@ def _run_analyze(video_path: Path) -> tuple[float, int | None, float | None, str
 
     frames / analyze_sec are extracted from analyze.py stdout regex, so they
     reflect processing work rather than python startup.
+
+    ``subprocess.run`` with ``capture_output=True`` buffers stdout+stderr and
+    returns them on the ``CompletedProcess`` object; ``text=True`` decodes
+    bytes to str.
     """
     started = time.time()
     proc = subprocess.run(
@@ -322,6 +355,12 @@ def _run_analyze(video_path: Path) -> tuple[float, int | None, float | None, str
 
 
 def _evaluate_one(clip: dict) -> ClipResult:
+    """Run analyze.py on one clip, compare against its labels, return a ClipResult.
+
+    Any failure (missing video, missing labels, analyze.py crash) becomes a
+    warning on the result rather than an exception — keeps the rest of the
+    suite running.
+    """
     name = clip.get("name") or Path(clip.get("video", "unknown")).stem
     video_path = (ROOT / clip["video"]).resolve() if "video" in clip else None
     labels_path = (ROOT / clip["labels"]).resolve() if "labels" in clip else None
@@ -406,6 +445,12 @@ def _evaluate_one(clip: dict) -> ClipResult:
 
 
 def _macro(clips: Iterable[ClipResult]) -> dict:
+    """Macro-average precision/recall/F1 across clips (equal weight per clip).
+
+    ``statistics.fmean`` is the standard-library arithmetic mean; we treat
+    every clip as a single data point so a tiny clip doesn't drown in a
+    large one.
+    """
     clips = [c for c in clips if not c.warnings or c.counts["tp"] + c.counts["fp"] + c.counts["fn"] > 0]
     if not clips:
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "n_clips": 0}
@@ -421,6 +466,7 @@ def _macro(clips: Iterable[ClipResult]) -> dict:
 
 
 def run_suite(manifest_path: Path) -> int:
+    """Run every clip in ``manifest_path``, write the JSON report, print a table."""
     if not manifest_path.exists():
         print(
             f"Manifest not found: {manifest_path}\n"
@@ -461,7 +507,12 @@ def run_suite(manifest_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 def _flat_metrics(report: dict) -> dict[str, float]:
-    """Flatten macro + per-clip overall metrics into dotted keys."""
+    """Flatten macro + per-clip overall metrics into dotted keys.
+
+    Example keys: ``macro.precision``, ``clip1.overall.f1``,
+    ``clip1.risk.high.recall``. Flattening lets us diff baseline-vs-current
+    with a single dict comparison.
+    """
     out: dict[str, float] = {}
     macro = report.get("macro", {})
     for k in ("precision", "recall", "f1"):
@@ -481,6 +532,11 @@ def _flat_metrics(report: dict) -> dict[str, float]:
 
 
 def run_compare(baseline_path: Path, current_path: Path) -> int:
+    """Diff two suite reports; nonzero exit if any metric dropped by >3%.
+
+    Handy as a CI gate — wire it into the pipeline so PRs that regress
+    precision on any clip fail automatically.
+    """
     if not baseline_path.exists():
         print(f"Baseline not found: {baseline_path}", file=sys.stderr)
         return 2
@@ -525,6 +581,11 @@ def run_compare(baseline_path: Path, current_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI dispatcher — picks single-clip vs suite vs compare from flags.
+
+    ``argparse`` auto-generates ``--help``; each ``add_argument`` defines
+    one flag with its type, default, and help text.
+    """
     parser = argparse.ArgumentParser(description="Road-safety eval harness")
     parser.add_argument(
         "--suite",

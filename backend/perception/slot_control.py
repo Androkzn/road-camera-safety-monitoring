@@ -6,6 +6,20 @@ callback is produced by :func:`make_on_frame`, which closes over the
 perception hot path in :mod:`perception.on_frame`.
 
 Extracted from ``server.py`` (step 7).
+
+UI connection
+-------------
+Page: [AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx)
+UI element: No direct UI — controls which camera slots are actively
+       capturing frames at any moment. Its effect is what the operator
+       sees on the Admin page's multi-source grid: starting a slot makes
+       a new live tile appear (and start producing frames), stopping a
+       slot freezes / removes that tile, pause / resume toggles whether
+       the tile is updating.
+Data flow: Operator clicks start/stop on a source -> /admin route calls
+       start_slot() / stop_slot() -> StreamReader thread is spawned or
+       killed -> live tile on AdminPage starts or stops receiving JPEGs
+       via the MJPEG / polling endpoints.
 """
 
 from backend.config import TARGET_FPS

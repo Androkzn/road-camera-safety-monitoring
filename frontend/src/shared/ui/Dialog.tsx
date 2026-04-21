@@ -21,6 +21,14 @@
  * Both APIs return promises so callers can `await` the operator's
  * choice. Built on the native <dialog> element for focus management,
  * Esc-to-cancel, and a11y baked in.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (global layout) — the provider is mounted once near
+ *   the app root, and any feature on AdminPage, DashboardPage,
+ *   MonitoringPage, SettingsPage or ValidationPage can call useDialog().
+ * UI element: themed modal dialog overlay with a title, message body and
+ *   one or two action buttons; replaces the native window.alert /
+ *   window.confirm boxes.
  */
 
 import {
@@ -54,8 +62,16 @@ export interface DialogApi {
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
 }
 
+// Module-local reference to the currently mounted provider's API.
+// Lets non-component callers (helpers, interceptors) go through `dialog`
+// without needing access to React context / hooks.
 let _dialogApi: DialogApi | null = null;
 
+/**
+ * Module-level singleton — works from anywhere (including outside React).
+ * Falls back to native `window.alert`/`confirm` if no provider is mounted,
+ * so helper code never crashes just because the tree isn't ready.
+ */
 export const dialog: DialogApi = {
   alert: (opts) => {
     if (!_dialogApi) {
@@ -77,6 +93,11 @@ export const dialog: DialogApi = {
 
 const DialogContext = createContext<DialogApi | null>(null);
 
+/**
+ * Hook for components — returns the provider's API if one is mounted,
+ * otherwise falls back to the module singleton (which itself falls back
+ * to native browser dialogs).
+ */
 export function useDialog(): DialogApi {
   const ctx = useContext(DialogContext);
   if (ctx) return ctx;
@@ -92,8 +113,16 @@ interface QueueEntry {
 
 let _entryCounter = 0;
 
+/**
+ * DialogProvider — mount once near the app root. Owns the queue of
+ * pending alerts/confirms and renders the single native <dialog> element
+ * that shows the top-of-queue entry.
+ */
 export function DialogProvider({ children }: { children: ReactNode }) {
+  // Queue of pending dialogs — we show them one at a time in FIFO order.
   const [queue, setQueue] = useState<QueueEntry[]>([]);
+  // `useRef` gives us a mutable pointer to the DOM <dialog> element
+  // without triggering re-renders when it's assigned.
   const dialogRef = useRef<HTMLDialogElement | null>(null);
 
   const api = useMemo<DialogApi>(

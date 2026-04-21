@@ -19,6 +19,11 @@ Hot-path code reads it via ``STORE.snapshot()`` (returns a frozen
 The store is a process-wide singleton (``STORE`` at the bottom of the file).
 There is exactly one settings snapshot per edge process — out-of-scope for
 v1: HA / multi-instance with leader election (see plan §S2).
+
+UI connection
+-------------
+Page: SettingsPage ([SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx)).
+UI element: Powers every tunable slider/input on the Settings page.
 """
 
 from __future__ import annotations

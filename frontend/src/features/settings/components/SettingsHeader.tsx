@@ -1,5 +1,14 @@
 /**
- * SettingsHeader — page title + Discard / Apply action bar.
+ * The header strip at the top of the Settings page.
+ *
+ * Shows the page title "Settings", a small "X pending changes" counter, and the
+ * two main buttons: Discard (throws away unsaved edits) and Apply (saves them).
+ * Both buttons stay disabled until the operator changes at least one slider.
+ *
+ * Page: SettingsPage
+ *   ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the title row at the very top of the page, with the Discard
+ *   and Apply buttons on the right.
  */
 import styles from "../SettingsPage.module.css";
 

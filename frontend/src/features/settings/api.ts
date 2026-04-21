@@ -1,5 +1,13 @@
 /**
  * Settings API — `/api/settings/*` (POC: unauthenticated).
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: No direct UI — wraps the settings endpoints used across the
+ *   SettingsPage (schema fetch, current values, validate, apply, impact).
+ * Backend: GET /api/settings/schema, GET /api/settings/effective,
+ *   POST /api/settings/validate, POST /api/settings/apply,
+ *   GET /api/settings/impact.
  */
 import { apiFetch } from "../../shared/lib/fetchClient";
 

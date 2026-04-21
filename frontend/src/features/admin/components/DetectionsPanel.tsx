@@ -29,6 +29,13 @@
  *   - Inline conditional rendering with the `&&` short-circuit
  *   - CSS Modules (`styles.foo`) + template-string class composition
  *   - Pure component: no state, no effects — output is a function of props
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: the right-hand "Detections" tab — a scrolling list that
+ *   shows, for each recent video frame, what objects the perception
+ *   pipeline saw (class, confidence, track id, bbox size).
+ * Backend: indirectly SSE /admin/detections (data is fed in via props).
  */
 
 // TEACH: `import type { ... }` imports ONLY TypeScript types. It is erased

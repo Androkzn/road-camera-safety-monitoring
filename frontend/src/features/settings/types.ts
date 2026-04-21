@@ -3,6 +3,11 @@
  *
  * Cross-feature types stay in `shared/types/common.ts`; everything in
  * here is consumed only by the Settings page.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: No direct UI — TypeScript type definitions used by the
+ *   SettingsPage components, hooks and api wrappers.
  */
 
 export type SettingType = "float" | "int" | "bool" | "str" | "enum";

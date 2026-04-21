@@ -4,35 +4,66 @@
  * formatting shared between EventsPanel (shadow-only list + dialog copy)
  * and EventRow.
  *
- * No JSX, no React imports, no side effects — strict TS.
+ * No JSX, no React imports, no side effects — strict TS. Keeping these
+ * as plain functions (not hooks) makes them trivially unit-testable.
  */
 import type { SafetyEvent, WatchdogFinding } from "../../../shared/types/common";
 
+/**
+ * Grace window (ms) — how long we wait for the validator to weigh in
+ * before flipping an event from "Pending" to "Verified". 5s matches
+ * the typical validator job latency under load.
+ */
 export const VERIFY_GRACE_MS = 5_000;
 
+/**
+ * `Verdict` is a TypeScript "string literal union": the type is
+ * exactly one of these three strings. The compiler will reject any
+ * other value. Cheaper and tighter than an enum for this case.
+ */
 export type Verdict = "verified" | "disputed" | "pending";
 
+/**
+ * Parsed contents of a validator WatchdogFinding — what kind of
+ * disagreement it is, plus the two labels to display.
+ */
 export interface DisputeInfo {
   kind: string;
   primary?: string;
   secondary?: string;
 }
 
+/**
+ * A SafetyEvent annotated with the UI's verdict decision. `dispute` is
+ * populated only when `verdict === "disputed"`.
+ */
 export interface PanelEvent {
   ev: SafetyEvent;
   verdict: Verdict;
   dispute?: DisputeInfo;
 }
 
+/**
+ * Turn snake_case backend identifiers into space-separated words for UI.
+ * Returns an em-dash for missing values so the UI never shows "undefined".
+ */
 export function humanize(value: string | undefined): string {
   if (!value) return "—";
   return value.replace(/_/g, " ");
 }
 
+/**
+ * Look up a named evidence field from a watchdog finding. Returns
+ * `undefined` when the finding lacks evidence or that label isn't present.
+ */
 export function evidenceGet(f: WatchdogFinding, label: string): string | undefined {
   return f.evidence?.find((e) => e.label === label)?.value;
 }
 
+/**
+ * Extract a {@link DisputeInfo} from a validator-category finding.
+ * The dispute kind is encoded in the finding's fingerprint suffix.
+ */
 export function parseDispute(f: WatchdogFinding): DisputeInfo {
   const fp = f.fingerprint ?? "";
   let kind = "disagreement";
@@ -46,6 +77,10 @@ export function parseDispute(f: WatchdogFinding): DisputeInfo {
   };
 }
 
+/**
+ * Render an ISO timestamp as HH:MM:SS in the browser's locale. Falls
+ * back to the raw string if parsing throws (malformed input).
+ */
 export function formatTime(ts?: string): string {
   if (!ts) return "—";
   try {

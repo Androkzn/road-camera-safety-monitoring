@@ -14,6 +14,22 @@
  * NOTE: this hook is meant to be called from inside a tile component
  * (scoped to one source id). The registry-level restart/add/remove
  * helpers live in `useStreamRegistry`.
+ *
+ * React/TS concepts first introduced in this file:
+ *   - `useMutation` — TanStack Query's counterpart to `useQuery`, for
+ *     writes. Provides `mutate()`, `isPending`, `onMutate`/`onError`/
+ *     `onSettled` hooks for optimistic UI.
+ *   - `useQueryClient` — handle to the shared query cache, used here to
+ *     read-then-patch cached data before the server round-trip.
+ *   - Generic type arguments on `useMutation<TData, TError, TVars, TCtx>`.
+ *   - Optimistic updates + rollback via a per-mutation `onMutate` ctx.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: not visible on screen — this is the actions hook behind
+ *   the start, pause, and "detection on/off" toggle buttons on each
+ *   individual video tile.
+ * Backend: POST /api/live/sources/{id}/start, /pause, /detection.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -38,13 +54,24 @@ export interface UseStreamControlResult {
   detectionPending: boolean;
 }
 
+// TEACH: The shape of the context object that each `onMutate` returns
+// and `onError`/`onSettled` receive. It carries the snapshot we took
+// before the optimistic patch, so we can roll back cleanly on failure.
 interface OptimisticCtx {
   previous: LiveSourcesResponse | undefined;
 }
 
+/**
+ * Wire up lifecycle mutations for one source slot (by id).
+ * Returns typed `start`/`pause`/`setDetection` callbacks plus a `busy`
+ * union and individual `isPending` flags for fine-grained UI states.
+ */
 export function useStreamControl(sourceId: string): UseStreamControlResult {
+  // `useQueryClient` exposes the same cache `useQuery` reads/writes.
   const qc = useQueryClient();
 
+  // Snapshot + optimistic patch: flip `running` for THIS source in the
+  // cached list, return the pre-patch snapshot so we can restore it.
   const patchRunning = (running: boolean): OptimisticCtx => {
     const previous = qc.getQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources);
     qc.setQueryData<LiveSourcesResponse>(adminQueryKeys.liveSources, (prev) =>
@@ -83,6 +110,12 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
     void qc.invalidateQueries({ queryKey: adminQueryKeys.liveSources });
   };
 
+  // TEACH: `useMutation<TData, TError, TVars, TCtx>` generics:
+  //   TData   — what mutationFn resolves with (we ignore it → unknown).
+  //   TError  — error class the handlers receive.
+  //   TVars   — argument type of `.mutate(…)` (void → no argument).
+  //   TCtx    — context object returned by onMutate and fed to
+  //             onError/onSettled for rollback.
   const startMutation = useMutation<unknown, Error, void, OptimisticCtx>({
     mutationFn: () => adminApi.startLiveSource(sourceId),
     onMutate: () => patchRunning(true),
@@ -118,6 +151,8 @@ export function useStreamControl(sourceId: string): UseStreamControlResult {
     onSettled: invalidateList,
   });
 
+  // Collapse two `isPending` booleans into a single union so templates
+  // can render "Starting…" / "Pausing…" labels off one variable.
   const busy: StreamBusyAction = startMutation.isPending
     ? "starting"
     : pauseMutation.isPending

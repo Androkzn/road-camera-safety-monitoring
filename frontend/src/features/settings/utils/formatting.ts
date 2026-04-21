@@ -3,6 +3,11 @@
  *
  * Numeric formatting, key humanization, label lookups, source shortening,
  * tier-class picker. Pure functions — no React.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: No direct UI — helpers used by the SettingsPage components
+ *   to format numbers, labels and confidence tier styles.
  */
 import {
   METRIC_LABELS,

@@ -1,20 +1,31 @@
 /**
  * TestBadge — pill summarising the latest pytest run, slotted into TopBar.
+ *
+ * Four visual states: idle / running / passed / failed. While running
+ * shows a percentage; after a run shows pass/fail counts.
  */
+// `ReactNode` is the TS type for "anything renderable in JSX": a string,
+// a number, an element, a fragment, an array of those, etc.
 import type { ReactNode } from "react";
 
 import type { TestStatus } from "../../../shared/types/common";
 
 import styles from "./TestBadge.module.css";
 
+/** Props for {@link TestBadge}. */
 interface TestBadgeProps {
   status: TestStatus | null;
   onClick: () => void;
 }
 
+/**
+ * Render the TopBar test-results pill. Click opens the {@link TestDrawer}.
+ */
 export function TestBadge({ status, onClick }: TestBadgeProps) {
   const state = status?.status ?? "idle";
 
+  // Mutable locals populated by the state machine below — a lightweight
+  // alternative to useMemo when the derivation is this trivial.
   let label = "Tests";
   let countsContent: ReactNode = null;
 
@@ -24,6 +35,7 @@ export function TestBadge({ status, onClick }: TestBadgeProps) {
     countsContent = <span>{pct}%</span>;
   } else if (state === "passed" || state === "failed") {
     label = state === "passed" ? "Passed" : "Failed";
+    // Fragment `<>...</>` lets us return multiple siblings without a wrapper div.
     countsContent = (
       <>
         <span className={styles.cntPass}>{status?.passed ?? 0}</span>

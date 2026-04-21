@@ -1,8 +1,13 @@
 /**
  * WatchdogDrawer — side panel that lists current watchdog findings.
  * Triage-oriented (grouped, filtered, bulk-actionable) per CLAUDE.md.
+ *
+ * Design goal per CLAUDE.md: this is an *incident queue*, not a log
+ * tail — grouped by category, filterable by severity, with bulk
+ * select + delete for triage workflows.
  */
 
+// `useState` — component-local state; `useCallback` — memoized callbacks.
 import { useState, useCallback } from "react";
 
 import { THRESHOLDS } from "../../../shared/config/runtime";
@@ -11,6 +16,7 @@ import { useDialog } from "../../../shared/ui";
 
 import styles from "./WatchdogDrawer.module.css";
 
+// Severity → icon and sort priority (error first).
 const SEV_ICON: Record<string, string> = {
   error: "!!",
   warning: "!",
@@ -18,12 +24,19 @@ const SEV_ICON: Record<string, string> = {
 };
 const SEV_ORDER: Record<string, number> = { error: 0, warning: 1, info: 2 };
 
+/** String-literal union covering the four filter states. */
 type SevFilter = "all" | "error" | "warning" | "info";
 
+/**
+ * Stable unique key for a finding — findings lack a dedicated id field,
+ * so we synthesise one from snapshot id + timestamp for React list keys
+ * and Set-based selection tracking.
+ */
 function findingKey(f: WatchdogFinding): string {
   return `${f.snapshot_id}_${f.ts}`;
 }
 
+/** Props for {@link WatchdogDrawer}. */
 interface WatchdogDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -33,6 +46,11 @@ interface WatchdogDrawerProps {
   onClearAll?: () => Promise<void>;
 }
 
+/**
+ * Slide-in drawer showing watchdog findings. Uses four pieces of local
+ * state: active severity filter, multi-select mode toggle, the selection
+ * set, and an in-flight flag to disable buttons during deletes.
+ */
 export function WatchdogDrawer({
   open,
   onClose,
@@ -41,6 +59,7 @@ export function WatchdogDrawer({
   onDeleteSelected,
   onClearAll,
 }: WatchdogDrawerProps) {
+  // Generic `useState<Set<string>>` types the Set by its element type.
   const [filter, setFilter] = useState<SevFilter>("all");
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -52,8 +71,13 @@ export function WatchdogDrawer({
   const total = status?.total_findings ?? 0;
   const lastAgo = status?.last_run_ago_sec;
 
+  // Click a filter tile to toggle it; click it again to clear back to "all".
+  // Passing a function to `setFilter` reads the previous value safely
+  // without stale-closure bugs.
   const toggle = (sev: SevFilter) => setFilter((prev) => (prev === sev ? "all" : sev));
 
+  // Spread into a new array before sorting — `.sort` mutates in place,
+  // and mutating React state (or prop data) is a hard rule violation.
   const allFindings = [...(findings ?? [])].sort((a, b) => {
     const sevDiff = (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9);
     if (sevDiff !== 0) return sevDiff;
@@ -75,6 +99,9 @@ export function WatchdogDrawer({
     setSelected(new Set());
   }, []);
 
+  // Immutable set toggle — clone, mutate the clone, return it. React
+  // uses referential equality to detect state changes, so returning
+  // the *same* Set would be a no-op even after .add/.delete.
   const toggleSelect = useCallback((key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -294,6 +321,10 @@ export function WatchdogDrawer({
   );
 }
 
+/**
+ * FilterTile — a clickable severity-count tile in the drawer header.
+ * Inline prop type since it's file-local.
+ */
 function FilterTile({
   label,
   value,

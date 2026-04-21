@@ -11,6 +11,12 @@ Why ``compliance/`` and not ``services/``?
     code that enforces privacy / retention / audit invariants. Keeping
     the plate scrub next to ``audit.py`` and ``retention.py`` makes the
     package's purpose legible from the directory tree alone.
+
+UI connection
+-------------
+Page: No page
+UI element: No direct UI — helper that scrubs raw plate text out of
+       enrichment dicts before they reach any buffer.
 """
 
 import logging

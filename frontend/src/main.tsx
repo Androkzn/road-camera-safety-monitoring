@@ -6,6 +6,10 @@
  *    Watchdog, Dialog) — see `app/providers.tsx` for ordering rationale.
  * 3. <StrictMode> stays on so React's dev-time double-invocation
  *    surfaces missing effect cleanups.
+ *
+ * --- UI mapping ---
+ * Scope: app-wide (affects every page)
+ * UI element: no visible element on its own — boots the React tree into <div id='root'>
  */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

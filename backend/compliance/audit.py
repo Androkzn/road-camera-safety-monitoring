@@ -68,6 +68,13 @@ Python idioms used in this file (one-line explanations)
   (disk full, permission denied, etc.) silently here because a broken
   audit log must not break the surrounding request; the alternative is
   losing user-facing functionality for a logging hiccup.
+
+UI connection
+-------------
+Page: No page
+UI element: No direct UI — backing store for the audit log; the records are
+       exposed through the ``/api/audit`` endpoint for admin tooling, but no
+       page in the current frontend renders them.
 """
 
 from __future__ import annotations

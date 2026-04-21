@@ -1,5 +1,16 @@
 /**
- * SettingsPage — operator-facing tuning console (orchestrator).
+ * The Settings page itself — the screen operators use to tune the system.
+ *
+ * This is the whole page layout: a top bar, a left column of tunable sliders
+ * grouped by category, and a right column with the impact card and a small
+ * live-video preview. It glues together every other file in this folder.
+ *
+ * Page: SettingsPage
+ *   ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the entire Settings page (everything between the top bar and the
+ *   bottom of the screen).
+ * Backend: GET /api/settings/schema, GET /api/settings/effective,
+ *   POST /api/settings/apply, GET /api/settings/impact, GET /api/live/status.
  */
 
 import { useMemo } from "react";

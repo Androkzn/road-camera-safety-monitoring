@@ -8,6 +8,27 @@
  * directly off the video's actual playhead — so when the operator pauses
  * a stream, ``playback_pos_sec`` stops advancing and the marker freezes
  * with it. No 5 s polling drift.
+ *
+ * Why a custom hook? All the SSE plumbing + rolling-window bookkeeping
+ * lives here so pages can just read `{ frames, stats, playheads }`.
+ *
+ * React/TS concepts first introduced in this file:
+ *   - `useState` with a typed generic (`useState<Record<string, ...>>`).
+ *   - `useRef` for mutable data that must NOT trigger re-renders (the
+ *     fps counter — updating it 30× / sec should not re-render the tree).
+ *   - `useCallback` to memoise the SSE message handler so `useSSE`
+ *     doesn't re-subscribe on every render.
+ *   - SSE (Server-Sent Events): one-way HTTP stream from server to
+ *     browser. The `useSSE` shared hook opens the `EventSource` and
+ *     invokes `onMessage` for each parsed JSON chunk.
+ *   - TypeScript `Record<K, V>` — shorthand for `{ [key: K]: V }`.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: not visible on screen — this is the streaming data hook
+ *   that feeds the "Detections" tab list, the per-frame counters in the
+ *   header, and the playback-position marker on the map.
+ * Backend: SSE /admin/detections.
  */
 import { useState, useCallback, useRef } from "react";
 
@@ -27,7 +48,16 @@ export interface PlayheadSample {
   receivedAtMs: number;
 }
 
+/**
+ * Subscribe to the detections SSE feed. Returns:
+ *   - `frames`:    newest-first list of snapshots that carried ≥1 object.
+ *   - `stats`:     latest aggregate counters + computed fps.
+ *   - `playheads`: map of source_id → latest MP4 playback sample.
+ */
 export function useDetections() {
+  // TEACH: `useState<T>(initial)` declares a piece of component state.
+  // The generic `<T>` tells TypeScript the type; `setFrames` is the
+  // only way to change it (mutating the array directly does nothing).
   const [frames, setFrames] = useState<DetectionSnapshot[]>([]);
   const [stats, setStats] = useState({
     detections: 0,
@@ -41,8 +71,15 @@ export function useDetections() {
   // overwrites only its own source key — slots stay independent.
   const [playheads, setPlayheads] = useState<Record<string, PlayheadSample>>({});
 
+  // TEACH: `useRef` holds a *mutable* value across renders WITHOUT
+  // triggering a re-render when it changes. Perfect for counters,
+  // timers, DOM handles — anything that isn't part of the rendered UI.
   const fpsCounterRef = useRef({ count: 0, start: Date.now() });
 
+  // TEACH: `useCallback` memoises a function identity so it's stable
+  // across renders. `useSSE` uses this reference as a dependency; an
+  // unstable callback would tear down + recreate the EventSource on
+  // every render (expensive and would lose in-flight events).
   const onMessage = useCallback((msg: DetectionSnapshot) => {
     const counter = fpsCounterRef.current;
     counter.count++;
@@ -100,6 +137,9 @@ export function useDetections() {
     }
   }, []);
 
+  // TEACH: `useSSE<T>` opens an `EventSource` (browser SSE primitive)
+  // against the given URL and calls `onMessage(parsed)` for each frame.
+  // `<DetectionSnapshot>` is a generic — it types `msg` above.
   useSSE<DetectionSnapshot>({ url: "/admin/detections", onMessage });
 
   return { frames, stats, playheads };

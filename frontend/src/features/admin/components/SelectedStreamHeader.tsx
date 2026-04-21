@@ -5,12 +5,29 @@
  * Sits between TopBar and HealthStrip on the Admin page. Lets operators
  * see the chosen camera's identity, running state, throughput, and
  * perception health without having to scan the tile grid.
+ *
+ * React/TS concepts first introduced in this file:
+ *   - `interface Props` with optional `?` fields and callback props.
+ *   - Custom hook consumption (`useUptimeTicker`) for a live-ticking value.
+ *   - Nullish coalescing `??` vs `||` (the former only falls back on
+ *     null/undefined — safer for "0 is valid" numbers).
+ *   - Inline component declared below its parent (hoisting: `function`
+ *     declarations are available everywhere in the module).
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: the title strip above the focused stream — shows the
+ *   selected camera's name, hostname, running/paused state, uptime, and
+ *   throughput numbers, plus a small "focused" badge when a tile was
+ *   explicitly selected.
  */
 import { useUptimeTicker } from "../../../shared/hooks/useUptimeTicker";
 import type { LiveSourceStatus } from "../../../shared/types/common";
 
 import styles from "./SelectedStreamHeader.module.css";
 
+/** Collapse any URL to its bare hostname for the header's subtitle.
+ *  Falls back to a truncated raw string if the URL parser throws. */
 function shortHost(url: string): string {
   if (!url) return "—";
   try {
@@ -20,6 +37,7 @@ function shortHost(url: string): string {
   }
 }
 
+/** Human-format a duration in seconds as "1h 2m 3s" / "2m 3s" / "5s". */
 function formatUptime(secs: number): string {
   if (!Number.isFinite(secs) || secs <= 0) return "0s";
   const s = Math.floor(secs % 60);
@@ -30,6 +48,9 @@ function formatUptime(secs: number): string {
   return `${s}s`;
 }
 
+// TEACH: Union type `LiveSourceStatus | null` explicitly models the
+// "no source yet" case so consumers must handle it — TypeScript will
+// error if you try to read `.name` on a value that might be `null`.
 interface SelectedStreamHeaderProps {
   source: LiveSourceStatus | null;
   // True when the source was chosen by an explicit tap; false when we
@@ -37,9 +58,17 @@ interface SelectedStreamHeaderProps {
   isFocused: boolean;
   // Total configured sources — shown next to the name as context.
   totalSources: number;
+  // TEACH: `() => void` is the type of a callback with no args and no
+  // return value. The `?` makes it optional — the clear button is only
+  // rendered when the parent wires a handler.
   onClear?: () => void;
 }
 
+/**
+ * Renders the stream-identity bar. The component is data-light (no
+ * fetching) — parents pass in the currently selected source and a
+ * clear handler.
+ */
 export function SelectedStreamHeader({
   source,
   isFocused,
@@ -131,6 +160,11 @@ export function SelectedStreamHeader({
   );
 }
 
+// TEACH: Inline Props type — instead of a named `interface`, the props
+// shape is written directly in the parameter list. Fine for tiny
+// private components like this; prefer a named interface once the
+// component is exported or grows past a few props.
+/** Single label/value pill in the stats row. `warn` adds an error tint. */
 function Stat({
   label,
   value,

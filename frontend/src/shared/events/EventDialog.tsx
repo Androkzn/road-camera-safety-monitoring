@@ -22,10 +22,16 @@ export interface EventDialogProps {
   onClose: () => void;
 }
 
+/**
+ * EventDialog — full-screen details modal. Pass `event={null}` to hide.
+ */
 export function EventDialog({ event, disputeLabel, disputeBody, onClose }: EventDialogProps) {
+  // `useRef` stores a live reference to the <video> DOM node without
+  // triggering re-renders when it's assigned.
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [clipFailed, setClipFailed] = useState(false);
 
+  // Reset the fallback-to-thumbnail flag when switching events.
   useEffect(() => {
     setClipFailed(false);
   }, [event?.event_id]);
@@ -37,9 +43,12 @@ export function EventDialog({ event, disputeLabel, disputeBody, onClose }: Event
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
+    // Cleanup: remove the listener on unmount / before re-running.
     return () => window.removeEventListener("keydown", onKey);
   }, [event, onClose]);
 
+  // `useMemo` rebuilds the URL only when `event` changes — avoids a
+  // pointless string concat on every unrelated re-render.
   const clipUrl = useMemo(
     () =>
       event
@@ -214,6 +223,7 @@ export function EventDialog({ event, disputeLabel, disputeBody, onClose }: Event
   );
 }
 
+/** Cell — one label/value pair inside the details grid. Local helper. */
 function Cell({ label, value }: { label: string; value: string }) {
   return (
     <div className={styles.cell}>

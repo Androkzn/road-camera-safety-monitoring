@@ -15,17 +15,22 @@ from backend.core.validator import (
 # ── _iou ────────────────────────────────────────────────────────────
 
 class TestIoU:
+    """Intersection-over-Union helper — the metric the comparator uses to match boxes."""
+
     def test_identical_boxes(self):
+        """Same box vs itself → IoU = 1.0."""
         a = Detection(cls="car", conf=0.9, x1=10, y1=10, x2=50, y2=50)
         b = Detection(cls="car", conf=0.9, x1=10, y1=10, x2=50, y2=50)
         assert _iou(a, b) == 1.0
 
     def test_disjoint_boxes(self):
+        """Non-overlapping boxes → IoU = 0.0."""
         a = Detection(cls="car", conf=0.9, x1=0, y1=0, x2=10, y2=10)
         b = Detection(cls="car", conf=0.9, x1=20, y1=20, x2=30, y2=30)
         assert _iou(a, b) == 0.0
 
     def test_partial_overlap(self):
+        """Small overlap between larger boxes produces a small positive IoU."""
         a = Detection(cls="car", conf=0.9, x1=0, y1=0, x2=10, y2=10)
         b = Detection(cls="car", conf=0.9, x1=5, y1=5, x2=15, y2=15)
         # intersection=25, union=175 → 0.1428...
@@ -35,7 +40,14 @@ class TestIoU:
 # ── Rule A: false positive ──────────────────────────────────────────
 
 class TestFalsePositive:
+    """Rule A: primary model said "event", secondary saw nothing matching."""
+
     def _event(self, **overrides):
+        """Helper: build a standard event dict and override any fields by kwarg.
+
+        ``**overrides`` unpacks arbitrary keyword args into the function as a
+        dict — convenient sugar for "same defaults but change these fields".
+        """
         base = {
             "event_id": "evt_test_0001",
             "event_type": "pedestrian_proximity",
@@ -47,6 +59,7 @@ class TestFalsePositive:
         return base
 
     def test_no_secondary_detections_fires(self):
+        """Empty secondary → clear disagreement → false-positive discrepancy emitted."""
         primary_a = Detection(cls="person", conf=0.8, x1=100, y1=100, x2=120, y2=180, track_id=1)
         primary_b = Detection(cls="car", conf=0.8, x1=200, y1=150, x2=350, y2=300, track_id=2)
         cmp = DiscrepancyComparator(iou_threshold=0.3)
@@ -56,6 +69,7 @@ class TestFalsePositive:
         assert disc.fingerprint == "validator/false-positive"
 
     def test_matching_secondary_no_fire(self):
+        """Both primary boxes matched by IoU → agreement → no discrepancy."""
         primary_a = Detection(cls="person", conf=0.8, x1=100, y1=100, x2=120, y2=180, track_id=1)
         primary_b = Detection(cls="car", conf=0.8, x1=200, y1=150, x2=350, y2=300, track_id=2)
         secondary_a = Detection(cls="person", conf=0.9, x1=99, y1=101, x2=121, y2=179)
@@ -67,6 +81,7 @@ class TestFalsePositive:
         assert disc is None
 
     def test_only_one_pair_member_matched_fires(self):
+        """Partial agreement (one of two) still counts as disagreement."""
         primary_a = Detection(cls="person", conf=0.8, x1=100, y1=100, x2=120, y2=180, track_id=1)
         primary_b = Detection(cls="car", conf=0.8, x1=200, y1=150, x2=350, y2=300, track_id=2)
         # Secondary sees the person but not the car — still a disagreement.
@@ -81,7 +96,10 @@ class TestFalsePositive:
 # ── Rule B: false negative ──────────────────────────────────────────
 
 class TestFalseNegative:
+    """Rule B: secondary saw a risky pair that the primary model missed."""
+
     def test_secondary_finds_risky_pair_primary_missed(self):
+        """Secondary model sees close pair; primary was silent → false-negative."""
         # Two overlapping detections at close pixel distance: the
         # built-in `find_interactions` + risk classifier will flag this.
         secondary_a = Detection(cls="person", conf=0.8, x1=100, y1=400, x2=120, y2=500)
@@ -98,6 +116,7 @@ class TestFalseNegative:
         assert disc.fingerprint == "validator/false-negative"
 
     def test_primary_recently_emitted_suppresses(self):
+        """If primary already emitted recently, don't double-fire the miss alert."""
         secondary_a = Detection(cls="person", conf=0.8, x1=100, y1=400, x2=120, y2=500)
         secondary_b = Detection(cls="car", conf=0.8, x1=125, y1=400, x2=280, y2=520)
         cmp = DiscrepancyComparator(iou_threshold=0.3)
@@ -110,6 +129,7 @@ class TestFalseNegative:
         assert disc is None
 
     def test_primary_already_saw_pair_suppresses(self):
+        """Primary saw the boxes but gated them out — legitimate silence, no alert."""
         secondary_a = Detection(cls="person", conf=0.8, x1=100, y1=400, x2=120, y2=500)
         secondary_b = Detection(cls="car", conf=0.8, x1=125, y1=400, x2=280, y2=520)
         # Primary has overlapping detections for both — so it *did* see
@@ -126,6 +146,7 @@ class TestFalseNegative:
         assert disc is None
 
     def test_empty_secondary_no_fire(self):
+        """Both models saw nothing → nothing to disagree about."""
         cmp = DiscrepancyComparator()
         disc = cmp.check_false_negative(
             frame_height=600,
@@ -139,7 +160,10 @@ class TestFalseNegative:
 # ── Rule C: classification mismatch ─────────────────────────────────
 
 class TestClassificationMismatch:
+    """Rule C: same boxes, but primary and secondary disagree on the class label."""
+
     def _event(self, risk_level="medium"):
+        """Helper: minimal event dict, with configurable risk level."""
         return {
             "event_id": "evt_test_0002",
             "event_type": "pedestrian_proximity",
@@ -149,6 +173,7 @@ class TestClassificationMismatch:
         }
 
     def test_class_disagreement_fires(self):
+        """Same geometry, different class label → classification-mismatch discrepancy."""
         primary_a = Detection(cls="person", conf=0.8, x1=100, y1=100, x2=120, y2=180, track_id=1)
         primary_b = Detection(cls="car", conf=0.8, x1=200, y1=150, x2=350, y2=300, track_id=2)
         # Same boxes, but secondary calls the first object a "motorcycle"
@@ -165,6 +190,7 @@ class TestClassificationMismatch:
         assert disc.fingerprint == "validator/classification-mismatch"
 
     def test_full_agreement_no_fire(self):
+        """Perfect agreement on boxes + classes → no discrepancy (or at most info)."""
         primary_a = Detection(cls="person", conf=0.8, x1=100, y1=100, x2=120, y2=180, track_id=1)
         primary_b = Detection(cls="car", conf=0.8, x1=200, y1=150, x2=350, y2=300, track_id=2)
         secondary_a = Detection(cls="person", conf=0.9, x1=100, y1=100, x2=120, y2=180)
@@ -185,6 +211,7 @@ class TestClassificationMismatch:
         assert disc is None or disc.severity == "info"
 
     def test_no_match_does_not_fire_classification(self):
+        """No IoU match at all → false-positive rule handles it, class mismatch stays quiet."""
         # When there's no IoU match at all, the false-positive rule owns
         # this case; classification mismatch must stay silent.
         primary_a = Detection(cls="person", conf=0.8, x1=100, y1=100, x2=120, y2=180, track_id=1)

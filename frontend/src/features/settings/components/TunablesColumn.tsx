@@ -3,6 +3,9 @@
  *
  * Renders one <details> per category, then one <Tunable> per spec inside.
  * Validation errors and the draft override come from the parent page.
+ *
+ * Stateless — SettingsPage owns the draft / effective / errors maps and
+ * just hands them in here.
  */
 
 import { humanize } from "../utils/formatting";
@@ -12,6 +15,11 @@ import { Tunable } from "./Tunable";
 
 import styles from "../SettingsPage.module.css";
 
+/**
+ * Props. `Array<[string, SettingSpec[]]>` is a tuple type — each entry
+ * is a `[category, specs]` pair. Using a sorted array (not a Map) keeps
+ * category order stable across renders.
+ */
 interface TunablesColumnProps {
   groupedSpecs: Array<[string, SettingSpec[]]>;
   effective: EffectiveSettings;
@@ -20,6 +28,11 @@ interface TunablesColumnProps {
   onChange: (key: string, value: DraftValue) => void;
 }
 
+/**
+ * Render each category as a collapsible <details> and delegate each
+ * individual row to <Tunable>. The draft value falls back to the
+ * effective (saved) value when the operator hasn't touched the key yet.
+ */
 export function TunablesColumn({
   groupedSpecs,
   effective,
@@ -29,6 +42,7 @@ export function TunablesColumn({
 }: TunablesColumnProps) {
   return (
     <>
+      {/* Destructured tuple `[cat, specs]` — the two parts of each entry. */}
       {groupedSpecs.map(([cat, specs]) => (
         <details key={cat} className={styles.category} open>
           <summary>
@@ -36,6 +50,9 @@ export function TunablesColumn({
           </summary>
           <div className={styles.categoryBody}>
             {specs.map((spec) => {
+              // `as DraftValue` is a TS assertion — narrows the type
+              // because effective.values is a generic Record and we know
+              // the key points at a DraftValue.
               const eff = effective.values[spec.key] as DraftValue;
               const cur = (draft[spec.key] ?? eff) as DraftValue;
               return (

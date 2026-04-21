@@ -37,6 +37,11 @@ Python concept — ``pathlib.Path``:
     Object-oriented filesystem paths. ``Path("/a") / "b"`` produces
     ``Path("/a/b")`` regardless of OS. ``.parent`` / ``.resolve()`` replace
     the older ``os.path`` string manipulation.
+
+UI connection
+-------------
+Page: none directly.
+UI element: No direct UI — central settings module. Everything in the app reads paths and environment from here, including the backend that serves the UI.
 """
 
 from __future__ import annotations

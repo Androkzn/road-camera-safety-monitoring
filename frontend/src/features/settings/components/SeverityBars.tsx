@@ -1,5 +1,10 @@
 /**
  * SeverityBars — stacked horizontal bars for severity counts.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the small severity bar chart inside the impact card
+ *   (one row per severity: high / medium / low / unknown).
  */
 import { severityLabel } from "../utils/formatting";
 

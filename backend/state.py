@@ -15,6 +15,11 @@ can attribute to a real camera site even when env vars are unset.
 
 This module was extracted from ``server.py`` (step 1 of the refactor
 plan). Nothing here changed behaviourally; only the location.
+
+UI connection
+-------------
+Page: none directly.
+UI element: No direct UI — shared in-memory state container. The most recent values it holds are what get returned to /api/live/status (top-bar uptime widget on every page).
 """
 
 import asyncio

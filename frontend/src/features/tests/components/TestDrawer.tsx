@@ -1,11 +1,16 @@
 /**
  * TestDrawer — slide-in panel showing detailed pytest results.
+ *
+ * Summary tiles on top, progress bar in the middle, collapsible
+ * per-file groups below. Kicks a rerun via the parent-provided callback.
  */
 
 import type { TestStatus, TestResult } from "../../../shared/types/common";
 
 import styles from "./TestDrawer.module.css";
 
+// `Record<K, V>` is a TS utility type — an object whose keys are of
+// type K and values are V. Used here as a small lookup table.
 const ICONS: Record<string, string> = {
   passed: "✓",
   failed: "✗",
@@ -13,6 +18,7 @@ const ICONS: Record<string, string> = {
   skipped: "○",
 };
 
+/** Props for {@link TestDrawer}. */
 interface TestDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -20,6 +26,11 @@ interface TestDrawerProps {
   onRerun: () => void;
 }
 
+/**
+ * Drawer component — parent controls visibility via the `open` prop.
+ * We rely on CSS transitions for the slide animation rather than
+ * unmounting, so closing doesn't drop scroll state.
+ */
 export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) {
   const d = status;
   const total = d?.total ?? 0;
@@ -37,6 +48,9 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
 
   const barClass = state === "passed" ? styles.donePass : state === "failed" ? styles.doneFail : "";
 
+  // Bucket individual test results by their source file for grouped display.
+  // The trailing `!` is TS "non-null assertion" — we just initialised
+  // `byFile[f]` on the line above, so TS can safely treat it as non-undefined.
   const byFile: Record<string, TestResult[]> = {};
   if (d?.results) {
     for (const t of d.results) {
@@ -131,6 +145,12 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
   );
 }
 
+/**
+ * SummaryTile — one of the four top-of-drawer count boxes.
+ *
+ * Inline type annotation (no separate `interface`) since this helper
+ * is file-local and only used in one place.
+ */
 function SummaryTile({
   label,
   value,

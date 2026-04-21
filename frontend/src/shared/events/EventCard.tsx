@@ -30,12 +30,21 @@ interface EventCardProps {
   onSelect?: (event: SafetyEvent) => void;
 }
 
+/**
+ * EventCard — interactive card for a SafetyEvent. When `onSelect` is
+ * provided, the whole card becomes a button that opens the parent's
+ * detail dialog; otherwise it's a static read-only card.
+ */
 export function EventCard({ event: e, isNew, onSelect }: EventCardProps) {
+  // `isNew` triggers a brief highlight flash so operators spot fresh
+  // rows in a scroll-heavy feed.
   const [flash, setFlash] = useState(isNew);
 
   useEffect(() => {
     if (!isNew) return;
     const t = setTimeout(() => setFlash(false), POLL_INTERVAL_MS.eventCardFlash);
+    // Cleanup function — cancels the timer if the card unmounts or the
+    // effect re-runs before the timeout fires.
     return () => clearTimeout(t);
   }, [isNew]);
 

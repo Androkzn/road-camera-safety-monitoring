@@ -1,4 +1,9 @@
-"""Watchdog + shadow-validator control routes."""
+"""Watchdog + shadow-validator control routes.
+
+The "watchdog" groups repeated errors into fingerprinted incidents. The
+"shadow validator" is a background worker that cross-checks events
+against a secondary model. Both are controlled here.
+"""
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -13,14 +18,23 @@ from backend.state import state
 
 log = get_logger(__name__)
 
+# ``APIRouter`` — the container we attach every handler below to.
 router = APIRouter()
 
 
 class ValidatorToggleBody(BaseModel):
+    """POST body for /api/validator/toggle — single ``enabled`` flag."""
+
     enabled: bool = True
 
 
 class DeleteFindingsBody(BaseModel):
+    """POST body listing findings to delete by composite-key string.
+
+    ``Field(default_factory=list)`` creates a fresh empty list per
+    instance — never share a single list default across instances.
+    """
+
     keys: list[str] = Field(default_factory=list)
 
 
@@ -29,6 +43,8 @@ def watchdog_summary():
     """Watchdog status and finding counts.
 
     HTTP: GET /api/watchdog
+    Returns: ``{"enabled": False}`` if the watchdog is not wired up,
+        else status dict with counts + last-seen timestamps.
     """
     if state.watchdog is None:
         return {"enabled": False}
@@ -40,9 +56,12 @@ def validator_status():
     """Background shadow-validator worker status.
 
     HTTP: GET /api/validator/status
+    Returns: enabled flag plus queue depth / last-run details.
     """
     if state.validator is None:
         return {"enabled": False}
+    # ``**state.validator.status()`` spreads the dict into this literal —
+    # equivalent to ``{"enabled": True, "k1": v1, "k2": v2, ...}``.
     return {"enabled": True, **state.validator.status()}
 
 
@@ -51,6 +70,9 @@ async def validator_toggle(body: ValidatorToggleBody):
     """Enable or disable the shadow validator at runtime.
 
     HTTP: POST /api/validator/toggle
+    Request body: ``{"enabled": true|false}``
+    Raises: 409 when the validator was disabled at startup (requires an
+        env-var-driven restart to appear).
     """
     if state.validator is None:
         raise HTTPException(
@@ -70,7 +92,9 @@ async def validator_toggle(body: ValidatorToggleBody):
 def watchdog_recent(n: int = 50):
     """Most recent watchdog findings.
 
-    HTTP: GET /api/watchdog/recent
+    HTTP: GET /api/watchdog/recent[?n=<int>]
+    Query params:
+        n: Max records (capped at 200 server-side).
     """
     return watchdog_tail(min(n, 200))
 
@@ -79,7 +103,10 @@ def watchdog_recent(n: int = 50):
 def watchdog_delete_findings(clear_all: bool = False):
     """Delete specific findings by composite key or clear all.
 
-    HTTP: DELETE /api/watchdog/findings
+    HTTP: DELETE /api/watchdog/findings[?clear_all=true]
+    Only the ``clear_all=true`` branch is active here; selective delete
+    is handled by the sibling POST endpoint below (which takes a JSON
+    body of keys).
     """
     if clear_all:
         removed = watchdog_delete(indices=None)
@@ -92,6 +119,8 @@ async def watchdog_delete_selected(body: DeleteFindingsBody):
     """Delete selected findings by snapshot_id + ts composite keys.
 
     HTTP: POST /api/watchdog/findings/delete
+    Request body: ``{"keys": ["<snapshot_id>:<ts>", ...]}``
+    Returns: ``{"deleted": <count>}``.
     """
     keys = list(body.keys)
     if not keys:

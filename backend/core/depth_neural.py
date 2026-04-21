@@ -42,6 +42,20 @@ ZoeDepth returns metric depth directly but costs ~400 ms per frame on CPU.
 Depth-Anything-V2-small is the best 2024 option but adds a pip dep. MiDaS
 small hits the sweet spot for this codebase (torch-hub only, ~25 ms on MPS).
 Operators can swap backends via ``ROAD_DEPTH_BACKEND`` without code change.
+
+UI connection
+-------------
+Page: [AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx) and
+       [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — runs as an opt-in distance helper inside the
+       per-frame detection loop. When enabled, its metre-distance estimate
+       feeds the same risk-classification step as the pinhole prior, so
+       its effect appears as the distance number on each incident card and
+       in the colour of the bounding boxes drawn over the live tiles.
+Data flow: Neural depth estimate -> detection.estimate_distance_m() ->
+       risk classification -> emit_event() -> SSE broadcast -> rendered
+       as distance numbers and risk colours on AdminPage tiles and
+       MonitoringPage incident cards.
 """
 
 import logging

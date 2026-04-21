@@ -27,6 +27,15 @@
  *   - Inline style prop (`style={{ color: "var(--high)" }}`)
  *   - Multi-state conditional rendering (loading / error / empty / list)
  *   - List rendering with a stable `key` from backend id
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: the "History" tab on the right side of the page — a
+ *   filterable list of past safety events (with risk-level and event-type
+ *   dropdowns, a refresh button, and a count) that the operator can scroll
+ *   through and click to open event details.
+ * Backend: GET /api/live/events (called by the useHistory hook on mount
+ *   and on filter change).
  */
 
 // TEACH: `useEffect` is React's "do a side-effect after render" hook.

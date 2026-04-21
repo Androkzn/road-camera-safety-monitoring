@@ -2,6 +2,13 @@
  * Section — a labelled grouping inside a page or card. The header
  * uses small uppercase muted text — used for "Evidence", "What To Check",
  * "Operational" sub-blocks etc.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Used inside Cards on
+ *   MonitoringPage incident detail, SettingsPage groups, AdminPage and
+ *   DashboardPage panels.
+ * UI element: a sub-block inside a card with a small uppercase muted
+ *   title row (and optional action slot) followed by its content.
  */
 import type { HTMLAttributes, ReactNode } from "react";
 

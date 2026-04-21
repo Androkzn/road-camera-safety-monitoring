@@ -1,4 +1,4 @@
-.PHONY: install dev test test-be test-fe test-all lint typecheck run docker-build docker-up docker-down clean
+.PHONY: install dev test test-be test-fe test-all lint typecheck typecheck-mypy generate-types run docker-build docker-up docker-down clean
 
 install:
 	pip install -e .
@@ -23,6 +23,18 @@ lint:
 
 typecheck:
 	pyright
+
+# Strict mypy on the scoped contract modules (audit §1.1): the pydantic
+# models in backend/api/ and the LLM failover in backend/services/llm.py.
+# See the ``[tool.mypy]`` block in pyproject.toml for the full scope.
+typecheck-mypy:
+	.venv/bin/python -m mypy --config-file pyproject.toml
+
+# Regenerate frontend/src/shared/types/generated.ts from the pydantic
+# models. ``start.py`` runs this automatically before the Vite build;
+# this target is for iterating on a model without a full launch.
+generate-types:
+	.venv/bin/python scripts/generate_ts_types.py
 
 run:
 	python start.py

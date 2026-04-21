@@ -8,6 +8,13 @@ audit.
 
 Extracted from ``server.py`` as part of the refactor plan, step 2. Behaviour
 unchanged — only the location.
+
+UI connection
+-------------
+Page: SettingsPage / AdminPage
+UI element: No direct UI — rejects bad URLs submitted through the
+       source-add controls on the SettingsPage and the AdminPage source-add
+       form before any stream slot is created.
 """
 
 import ipaddress

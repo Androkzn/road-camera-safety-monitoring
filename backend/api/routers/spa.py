@@ -2,16 +2,21 @@
 
 All SPA pages serve the same React ``index.html``; the browser-side
 router picks the actual page. Each route exists so server-side URL
-rewrites and deep links resolve.
+rewrites and deep links resolve (otherwise hitting ``/admin`` directly
+would 404 because only the built ``index.html`` exists on disk).
 """
 
 import json
 
+# ``APIRouter`` is FastAPI's way of grouping routes under a common prefix
+# / tag. ``HTTPException`` raises a structured HTTP error response.
+# ``FileResponse`` streams a file from disk with correct Content-Type.
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from backend.config import DATA_DIR, STATIC_DIR
 
+# One router per feature — ``server.py`` mounts this one for SPA shells.
 router = APIRouter()
 
 

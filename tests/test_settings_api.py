@@ -26,7 +26,11 @@ from backend.settings_store import SettingsStore
 
 @pytest.fixture()
 def fresh_store(monkeypatch):
-    """Replace the module-level STORE singleton with a fresh instance."""
+    """Replace the module-level STORE singleton with a fresh instance.
+
+    Prevents cross-test pollution: each test gets its own in-memory store.
+    ``monkeypatch.setattr`` reverts the swap at teardown.
+    """
     new_store = SettingsStore()
     import backend.api.settings as api_mod
 
@@ -37,7 +41,11 @@ def fresh_store(monkeypatch):
 
 @pytest.fixture()
 def settings_client(tmp_path, fresh_store, monkeypatch):
-    """Build a minimal FastAPI app with the settings router mounted."""
+    """Build a minimal FastAPI app with the settings router mounted.
+
+    Returns ``(TestClient, ImpactMonitor)``. The ImpactMonitor is exposed so
+    tests can assert on impact-tracking side effects of apply calls.
+    """
     settings_db._reset_for_tests(tmp_path / "settings.db")
     # Reset the per-actor apply cooldown.
     _last_apply_at.clear()
@@ -51,6 +59,7 @@ def settings_client(tmp_path, fresh_store, monkeypatch):
 
 
 def test_open_read_returns_200(settings_client):
+    """POC: no auth — reads are publicly accessible (return 200)."""
     client, _ = settings_client
     r = client.get("/api/settings/effective")
     assert r.status_code == 200
@@ -60,6 +69,7 @@ def test_open_read_returns_200(settings_client):
 # Reads
 # ---------------------------------------------------------------------------
 def test_get_schema(settings_client):
+    """Schema endpoint returns a versioned list including CONF_THRESHOLD."""
     client, _ = settings_client
     r = client.get("/api/settings/schema")
     assert r.status_code == 200
@@ -69,6 +79,7 @@ def test_get_schema(settings_client):
 
 
 def test_get_effective(settings_client):
+    """Effective endpoint returns current values plus a revision_hash for ETag use."""
     client, _ = settings_client
     r = client.get("/api/settings/effective")
     assert r.status_code == 200
@@ -78,6 +89,7 @@ def test_get_effective(settings_client):
 
 
 def test_default_template_present_in_list(settings_client):
+    """The system ``tpl_default`` template is always present at the top of the list."""
     client, _ = settings_client
     r = client.get("/api/settings/templates")
     assert r.status_code == 200
@@ -90,6 +102,7 @@ def test_default_template_present_in_list(settings_client):
 # Validate
 # ---------------------------------------------------------------------------
 def test_validate_returns_resolved_diff(settings_client):
+    """Validate-only endpoint returns the coerced diff without applying."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/validate",
@@ -102,6 +115,7 @@ def test_validate_returns_resolved_diff(settings_client):
 
 
 def test_validate_returns_422_with_errors(settings_client):
+    """Cross-field violation → HTTP 422 with a per-key error list."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/validate",
@@ -116,6 +130,7 @@ def test_validate_returns_422_with_errors(settings_client):
 # Apply
 # ---------------------------------------------------------------------------
 def test_apply_success_then_reflected_in_effective(settings_client):
+    """A successful apply is immediately visible via the effective endpoint."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
@@ -133,6 +148,7 @@ def test_apply_success_then_reflected_in_effective(settings_client):
 
 
 def test_apply_validation_error_returns_422(settings_client):
+    """Validation error on apply maps to HTTP 422."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
@@ -142,6 +158,7 @@ def test_apply_validation_error_returns_422(settings_client):
 
 
 def test_apply_revision_conflict_returns_409(settings_client):
+    """Stale ``expected_revision_hash`` returns 409 ``revision_conflict`` (optimistic concurrency)."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
@@ -157,6 +174,7 @@ def test_apply_revision_conflict_returns_409(settings_client):
 
 
 def test_apply_privacy_confirm_required(settings_client):
+    """Privacy-sensitive key without confirmation → 400; with confirmation → 200."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/apply",
@@ -177,6 +195,7 @@ def test_apply_privacy_confirm_required(settings_client):
 
 
 def test_apply_rate_limit_429(settings_client):
+    """Same actor applying twice in a row within the cooldown → 429 with Retry-After."""
     client, _ = settings_client
     actor = "rate-test"
     body = {
@@ -287,6 +306,7 @@ def test_template_apply_missing_does_not_burn_cooldown(settings_client):
 # Templates
 # ---------------------------------------------------------------------------
 def test_template_create_apply_delete_round_trip(settings_client):
+    """Full lifecycle: create → apply → delete → reject delete-of-system-template."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/templates",
@@ -323,6 +343,7 @@ def test_template_create_apply_delete_round_trip(settings_client):
 # Tickets + SSE
 # ---------------------------------------------------------------------------
 def test_stream_ticket_issue_and_consume(settings_client):
+    """Stream tickets are single-use: second consumption returns None (replay rejected)."""
     client, _ = settings_client
     r = client.post(
         "/api/settings/stream_ticket",
@@ -345,6 +366,7 @@ def test_stream_ticket_issue_and_consume(settings_client):
 
 
 def test_observability_counters_exposed(settings_client):
+    """/observability reports per-outcome counters; success + error both tick up."""
     client, _ = settings_client
     # Trigger one success + one validation_error so counters are non-zero.
     client.post(

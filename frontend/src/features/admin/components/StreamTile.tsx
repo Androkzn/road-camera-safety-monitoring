@@ -10,6 +10,15 @@
  * Focus/minimize state still flows top-down from `AdminPage` because the
  * page header also reads the focused id — making it a tile-local
  * decision would scatter that state across components.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: a single live video tile inside the admin grid — shows the
+ *   moving picture for one camera plus the small per-tile controls
+ *   (start, pause, toggle detection, focus/maximize, remove).
+ * Backend: MJPEG /admin/video_feed/{id} or polled /admin/frame/{id} for
+ *   the picture; POST /api/live/sources/{id}/start|pause|detection and
+ *   DELETE /api/live/sources/{id} for the controls.
  */
 import { useEffect, useState } from "react";
 

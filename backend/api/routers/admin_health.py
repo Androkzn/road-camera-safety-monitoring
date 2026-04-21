@@ -1,4 +1,15 @@
-"""Admin dashboard health snapshot."""
+"""Admin dashboard health snapshot.
+
+Single endpoint: a dense nested dict (validated by
+``AdminHealthResponse``) that the admin UI health panel renders directly.
+
+UI connection
+-------------
+Page: AdminPage — [file](frontend/src/features/admin/AdminPage.tsx)
+UI element: the health strip at the top of the admin page (server uptime,
+frame counters, scene/perception/ego sub-cards, per-source latency tiles).
+Backend route(s): GET /api/admin/health.
+"""
 
 from pathlib import Path
 
@@ -15,9 +26,13 @@ from backend.integrations.slack import slack_configured
 from backend.services.llm import llm_configured
 from backend.state import state
 
+# ``APIRouter`` — route grouping container.
 router = APIRouter()
 
 
+# ``response_model=AdminHealthResponse`` tells FastAPI to filter + validate
+# the returned dict through that pydantic model before sending. It also
+# drives the /docs OpenAPI schema, so the frontend gets a stable contract.
 @router.get("/api/admin/health", response_model=AdminHealthResponse)
 def admin_health():
     """Comprehensive health snapshot for the admin dashboard.

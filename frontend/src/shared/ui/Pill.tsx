@@ -1,6 +1,12 @@
 /**
  * Pill — rounded "capsule" container, typically holding a Dot + label
  * for status strips (e.g. <Pill><Dot variant="ok" /> LIVE</Pill>).
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Most prominent in the TopBar
+ *   live-connection indicator that is visible on every page.
+ * UI element: rounded pill chip — typically wraps a Dot plus a short
+ *   text label to form a status badge.
  */
 import type { CSSProperties, ReactNode } from "react";
 

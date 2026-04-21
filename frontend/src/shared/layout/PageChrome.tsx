@@ -59,6 +59,13 @@ export interface PageChromeProps {
   children?: ReactNode;
 }
 
+/**
+ * PageChrome — renders the shared TopBar above `children`.
+ *
+ * How it works: reads watchdog + validator counts from context so callers
+ * don't have to. Props take precedence (`??`) when explicitly passed so
+ * tests or special pages can override the auto-derived values.
+ */
 export function PageChrome({
   connected,
   sourceName,
@@ -67,10 +74,12 @@ export function PageChrome({
   testBadge,
   children,
 }: PageChromeProps) {
+  // Read watchdog status via context — one hook call, any descendant.
   const { status: wdStatus } = useWatchdogCtx();
   const autoErrorCount = wdStatus?.by_severity?.error ?? 0;
   const autoDriftCount = useDriftCount();
 
+  // Nullish-coalescing (`??`): use the prop if provided, else auto-derived.
   const resolvedErrorCount = errorCount ?? autoErrorCount;
   const resolvedDriftCount = driftCount ?? autoDriftCount;
 

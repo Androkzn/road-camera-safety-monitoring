@@ -23,6 +23,12 @@
  *
  * NOTE: This component is purely presentational — it owns no state and calls
  *       no APIs. Parents are responsible for feeding it events.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: one compact row inside the admin "Events" or "History" list
+ *   — shows a single safety event with its risk badge, time, type tag,
+ *   small thumbnail, and track ids; tapping the row opens its details.
  */
 
 import type { SafetyEvent } from "../../../shared/types/common";

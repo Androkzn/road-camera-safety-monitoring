@@ -3,6 +3,15 @@
  *
  * Centralises `cache: "no-store"`, JSON parsing, and structured HTTP errors
  * (`HttpApiError`) for endpoints that return validation / rate-limit bodies.
+ *
+ * `cache: "no-store"` is essential for a real-time ops console — without it
+ * some browsers will hand back a stale response from their HTTP cache.
+ */
+
+/**
+ * Minimal GET/parse helper. Generic `<T>` is the expected response shape;
+ * TypeScript can't verify it at runtime, so features add narrow type
+ * guards where the contract is risky.
  */
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { cache: "no-store", ...init });

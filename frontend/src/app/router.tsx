@@ -8,6 +8,10 @@
  *                       recoverable per-route fallback.
  *   - <Suspense>      — shows the route fallback while the page chunk
  *                       loads or any async data is resolving.
+ *
+ * --- UI mapping ---
+ * Scope: app-wide (affects every page)
+ * UI element: the routes table — maps URL paths to page components (AdminPage, DashboardPage, MonitoringPage, SettingsPage, ValidationPage)
  */
 import { Suspense, lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";

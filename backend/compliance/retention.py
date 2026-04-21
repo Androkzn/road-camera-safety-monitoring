@@ -52,6 +52,12 @@ Python idioms used in this file (one-line explanations)
 * ``logging.getLogger(name)`` — per-module logger.  Preferred over
   ``print`` because it supports levels, structured fields, and can be
   routed to files or aggregators.
+
+UI connection
+-------------
+Page: No page
+UI element: No direct UI — background sweep that deletes expired thumbnails
+       and trims log files on a schedule.
 """
 
 from __future__ import annotations

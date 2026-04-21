@@ -20,6 +20,14 @@
  * closure), which is why they don't fill in `busyById` anymore. Tiles
  * that care about per-slot busy state should mount `useStreamControl`
  * directly instead of reading `busyById` through here.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: not visible on screen — this is the back-compat hook that
+ *   feeds the page header and the video-tile grid with the list of
+ *   cameras and the start/pause/detection/add/remove actions.
+ * Backend: GET/POST/DELETE /api/live/sources and the per-slot
+ *   start|pause|detection sub-routes.
  */
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";

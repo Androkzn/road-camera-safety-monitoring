@@ -14,7 +14,14 @@
  *     <Tunable.Meta />
  *   </Tunable>
  *
- * Each part reads context — the parent supplies it once.
+ * Each part reads context — the parent supplies it once via
+ * <Tunable …> and the children read it via React context. This is the
+ * "compound component" pattern.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: each tunable row in the left column (label + slider /
+ *   number input + small reset/help meta line below it).
  */
 
 import {
@@ -35,6 +42,7 @@ import { stepFor } from "../utils/steps";
 
 import styles from "../SettingsPage.module.css";
 
+/** Context value shared by every Tunable.* child. */
 interface TunableContextValue {
   spec: SettingSpec;
   effective: DraftValue;
@@ -43,8 +51,12 @@ interface TunableContextValue {
   onChange: (v: DraftValue) => void;
 }
 
+// React context: a way to pass data deep into a subtree without prop-drilling.
+// `| null` lets us default to null and throw a clear error if a child is
+// mounted outside the provider by accident (see useTunable below).
 const TunableContext = createContext<TunableContextValue | null>(null);
 
+/** Internal hook — every Tunable.* part uses it to read the parent context. */
 function useTunable(): TunableContextValue {
   const ctx = useContext(TunableContext);
   if (!ctx) {
@@ -53,17 +65,30 @@ function useTunable(): TunableContextValue {
   return ctx;
 }
 
+// `extends` pulls every field from TunableContextValue into the new interface,
+// then we add `children`. Saves us from duplicating field lists.
 interface TunableRootProps extends TunableContextValue {
   children?: ReactNode;
 }
 
+/**
+ * Tunable root. Provides context to Tunable.Label / .Control / .Meta,
+ * and if no children are passed renders the default three-part layout.
+ * Also toggles "dirty" / "error" CSS classes based on current state.
+ */
 export function Tunable(props: TunableRootProps) {
+  // Rest destructuring: `children` goes one place, everything else
+  // becomes the context value. `...ctx` collects remaining props.
   const { children, ...ctx } = props;
+  // "Dirty" = the operator has changed the value but not saved yet.
   const dirty = ctx.draft !== ctx.effective;
   const cls = [styles.tunable, dirty ? styles.dirty : "", ctx.errorReason ? styles.error : ""]
     .filter(Boolean)
     .join(" ");
   return (
+    // `<Context.Provider value={…}>` publishes `value` to every descendant
+    // that calls `useContext(Context)`. Children decide what to render
+    // with it — here, `Label` / `Control` / `Meta` by default.
     <TunableContext.Provider value={ctx}>
       <div className={cls}>
         {children ?? (
@@ -82,11 +107,18 @@ export function Tunable(props: TunableRootProps) {
 // Label + integrated help popover
 // ---------------------------------------------------------------------------
 
+/**
+ * Label part — renders the key name, description, validation error, and
+ * an optional "i" info button that opens a position-pinned popover.
+ */
 function Label() {
   const { spec, errorReason } = useTunable();
   const help = TUNABLE_HELP[spec.key];
 
   const [helpOpen, setHelpOpen] = useState(false);
+  // useRef creates a mutable box that survives re-renders. `.current`
+  // holds the latest DOM node once React assigns it via the `ref=` prop.
+  // Unlike state, writing to `.current` does NOT cause a re-render.
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [popoverPos, setPopoverPos] = useState<{
@@ -94,6 +126,8 @@ function Label() {
     left: number;
   } | null>(null);
 
+  // Outside-click + Escape to dismiss. The effect runs whenever `helpOpen`
+  // flips; if closed we early-return so we don't install listeners.
   useEffect(() => {
     if (!helpOpen) return;
     const onDown = (e: MouseEvent) => {
@@ -113,6 +147,9 @@ function Label() {
     };
   }, [helpOpen]);
 
+  // useLayoutEffect runs synchronously AFTER DOM mutations but BEFORE the
+  // browser paints — ideal for measuring layout and setting position
+  // without a visible flicker.
   useLayoutEffect(() => {
     if (!helpOpen) {
       setPopoverPos(null);
@@ -213,6 +250,11 @@ function Label() {
 // Control — picks slider+number / select / checkbox / text based on spec.type
 // ---------------------------------------------------------------------------
 
+/**
+ * Control part — picks a widget based on `spec.type`:
+ * enum → <select>, bool → checkbox, int/float → slider+number pair,
+ * everything else → text input.
+ */
 function Control() {
   const { spec, draft, onChange } = useTunable();
 
@@ -240,6 +282,9 @@ function Control() {
     const min = spec.min ?? 0;
     const max = spec.max ?? 100;
     const step = stepFor(spec, min, max);
+    // Snap entered values to the slider's step grid. Without this the
+    // number input can produce values like 0.123456 that the slider
+    // would visually round to 0.12 — bad UX and bad for the backend.
     const parse = (s: string) => {
       const n = spec.type === "int" ? parseInt(s, 10) : parseFloat(s);
       if (!Number.isFinite(n)) return spec.type === "int" ? 0 : 0;
@@ -279,6 +324,10 @@ function Control() {
 // Meta — reset button + mutability badges
 // ---------------------------------------------------------------------------
 
+/**
+ * Meta part — the "Reset to default" button plus any mutability badges
+ * (e.g. a read-only indicator for settings the operator can see but not change).
+ */
 function Meta() {
   const { spec, draft, onChange } = useTunable();
   return (
@@ -299,6 +348,8 @@ function Meta() {
   );
 }
 
+// Attach the parts as static properties of the root. Lets callers use
+// `<Tunable.Label />` syntax instead of importing each one separately.
 Tunable.Label = Label;
 Tunable.Control = Control;
 Tunable.Meta = Meta;

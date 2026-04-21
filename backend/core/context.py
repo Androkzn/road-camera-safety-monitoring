@@ -56,6 +56,20 @@ Python idioms used here (once-per-file):
   fields of the given types.
 - ``float | None`` — union type ("either a float or None"). Same as
   ``Optional[float]``.
+
+UI connection
+-------------
+Page: [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — runs inside the per-frame detection loop as a
+       helper that rescales the risk thresholds based on whether the
+       scene looks like a highway, urban street, or parking lot. Its
+       effect shows up indirectly as the risk-bucket pill (high / medium
+       / low) on each incident card on the Monitoring page; the same
+       physical situation can land in different buckets depending on the
+       scene label this module assigns.
+Data flow: Scene label + adjusted thresholds -> classify_with_scene() ->
+       risk bucket on emitted event -> emit_event() -> SSE broadcast ->
+       rendered as the risk pill on incident cards (MonitoringPage).
 """
 
 from __future__ import annotations

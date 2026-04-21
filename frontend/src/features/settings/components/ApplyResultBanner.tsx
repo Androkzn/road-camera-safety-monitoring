@@ -1,6 +1,11 @@
 /**
  * ApplyResultBanner — apply success summary that hangs around until
  * the operator dismisses it.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the green/red banner that appears at the top of the page
+ *   after the operator presses Apply, summarising what changed.
  */
 import { humanize } from "../utils/formatting";
 import type { DraftValue } from "../types";

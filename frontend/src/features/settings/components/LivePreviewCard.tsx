@@ -2,6 +2,21 @@
  * LivePreviewCard — collapsed-by-default video preview on the right rail.
  * Defaults to the stream the operator focused on the Admin page; the
  * <select> lets them preview any active source.
+ *
+ * Lets the operator see the effect of a tunable change on a real stream
+ * without tabbing back to Admin. Transport (MJPEG vs polling) is chosen
+ * automatically by StreamImage based on page protocol — see CLAUDE.md.
+ *
+ * NOTE: this reaches into `../../admin/components/StreamImage`, which
+ * technically breaks the feature-isolation rule. If that matters in the
+ * future, promote StreamImage to `shared/`.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the live-preview card on the right column showing incoming
+ *   video events under the proposed settings, with a source picker.
+ * Backend: streams from /admin/video_feed/{id} or /admin/frame/{id}
+ *   (transport chosen by StreamImage).
  */
 
 import { useEffect, useState } from "react";
@@ -11,6 +26,11 @@ import type { LiveSourceStatus } from "../../../shared/types/common";
 
 import styles from "../SettingsPage.module.css";
 
+/**
+ * Props. `sources` is the full active-source list; `primaryId` is the
+ * "focused" source from Admin (or null). `targetFps` is optional since
+ * live status may not be loaded yet.
+ */
 interface LivePreviewCardProps {
   sources: LiveSourceStatus[];
   primaryId: string | null;
@@ -18,17 +38,30 @@ interface LivePreviewCardProps {
   targetFps?: number;
 }
 
+/**
+ * Render the collapsible preview. Keeps the picker hidden unless there
+ * are ≥2 sources (no reason to offer a choice of one). Tracks the
+ * operator's focus choice via a `localStorage` bridge so the Admin page
+ * and the Settings page agree on "which stream are we looking at".
+ */
 export function LivePreviewCard({
   sources,
   primaryId,
   fallbackSourceName,
   targetFps,
 }: LivePreviewCardProps) {
+  // Lazy init from localStorage, with an SSR guard — Vite preview builds
+  // never run server-side, but the guard costs nothing and makes the
+  // snippet reusable.
   const [previewSourceId, setPreviewSourceId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return window.localStorage.getItem("road_admin_focused_id");
   });
 
+  // Sync with the Admin page two ways:
+  //   • "admin-focused-id-changed" — custom event, same-tab update.
+  //   • "storage" — built-in cross-tab event when localStorage changes.
+  // Returning a cleanup from useEffect unsubscribes on unmount.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onChange = () => {
@@ -42,6 +75,8 @@ export function LivePreviewCard({
     };
   }, []);
 
+  // Picker: operator-focused source first, then page-primary, then first
+  // available, then null. Chained `??` makes each fallback explicit.
   const previewSource =
     sources.find((s) => s.id === previewSourceId) ??
     sources.find((s) => s.id === primaryId) ??

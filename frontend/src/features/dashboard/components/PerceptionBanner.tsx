@@ -3,15 +3,28 @@
  *   - PerceptionBannerRow : camera-health/perception state
  *   - SceneBannerRow      : scene classifier output
  *   - DriftBannerRow      : model-drift snapshot, clickable to refresh
+ *
+ * All three take a single "current reading" prop and are pure
+ * (no state, no fetching). Parents feed them from the matching hooks.
+ *
+ * --- UI mapping ---
+ * Page: DashboardPage ([file](frontend/src/features/dashboard/DashboardPage.tsx))
+ * UI element: the three thin status banners stacked just under the four
+ *   KPI tiles — perception health (turns orange when degraded), scene
+ *   classifier readout, and the clickable drift report banner.
  */
 import type { DriftReport, PerceptionState, SceneContext } from "../../../shared/types/common";
 
 import styles from "./PerceptionBanner.module.css";
 
+// TEACH: The prop type uses a union `PerceptionState | null` so we can
+// represent "no data yet" without a separate loading flag. Components
+// below decide what to render for the null case.
 interface PerceptionBannerProps {
   perception: PerceptionState | null;
 }
 
+/** Camera/perception health banner. Turns orange when state !== nominal. */
 export function PerceptionBannerRow({ perception }: PerceptionBannerProps) {
   const state = perception?.state ?? "nominal";
   const degraded = state !== "nominal";
@@ -38,6 +51,7 @@ interface SceneBannerProps {
   scene: SceneContext | null;
 }
 
+/** Scene-classifier output (urban / highway / parking, with metrics). */
 export function SceneBannerRow({ scene }: SceneBannerProps) {
   const metrics: string[] = [];
   if (scene?.speed_proxy_mps != null)
@@ -58,9 +72,11 @@ export function SceneBannerRow({ scene }: SceneBannerProps) {
 
 interface DriftBannerProps {
   drift: DriftReport | null;
+  // `() => void` = zero-arg callback. Fired on click to force a refetch.
   onRefresh: () => void;
 }
 
+/** Model-drift report. Clickable → triggers the parent's refetch. */
 export function DriftBannerRow({ drift, onRefresh }: DriftBannerProps) {
   const alertTriggered = drift?.alert_triggered ?? false;
 

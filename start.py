@@ -107,6 +107,34 @@ def banner():
 """)
 
 
+def regenerate_ts_types() -> bool:
+    """Run the pydantic → TypeScript codegen.
+
+    The backend's ``backend/api/models.py`` is the single source of truth
+    for every cross-process payload shape. ``scripts/generate_ts_types.py``
+    walks that module and writes ``frontend/src/shared/types/generated.ts``;
+    we invoke it here so a dev who edits a model never has to remember
+    a separate step — ``python start.py`` does the regeneration before
+    ``tsc`` runs during ``npm run build`` and would otherwise report the
+    old shape as stale.
+
+    Returns:
+        ``True`` on success, ``True`` also when the script isn't present
+        (older checkouts predate it). ``False`` only on an actual non-zero
+        exit from the script — the caller aborts the launch in that case
+        because proceeding would build the frontend against stale types.
+    """
+    script = ROOT / "scripts" / "generate_ts_types.py"
+    if not script.exists():
+        return True
+    print(f"  {Y}Regenerating TS types from pydantic models…{Z}")
+    result = subprocess.run([PYTHON, str(script)], cwd=str(ROOT))
+    if result.returncode == 0:
+        return True
+    print(f"  {R}TS type generation failed (exit {result.returncode}){Z}")
+    return False
+
+
 def build_frontend() -> bool:
     """Install JS deps (if needed) and build the React frontend.
 
@@ -126,6 +154,14 @@ def build_frontend() -> bool:
         # signal to provision the build before launching.
         print(f"  {D}No frontend/ directory — skipping React build{Z}")
         return True
+
+    # Regenerate FE types BEFORE ``npm run build`` — otherwise a newly
+    # renamed field in a pydantic model would only get picked up on the
+    # second launch (first launch serves the old bundle, regens the type,
+    # next launch builds against it). Doing it here keeps the contract
+    # single-pass.
+    if not regenerate_ts_types():
+        return False
 
     # ``node_modules`` missing means either first-ever run or a deliberate
     # clean. Run ``npm install`` once before ``npm run build``.

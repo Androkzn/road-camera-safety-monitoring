@@ -15,8 +15,21 @@ import pytest
 
 
 class TestSensitiveFeedback:
+    """Verify that operator feedback is attributed to the correct vehicle.
+
+    The regression being guarded against: emitting feedback under the wrong
+    vehicle_id would taint the wrong driver's safety score. This test pins
+    down that the event-dict's vehicle_id is what gets recorded.
+    """
+
     @pytest.mark.asyncio
     async def test_feedback_uses_matched_vehicle_id(self, monkeypatch):
+        """Feedback submitted for an event routes to that event's vehicle_id, not a stale default.
+
+        ``monkeypatch.setattr(target, val)`` replaces an attribute for the
+        test's lifetime and auto-restores on teardown. Used here to stub out
+        audit logging and drift computation so we only test attribution.
+        """
         from backend.perception import emit as emit_module
 
         monkeypatch.setattr(emit_module.audit, "log", MagicMock())

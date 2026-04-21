@@ -9,6 +9,21 @@ specific false-positive class. Do not short-circuit without running
 ``tests/test_core.py``.
 
 Extracted from ``server.py`` (step 7). Behaviour unchanged.
+
+UI connection
+-------------
+Page: [AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx) and
+       [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — this is the orchestrator that runs every
+       perception gate on every frame. Its two visible products are the
+       annotated JPEG drawn behind each live camera tile on AdminPage
+       (with bounding boxes and a detections side-panel) and, when a
+       multi-frame episode finishes, the new incident card that pops
+       into the feed on MonitoringPage.
+Data flow: Frame -> on_frame() runs detection + gates -> annotated JPEG
+       served as live tile (AdminPage) + per-frame detection snapshot
+       broadcast over SSE; finished episode -> flush_episode() ->
+       emit_event() -> SSE broadcast -> incident card (MonitoringPage).
 """
 
 import asyncio

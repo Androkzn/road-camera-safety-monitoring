@@ -2,6 +2,12 @@
  * RiskBadge — uppercase coloured badge for an event's risk level.
  * Colour tokens (`--high`, `--medium`, `--low`) match the conflict-gate
  * thresholds the backend uses (see CLAUDE.md).
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, AdminPage, MonitoringPage — anywhere a safety
+ *   event is rendered (EventCard, EventDialog, monitoring incident rows).
+ * UI element: small uppercase coloured badge ("HIGH", "MEDIUM", "LOW")
+ *   shown next to event titles to signal severity at a glance.
  */
 import type { CSSProperties } from "react";
 

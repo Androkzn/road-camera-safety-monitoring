@@ -22,6 +22,15 @@ def _reset_db(tmp_path):
 
 
 def test_default_template_is_synthetic_and_immutable() -> None:
+    """The built-in "defaults" template is always present at index 0 and
+    cannot be renamed, edited, or deleted.
+
+    ``system=True`` marks templates shipped with the product (as opposed to
+    user-created). Both mutation attempts are expected to raise
+    ``PermissionError`` — Python's built-in "operation not permitted"
+    exception. ``pytest.raises(X)`` is a context manager (``with ...:``)
+    that passes the test only if the block raises exactly ``X``.
+    """
     tmpls = template_svc.list_templates()
     assert tmpls[0]["id"] == template_svc.DEFAULT_TEMPLATE_ID
     assert tmpls[0]["system"] is True
@@ -34,6 +43,13 @@ def test_default_template_is_synthetic_and_immutable() -> None:
 
 
 def test_create_then_update_creates_immutable_revision() -> None:
+    """Every ``update_template`` call appends a new revision row rather
+    than mutating the prior one.
+
+    This preserves an audit trail: you can always see what the template
+    looked like when it was applied at a given time. The test verifies
+    revision 0 is untouched after writing revision 1.
+    """
     tmpl = template_svc.create_template(
         name="conservative",
         description="tighter thresholds",
@@ -53,6 +69,10 @@ def test_create_then_update_creates_immutable_revision() -> None:
 
 
 def test_soft_delete_hides_from_list() -> None:
+    """Deleting a template removes it from ``list_templates`` but keeps the
+    row in the DB (soft delete) so existing audit entries that reference
+    its id still resolve to something meaningful.
+    """
     tmpl = template_svc.create_template(
         name="ephemeral", description="", payload={}, actor_label="op"
     )
@@ -62,6 +82,15 @@ def test_soft_delete_hides_from_list() -> None:
 
 
 def test_apply_drops_unknown_keys_and_fills_missing() -> None:
+    """Applying a stored template must migrate it to the current spec:
+    drop keys that no longer exist and fill in defaults for new keys.
+
+    Templates are durable artefacts — a template saved six months ago may
+    reference retired settings. This test creates one with ``RETIRED_KEY``
+    and verifies the plan drops it and fills in every spec key the payload
+    omits. ``sorted(...)`` is used because ``plan.filled_keys`` is a list
+    with deterministic ordering; comparing sets would also work.
+    """
     # CONF_THRESHOLD=0.4 keeps the cross-field rule
     # (SLACK_HIGH_MIN_CONFIDENCE >= CONF_THRESHOLD) satisfied with the
     # spec default for the Slack key.
@@ -84,6 +113,14 @@ def test_apply_drops_unknown_keys_and_fills_missing() -> None:
 
 
 def test_apply_rejects_cross_field_violation() -> None:
+    """``TTC_MED_SEC`` must be greater than ``TTC_HIGH_SEC`` (the medium
+    risk threshold has to be higher/longer than the high-risk threshold).
+
+    When a template violates that invariant, ``prepare_template_apply``
+    surfaces a validation error keyed by the offending field. The set
+    comprehension ``{e["key"] for e in ...}`` collects the error keys
+    into a set for easy membership testing.
+    """
     tmpl = template_svc.create_template(
         name="broken",
         description="",
@@ -98,6 +135,14 @@ def test_apply_rejects_cross_field_violation() -> None:
 
 
 def test_payload_coercion_repairs_string_floats() -> None:
+    """If a stored payload contains numeric values encoded as strings
+    (``"0.55"`` instead of ``0.55``), the apply step coerces them to
+    floats rather than failing type validation.
+
+    This is defence-in-depth against older clients that round-tripped
+    values through an untyped JSON field and lost the numeric type along
+    the way.
+    """
     tmpl = template_svc.create_template(
         name="stringy",
         description="",

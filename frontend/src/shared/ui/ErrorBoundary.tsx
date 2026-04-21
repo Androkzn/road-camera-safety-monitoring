@@ -32,16 +32,20 @@ interface ErrorBoundaryState {
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null };
 
+  // React lifecycle: called after a render-phase throw. Return new state
+  // so React can render the fallback instead of the crashed subtree.
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
   }
 
+  // Side-effect hook — good place to forward to Sentry, Datadog, etc.
   componentDidCatch(error: Error, info: ErrorInfo): void {
     this.props.onError?.(error, info);
 
     console.error("[ErrorBoundary]", error, info);
   }
 
+  // Arrow method preserves `this` when passed as a callback to children.
   reset = (): void => this.setState({ error: null });
 
   render() {

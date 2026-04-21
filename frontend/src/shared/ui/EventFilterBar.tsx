@@ -18,6 +18,13 @@
  *     availableTypes={typesFromFeed}
  *     onClear={clearAll}
  *   />
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, AdminPage, MonitoringPage — anywhere an event
+ *   feed is shown.
+ * UI element: horizontal filter bar above an event feed with two select
+ *   dropdowns (risk level, event type), a "Show low risk" checkbox, and
+ *   an optional Clear button when any filter is active.
  */
 import { humanEventType } from "../lib/format";
 

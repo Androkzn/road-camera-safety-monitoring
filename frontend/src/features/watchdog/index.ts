@@ -1,5 +1,9 @@
 /**
- * watchdog feature — public surface.
+ * watchdog feature — public surface (barrel file).
+ *
+ * The watchdog is the incident queue: the backend groups repeated
+ * errors into fingerprinted findings, and this feature renders them
+ * in a drawer plus surfaces a severity badge in the TopBar.
  *
  * Other features should import only from this barrel.
  */

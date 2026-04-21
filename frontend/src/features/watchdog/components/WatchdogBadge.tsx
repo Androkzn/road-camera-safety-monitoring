@@ -6,11 +6,17 @@ import type { WatchdogStatus } from "../../../shared/types/common";
 
 import styles from "./WatchdogBadge.module.css";
 
+/** Props for {@link WatchdogBadge}. */
 interface WatchdogBadgeProps {
   status: WatchdogStatus | null;
   onClick: () => void;
 }
 
+/**
+ * Render the TopBar monitoring pill. Returns `null` to render nothing
+ * when the watchdog is disabled or status hasn't loaded — `null` is
+ * React's official "render nothing" value.
+ */
 export function WatchdogBadge({ status, onClick }: WatchdogBadgeProps) {
   if (!status || !status.enabled) return null;
 
@@ -18,6 +24,7 @@ export function WatchdogBadge({ status, onClick }: WatchdogBadgeProps) {
   const warnings = status.by_severity?.warning ?? 0;
   const total = status.total_findings;
 
+  // Pick the single dot colour matching the most severe category present.
   const severity = errors > 0 ? "error" : warnings > 0 ? "warning" : total > 0 ? "info" : "ok";
 
   return (

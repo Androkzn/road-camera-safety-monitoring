@@ -1,6 +1,13 @@
 /**
  * Dot — small coloured status indicator (a 7x7 round span).
  * Pure presentational primitive; uses inline styles for atomicity.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Most visible inside the TopBar
+ *   live-status pill, and reused in headers/cards across AdminPage,
+ *   DashboardPage, MonitoringPage, SettingsPage and ValidationPage.
+ * UI element: small coloured status dot (green ok, red bad with blink,
+ *   amber wait, grey default) used next to status labels.
  */
 import type { CSSProperties } from "react";
 

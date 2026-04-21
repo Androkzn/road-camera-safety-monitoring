@@ -3,6 +3,19 @@
 Kept small and side-effect-free. The hot-path in :mod:`on_frame` imports
 these. Extracted from ``server.py`` (step 7) so ``on_frame`` /
 ``episode_emit`` don't drag in the whole server module to reach them.
+
+UI connection
+-------------
+Page: [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — runs inside the per-frame detection loop as
+       the small helper that turns raw TTC / distance numbers into the
+       final risk bucket (high / medium / low). That bucket is what
+       paints the coloured risk pill on each incident card in the
+       Monitoring feed.
+Data flow: TTC + distance + scene thresholds -> classify_with_scene()
+       returns "high" / "medium" / "low" -> attached to the event by
+       emit_event() -> SSE broadcast -> rendered as the colour-coded
+       risk pill on incident cards (MonitoringPage).
 """
 
 from backend.core.detection import LOW_SPEED_FLOOR_MPS

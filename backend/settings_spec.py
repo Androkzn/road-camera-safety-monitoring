@@ -30,6 +30,11 @@ Design notes
 * Cross-field validators are in this module (not the store) so they are
   testable in isolation and so the API's ``/validate`` endpoint can return
   per-key reasons before any apply attempt.
+
+UI connection
+-------------
+Page: SettingsPage ([SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx)).
+UI element: Powers every tunable slider/input on the Settings page.
 """
 
 from __future__ import annotations

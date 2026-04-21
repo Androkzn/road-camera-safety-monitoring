@@ -23,6 +23,11 @@ Layering note:
     so it can be imported extremely early in bootstrap (before env parsing is
     done) without circular-import risk. It reads its own two env vars
     directly.
+
+UI connection
+-------------
+Page: none directly.
+UI element: No direct UI — sets up the structured logger. Errors logged here may surface as red entries in the Watchdog drawer (visible from any page's top bar).
 """
 
 from __future__ import annotations

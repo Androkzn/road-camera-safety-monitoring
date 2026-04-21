@@ -8,6 +8,12 @@ import { useValidator } from "../hooks/useValidator";
 
 import styles from "./ValidatorControl.module.css";
 
+/**
+ * Card with a single checkbox that enables/disables the shadow validator
+ * at runtime, plus status counters (jobs processed, episodes enqueued,
+ * findings emitted). Renders a warning hint when the validator was
+ * disabled at startup and requires a server restart.
+ */
 export function ValidatorControl() {
   const { status, isLoading, error, setEnabled, isPending } = useValidator();
 
@@ -24,6 +30,8 @@ export function ValidatorControl() {
     <div className={styles.card}>
       <div className={styles.row}>
         <label className={styles.label}>
+          {/* Controlled input — `checked` is driven by state, `onChange`
+              pushes the new value back through the mutator (optimistic). */}
           <input
             type="checkbox"
             checked={active}

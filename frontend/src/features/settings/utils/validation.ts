@@ -4,6 +4,12 @@
  * The settings router throws structured errors with `body.error` /
  * `body.errors` discriminators; these helpers narrow them to typed
  * shapes the page can render.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: No direct UI — helper used by the SettingsPage components to
+ *   recognise validation/privacy errors returned by the Apply flow.
+ * Backend: Decodes errors from POST /api/settings/apply.
  */
 import type { HttpApiError } from "../../../shared/lib/fetchClient";
 

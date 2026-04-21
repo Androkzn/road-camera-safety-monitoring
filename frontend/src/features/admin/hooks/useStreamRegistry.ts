@@ -6,6 +6,14 @@
  *
  * `remove` also optimistically drops the slot from the cached list so
  * the tile disappears instantly instead of waiting for the next poll.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: not visible on screen — this is the actions hook behind
+ *   the "add camera" / "remove camera" buttons and the "start all" /
+ *   "pause all" toolbar above the video grid.
+ * Backend: POST /api/live/sources, DELETE /api/live/sources/{id},
+ *   POST /api/live/sources/{id}/start|pause.
  */
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";

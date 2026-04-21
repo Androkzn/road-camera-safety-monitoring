@@ -11,6 +11,13 @@ Two entry points:
 
 Extracted from ``server.py`` as part of the refactor plan, step 3.
 Behaviour unchanged.
+
+UI connection
+-------------
+Page: AdminPage
+UI element: Provides the single-JPEG snapshots that the AdminPage live
+       tiles fall back to (via the ``StreamImage`` polling path) when the
+       page is served over plain HTTP.
 """
 
 import cv2

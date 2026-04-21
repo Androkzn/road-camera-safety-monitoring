@@ -36,6 +36,20 @@ Native feeds are 25-60 fps, but the perception stack runs at ``TARGET_FPS``
 ``step = native_fps / target_fps`` and only invoking ``on_frame`` every
 ``step``-th frame — cheaper than decoding at full rate and throwing most
 frames away downstream.
+
+UI connection
+-------------
+Page: [AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx) and
+       [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — feeds raw frames into the per-frame detection
+       loop. Its output is what every other piece of the perception
+       pipeline runs on, so when this stops producing frames the live
+       camera tiles on AdminPage freeze and no new incident cards appear
+       on MonitoringPage.
+Data flow: Frame captured by background thread -> on_frame() callback ->
+       detection + annotated JPEG -> served on the live tile (AdminPage)
+       and, when an episode is detected, emit_event() -> SSE broadcast
+       -> incident card (MonitoringPage).
 """
 
 # ``from __future__ import annotations`` makes all type hints lazy strings.

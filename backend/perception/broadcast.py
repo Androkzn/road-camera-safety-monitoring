@@ -6,6 +6,21 @@ set and ``put_nowait`` on each queue. ``QueueFull`` is swallowed so a single
 slow consumer can't back-pressure the whole fan-out.
 
 Extracted from ``server.py`` (step 7).
+
+UI connection
+-------------
+Page: [AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx) and
+       [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — this is the pipe that pushes live updates to
+       every browser tab that has a page open. Without it, the per-frame
+       detection counts and quality banners on AdminPage and the
+       new-incident cards on MonitoringPage would never appear in real
+       time; the pages would only update on a manual refresh.
+Data flow: Perception event or quality state -> broadcast_perception() /
+       broadcast_admin_detections() puts message on each subscriber's
+       queue -> SSE endpoint streams it to the browser -> consumed by
+       the useEvents / useDetections hooks -> live tile + incident card
+       updates on AdminPage and MonitoringPage.
 """
 
 import asyncio

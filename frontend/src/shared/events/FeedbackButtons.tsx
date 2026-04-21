@@ -17,7 +17,13 @@ interface FeedbackButtonsProps {
   eventId: string;
 }
 
+/**
+ * Single-shot verdict submitter. Once `submitted` is true, both buttons
+ * are disabled so the operator can't flip-flop and skew the drift signal.
+ */
 export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
+  // One useState holds a small state-machine object. Simpler than four
+  // separate states and guarantees transitions are atomic.
   const [state, setState] = useState<{
     submitted: boolean;
     verdict: string | null;
@@ -25,6 +31,8 @@ export function FeedbackButtons({ eventId }: FeedbackButtonsProps) {
     loading: boolean;
   }>({ submitted: false, verdict: null, error: false, loading: false });
 
+  // `useCallback` memoises the function identity across renders —
+  // matters when it's passed to child components via props.
   const submit = useCallback(
     async (verdict: "tp" | "fp") => {
       if (state.submitted || state.loading) return;

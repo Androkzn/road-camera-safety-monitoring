@@ -1,10 +1,17 @@
 /**
  * Watchdog API — findings list + destructive clears (POC: unauthenticated).
+ *
+ * `AbortSignal` is part of the fetch API — passing it lets TanStack
+ * cancel in-flight requests when the component unmounts or refetches.
  */
 import { apiFetch } from "../../shared/lib/fetchClient";
 
 import type { WatchdogFinding, WatchdogStatus } from "../../shared/types/common";
 
+/**
+ * Thin endpoint wrappers. Generic `<T>` on apiFetch fixes the return
+ * type of the parsed JSON; callers get full TS autocomplete.
+ */
 export const watchdogApi = {
   getStatus: (signal?: AbortSignal) => apiFetch<WatchdogStatus>("/api/watchdog", { signal }),
 
@@ -23,6 +30,7 @@ export const watchdogApi = {
     }),
 };
 
+/** Shared TanStack Query cache key for the combined status + findings query. */
 export const watchdogQueryKeys = {
   combined: ["watchdog", "combined"] as const,
 };

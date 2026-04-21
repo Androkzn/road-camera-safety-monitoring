@@ -8,6 +8,14 @@
  *     message="The watchdog hasn't found anything."
  *     actions={<Button onClick={refresh}>Refresh</Button>}
  *   />
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Shown by MonitoringPage when
+ *   the incident queue is empty, by DashboardPage / AdminPage when the
+ *   event feed has no entries, and by SettingsPage / ValidationPage list
+ *   panels.
+ * UI element: centred placeholder with optional icon, title, message and
+ *   action buttons — used wherever a list or panel renders zero items.
  */
 import type { ReactNode } from "react";
 

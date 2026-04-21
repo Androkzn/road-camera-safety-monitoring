@@ -8,6 +8,15 @@
  *
  * When only the primary source is configured (legacy single-stream
  * deployment) the grid still renders fine — it just shows one tile.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: the grid of live video tiles in the middle of the page,
+ *   with a small toolbar above it for "start all" / "pause all". When
+ *   one tile is focused, the grid switches to a maximized layout for
+ *   that tile.
+ * Backend: GET /api/live/sources for the list of tiles; bulk start/pause
+ *   fans out POST /api/live/sources/{id}/start|pause.
  */
 import { useEffect } from "react";
 

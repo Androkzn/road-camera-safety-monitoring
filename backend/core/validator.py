@@ -37,6 +37,18 @@ Design constraints
   so operators can see the drop rate).
 * No new persistence store. Findings go through
   :func:`backend.services.watchdog._write_finding`.
+
+UI connection
+-------------
+Page: [ValidationPage.tsx](frontend/src/features/validation/ValidationPage.tsx)
+UI element: No direct UI on its own — runs as a background shadow check
+       on the perception thread. Its disagreement findings (false-positive,
+       false-negative, classification-mismatch) appear as the rows in the
+       validator review queue on the Validation page.
+Data flow: Disagreement detected -> watchdog._write_finding() under the
+       "validator" category -> served by the validator API router ->
+       fetched by the Validation page hook -> rendered as review-queue
+       rows operators can triage.
 """
 
 import asyncio
@@ -122,9 +134,19 @@ class SecondaryDetector:
         model_path: str = VALIDATOR_MODEL_PATH,
         device: str = VALIDATOR_DEVICE,
     ) -> None:
+        """Record config only — the model itself is loaded lazily on first use.
+
+        Args:
+            backend: Which detector family (``"rtdetr"`` or ``"yolo"``).
+            model_path: Weights file or ultralytics hub name.
+            device: ``"cpu"`` / ``"cuda"`` / ``"mps"`` / ``""`` (= auto).
+        """
         self.backend = backend
         self.model_path = model_path
         self.device = device or ""
+        # ``None`` flags "not loaded yet" — ``load()`` / ``predict()``
+        # populate it on demand. Lazy loading keeps process startup fast
+        # even when the validator is disabled.
         self._model = None  # lazy load
 
     def load(self) -> None:
@@ -271,6 +293,13 @@ class DiscrepancyComparator:
     """
 
     def __init__(self, iou_threshold: float = VALIDATOR_IOU_THRESHOLD) -> None:
+        """Store the IoU threshold used for "same object" matching.
+
+        Args:
+            iou_threshold: Minimum box-overlap score (0..1) before two
+                detections from different models are treated as the same
+                physical object. Lower = more lenient matching.
+        """
         self.iou_threshold = iou_threshold
 
     # ---- Rule A: false positive -------------------------------------
@@ -512,6 +541,20 @@ class ValidatorWorker:
         queue_max: int = VALIDATOR_QUEUE_MAX,
         sample_sec: float = VALIDATOR_SAMPLE_SEC,
     ) -> None:
+        """Wire together the collaborators; does not start the worker loop.
+
+        Args:
+            detector: The heavy background model (RT-DETR by default).
+            comparator: Pure logic that turns paired detections into
+                ``Discrepancy`` objects.
+            write_finding: Function that writes a ``WatchdogFinding`` to
+                the incident queue (injected so tests don't touch disk).
+            finding_ctor: Factory that builds a ``WatchdogFinding`` dict.
+            observer_record_skip: Optional telemetry hook — called with
+                ``("validator", "queue_full")`` when we drop a job.
+            queue_max: Bounded queue size for sampled jobs.
+            sample_sec: Rate-limit per stream for sampled background checks.
+        """
         self.detector = detector
         self.comparator = comparator
         # Dependency-inject the watchdog writer + ctor so tests don't
@@ -702,6 +745,13 @@ class ValidatorWorker:
             raise
 
     async def _process(self, job: ValidatorJob) -> None:
+        """Run the secondary detector on ``job.frame`` and report any disagreements.
+
+        The heavy inference is off-loaded with ``asyncio.to_thread`` so
+        the event loop stays responsive. Then we dispatch to the
+        comparator rules that apply to this job kind and emit any
+        resulting findings.
+        """
         started = time.monotonic()
         secondary = await asyncio.to_thread(self.detector.predict, job.frame)
         latency_ms = (time.monotonic() - started) * 1000.0

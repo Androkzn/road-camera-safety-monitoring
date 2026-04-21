@@ -1,6 +1,12 @@
 /**
  * useClearEvents — encapsulates the "clear all events + watchdog findings"
  * workflow so the page component stays a composition shell.
+ *
+ * --- UI mapping ---
+ * Page: DashboardPage ([file](frontend/src/features/dashboard/DashboardPage.tsx))
+ * UI element: No direct UI — drives the "Clear all events" button at the
+ *   right end of the filter bar above the event feed.
+ * Backend: DELETE /api/events
  */
 import { useCallback, useState } from "react";
 

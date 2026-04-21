@@ -6,7 +6,13 @@
  * on "where do the two detectors disagree". Consumes the same
  * event-stream + watchdog context every other tab uses; no new
  * server calls live here.
+ *
+ * This is a React functional component — a plain function that returns
+ * JSX (React's HTML-like syntax). React calls it to render the page.
  */
+// `useMemo` is a React hook: caches a computed value across renders
+// and only recomputes when its dependency array changes. Prevents
+// redoing expensive work on every re-render.
 import { useMemo } from "react";
 
 import { useEventStream } from "../../shared/hooks/useEventStream";
@@ -20,26 +26,48 @@ import { useDriftCount } from "./hooks/useDriftCount";
 
 import styles from "./ValidationPage.module.css";
 
+/**
+ * ValidationPage — page component rendered when the /validation route is active.
+ *
+ * Aggregates four data sources (live SSE stream, live camera status,
+ * watchdog findings, validator toggle state) and splits the watchdog
+ * findings into the two headline stats shown on top of the page.
+ */
 export function ValidationPage() {
+  // Custom hooks (any function starting with `use`): they wrap React's
+  // built-in hooks and return state/data to the component. Destructuring
+  // pulls named fields out of the returned object.
   const { connected, events } = useEventStream();
+  // Renaming during destructuring: `data` (from useQuery) becomes `liveStatus`.
   const { data: liveStatus } = useLiveStatus();
   const { status: wdStatus, findings } = useWatchdogCtx();
   const { status: validatorStatus } = useValidator();
 
+  // Double-bang `!!x` coerces a possibly-undefined value to a strict boolean.
   const validatorActive = !!validatorStatus?.enabled && !validatorStatus?.paused;
   const driftCount = useDriftCount();
+  // `??` is the nullish-coalescing operator: use the left side unless it's
+  // null/undefined. Safer than `||` which also falls back on "" or 0.
   const sourceName = liveStatus?.source ?? "—";
 
+  // Memoized split of validator findings. Recomputes only when
+  // `findings` identity changes — saves work on every re-render.
   const { disputed, shadowOnly } = useMemo(() => {
     const validator = (findings ?? []).filter((f) => f.category === "validator");
     return {
+      // False-positive / class-mismatch: primary said yes, validator said no.
       disputed: validator.filter((f) => !(f.fingerprint ?? "").endsWith("false-negative")).length,
+      // False-negative: validator flagged something the primary missed.
       shadowOnly: validator.filter((f) => (f.fingerprint ?? "").endsWith("false-negative")).length,
     };
   }, [findings]);
 
+  // JSX returned below: React's syntax for describing UI. Looks like HTML but
+  // compiles to React.createElement() calls. `<>...</>` is a "Fragment" — a
+  // wrapper that groups siblings without adding an extra DOM node.
   return (
     <>
+      {/* Props are passed like HTML attributes; `{expr}` inlines a JS value. */}
       <TopBar
         sourceName={sourceName}
         connected={connected}

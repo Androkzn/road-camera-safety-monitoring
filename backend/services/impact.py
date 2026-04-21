@@ -21,6 +21,23 @@ is one of ``"high" | "medium" | "low" | "insufficient"``.
 Persistence: every tick upserts the session into
 :mod:`backend.services.settings_db` so a server restart inside the
 monitoring window does not lose the operator's experiment.
+
+Python idioms used in this file (explained once)
+------------------------------------------------
+- ``@dataclass`` : decorator that auto-generates ``__init__`` / ``__repr__``
+  from typed class attributes. ``field(default_factory=...)`` lets a field
+  default to a *new* mutable value per instance (never share a list/dict
+  between instances — classic Python footgun).
+- ``X | None`` : PEP 604 union type hint, "X or None".
+- ``from __future__ import annotations`` : makes all type hints lazy
+  strings, so modern syntax works on older Python and forward refs work.
+- ``Callable[[float, float], Mapping[str, Any]]`` : a function that takes
+  two floats and returns a mapping. Functions are first-class values here
+  so callers can inject custom data sources without tight coupling.
+- ``asdict(self)`` : recursively converts a dataclass to a plain dict,
+  for JSON serialization.
+- ``getattr(obj, name)`` : dynamic attribute read used to iterate the
+  same set of field names across baseline and after-window instances.
 """
 
 from __future__ import annotations
@@ -38,15 +55,41 @@ from backend.services import settings_db
 # ---------------------------------------------------------------------------
 # Tunables for the engine itself (intentionally NOT in SETTINGS_SPEC)
 # ---------------------------------------------------------------------------
+# These are engine internals — not user-configurable through the Settings
+# Console (that would make the comparability gates themselves game-able).
+# MIN_BASELINE_EVENTS / MIN_AFTER_EVENTS: below 20 events the severity-ratio
+# and percentile estimates are too noisy to trust; comparability tier drops
+# to "low" automatically.
 MIN_BASELINE_EVENTS = 20
 MIN_AFTER_EVENTS = 20
+# MIN_FEEDBACK: operator verdicts needed before FP rate can be reported
+# from feedback rather than a proxy estimate.
 MIN_FEEDBACK = 5
+# Jensen-Shannon divergence between scene-mix distributions in [0, 1].
+# Above 0.20 the two windows saw materially different scene compositions
+# (e.g. baseline was highway + after-window was urban) — any deltas in
+# event rate become confounded by scene mix rather than the settings
+# change, so comparability tier is capped to medium with a reason code.
 SCENE_JSD_THRESHOLD = 0.20         # above => "scene_mix_drift" reason
+# Histogram-intersection similarity floor for quality state distributions
+# (nominal/degraded/failed). Below 0.6 the two windows had materially
+# different camera conditions and comparability is forced to low.
 QUALITY_SIMILARITY_FLOOR = 0.6     # below => "quality_drift" reason
+# Candidate baseline lookback windows (in seconds). We try each in order
+# and accept the first that meets MIN_BASELINE_EVENTS — 5 min first for
+# freshness, up to 30 min as a last-resort widening for sparse streams.
 WINDOW_LOOKBACKS_SEC = (300.0, 600.0, 1200.0, 1800.0)
+# If an operator lands a second settings change within 30 s of the first,
+# fold both into one session so the baseline isn't overwritten by a
+# mid-experiment tweak.
 COALESCE_WINDOW_SEC = 30.0
+# How often the engine recomputes the after-window stats (15 s).
 IMPACT_TICK_SEC = 15.0
+# Sessions auto-archive after 1 h so the UI doesn't show stale
+# "monitoring" banners indefinitely.
 IMPACT_SESSION_MAX_AGE_SEC = 3600.0
+# 10 min before max-age we switch to an "unattended" banner so operators
+# know the window is about to close.
 UNATTENDED_BANNER_LEAD_SEC = 600.0
 
 
@@ -55,7 +98,17 @@ UNATTENDED_BANNER_LEAD_SEC = 600.0
 # ---------------------------------------------------------------------------
 @dataclass
 class WindowStats:
-    """Deterministic stats over one observation window (baseline or after)."""
+    """Deterministic stats over one observation window (baseline or after).
+
+    One instance per window — you'll see a pair (baseline + after) attached
+    to every active :class:`ImpactReport`. All percentile fields are
+    ``None`` when the window contains no data for that metric (kept as
+    ``None`` rather than 0.0 so the UI can render "—").
+
+    Fields with ``= None`` defaults are truly optional; the mutable
+    defaults (``dict``, ``list``) must use ``field(default_factory=...)``
+    — using a bare ``{}`` would share one dict across every instance.
+    """
 
     window_start_ts: float
     window_end_ts: float
@@ -93,12 +146,26 @@ class WindowStats:
     ops_samples: int = 0
 
     def to_dict(self) -> dict[str, Any]:
+        """JSON-serialisable representation.
+
+        ``asdict`` recurses through nested dataclasses (none here but
+        future-proof) and copies lists/dicts so the caller cannot mutate
+        our internal state.
+        """
         return asdict(self)
 
 
 @dataclass
 class ImpactReport:
-    """One ``GET /api/settings/impact`` payload."""
+    """One ``GET /api/settings/impact`` payload.
+
+    The complete response the frontend renders on the impact card: the
+    before/after settings diff, both windows' stats, their percentage
+    deltas, a comparability tier, and optional narrative / recommendation
+    from the LLM advisory layer (``analyze_settings_impact`` in ``llm.py``).
+
+    ``state`` transitions: monitoring -> monitoring_unattended -> archived.
+    """
 
     audit_id: str
     change_ts: float
@@ -120,6 +187,12 @@ class ImpactReport:
     recommendation: str | None = None  # keep | revert | monitor
 
     def to_dict(self) -> dict[str, Any]:
+        """JSON-serialisable form; explicitly expands nested dataclasses.
+
+        ``asdict`` would handle nested dataclasses automatically, but
+        calling the inner ``to_dict()`` keeps the field ordering stable
+        and future-proofs against adding non-dataclass fields.
+        """
         out = asdict(self)
         if self.baseline is not None:
             out["baseline"] = self.baseline.to_dict()
@@ -132,17 +205,31 @@ class ImpactReport:
 # Math helpers
 # ---------------------------------------------------------------------------
 def _percentile(values: list[float], p: float) -> float | None:
+    """Nearest-rank percentile (no interpolation). ``p`` is in 0..100.
+
+    Good enough for an operator dashboard and stable across tiny samples
+    — a median-of-3 will return the middle element rather than averaging.
+    Returns ``None`` on empty input so callers can render "—" in the UI.
+    """
     if not values:
         return None
     s = sorted(values)
+    # Clamp to valid index range: multiply fractional position by (n-1),
+    # round, then pin into [0, n-1].
     idx = max(0, min(len(s) - 1, int(round((p / 100.0) * (len(s) - 1)))))
     return float(s[idx])
 
 
 def _normalize_dist(counts: Mapping[str, int]) -> dict[str, float]:
+    """Turn a count dict into a probability distribution that sums to 1.
+
+    Empty input returns ``{}`` (not a divide-by-zero). Used for scene and
+    quality mixes before they feed the Jensen-Shannon gate.
+    """
     total = sum(counts.values())
     if total == 0:
         return {}
+    # Dict comprehension: ``{k: expr for k, v in ...}`` — concise map.
     return {k: v / total for k, v in counts.items()}
 
 
@@ -151,20 +238,30 @@ def jensen_shannon_distance(p: Mapping[str, float], q: Mapping[str, float]) -> f
 
     Returns 0.0 when both distributions are identical (or both empty),
     1.0 when fully disjoint. Uses base-2 log so the value is bounded by 1.
+
+    Why JSD and not raw KL? KL is asymmetric and blows up to infinity
+    when ``q`` has a zero where ``p`` doesn't. JSD averages both directions
+    against a midpoint distribution ``m``, which keeps it symmetric and
+    finite — the exact property a comparability gate needs.
     """
-    keys = set(p) | set(q)
+    keys = set(p) | set(q)  # Set-union via ``|``: all keys seen in either dist.
     if not keys:
         return 0.0
 
     def _kl(a: Mapping[str, float], b: Mapping[str, float]) -> float:
+        """Inner KL divergence; both args should have positive-mass entries."""
         total = 0.0
         for k in keys:
             ak = a.get(k, 0.0)
             bk = b.get(k, 0.0)
+            # Skip zero-mass keys to avoid log(0) / 0*log(0); limit theory
+            # says these contribute 0 to the sum.
             if ak > 0 and bk > 0:
                 total += ak * math.log2(ak / bk)
         return total
 
+    # ``m`` is the pointwise midpoint distribution — the reference both
+    # p and q are compared to.
     m = {k: 0.5 * (p.get(k, 0.0) + q.get(k, 0.0)) for k in keys}
     jsd = 0.5 * _kl(p, m) + 0.5 * _kl(q, m)
     # Numerical floor: tiny negative values from rounding can sneak in.
@@ -194,7 +291,11 @@ def compute_window(
     wired). Its fields are copied into the operational-metric slots on
     the returned :class:`WindowStats`.
     """
+    # Floor duration at 1 ms so the downstream rate_per_min math cannot
+    # divide by zero even on a degenerate equal start/end window.
     duration = max(0.001, end_ts - start_ts)
+    # ``Counter`` is a dict subclass that counts items; ``Counter()[k] += 1``
+    # starts at 0 automatically, no existence check needed.
     severity_counts: Counter[str] = Counter()
     confidences: list[float] = []
     ttcs: list[float] = []
@@ -204,12 +305,19 @@ def compute_window(
 
     sample = 0
     for ev in events:
+        # Tolerate two timestamp field names (``timestamp_sec`` vs ``ts``)
+        # because events can come from different producers in this codebase.
         ts = float(ev.get("timestamp_sec") or ev.get("ts") or 0.0)
+        # Skip events outside the requested window (0.0 timestamp means
+        # "no timestamp recorded" and is accepted — defensive).
         if ts and (ts < start_ts or ts > end_ts):
             continue
         sample += 1
         severity_counts[str(ev.get("risk") or ev.get("severity") or "unknown")] += 1
         c = ev.get("confidence")
+        # ``isinstance(c, (int, float))`` accepts both numeric types; the
+        # downstream ``float(c)`` unifies them. Events with missing or
+        # string-typed fields are skipped rather than raising.
         if isinstance(c, (int, float)):
             confidences.append(float(c))
         t = ev.get("ttc_sec")
@@ -225,6 +333,7 @@ def compute_window(
         if q:
             quality[str(q)] += 1
 
+    # Events per minute — multiply fractional rate by 60 for display units.
     rate_per_min = (sample / duration) * 60.0 if duration > 0 else 0.0
     ops = ops_stats or {}
     return WindowStats(
@@ -265,7 +374,22 @@ def evaluate_confidence(
     baseline: WindowStats | None,
     after: WindowStats | None,
 ) -> tuple[str, list[str]]:
-    """Apply the gate algorithm; returns ``(tier, reasons)``."""
+    """Apply the gate algorithm; returns ``(tier, reasons)``.
+
+    Starts optimistic (``"high"``) and caps downward when gates trip.
+    The returned ``reasons`` list is a set of short codes the UI maps
+    to operator-facing explanations — non-empty means the comparison
+    has known caveats.
+
+    Gates
+    -----
+    1. sample-size floor (``MIN_BASELINE_EVENTS`` / ``MIN_AFTER_EVENTS``)
+       -> tier capped to "low" and ``insufficient_events`` reason.
+    2. Scene-mix JSD above ``SCENE_JSD_THRESHOLD``
+       -> capped to "medium" and ``scene_mix_drift``.
+    3. Quality-state similarity below ``QUALITY_SIMILARITY_FLOOR``
+       -> capped to "low" and ``quality_drift``.
+    """
     reasons: list[str] = []
     if baseline is None or after is None:
         return "insufficient", ["no_baseline_or_after"]
@@ -279,6 +403,10 @@ def evaluate_confidence(
             reasons.append("scene_mix_drift")
             tier = _cap_tier(tier, "medium")
     if baseline.quality_distribution and after.quality_distribution:
+        # Histogram intersection: sum of per-key min probabilities. Equals
+        # 1.0 when the two distributions are identical, 0.0 when disjoint.
+        # Generator expression inside ``sum()`` avoids materializing a
+        # list for what can be a large key set.
         same = sum(
             min(baseline.quality_distribution.get(k, 0.0), after.quality_distribution.get(k, 0.0))
             for k in set(baseline.quality_distribution) | set(after.quality_distribution)
@@ -290,6 +418,12 @@ def evaluate_confidence(
 
 
 def _cap_tier(current: str, cap: str) -> str:
+    """Clamp ``current`` tier so it never exceeds ``cap`` (monotonic downgrade).
+
+    Used by the gate evaluator to ratchet confidence down — once a tier
+    has been lowered by one gate, a later gate can only lower it further,
+    never raise it back.
+    """
     rank = {"high": 3, "medium": 2, "low": 1, "insufficient": 0}
     return current if rank[current] <= rank[cap] else cap
 
@@ -323,7 +457,17 @@ _DELTA_FIELDS = (
 
 
 def compute_deltas(baseline: WindowStats, after: WindowStats) -> dict[str, float]:
-    """Percentage delta when baseline is non-zero, absolute otherwise."""
+    """Percentage delta when baseline is non-zero, absolute otherwise.
+
+    ``getattr(obj, name)`` reads a named attribute dynamically, letting
+    us iterate the same field names across both windows without
+    repeating the list. Any field that is ``None`` on either side is
+    skipped — we never show a delta when one side has no data.
+
+    The fall-through to absolute deltas on zero baselines means a metric
+    that went from 0 to N shows up as ``N`` (not infinity), which the UI
+    renders alongside a "new signal" badge.
+    """
     deltas: dict[str, float] = {}
     for f in _DELTA_FIELDS:
         b = getattr(baseline, f)
@@ -331,6 +475,8 @@ def compute_deltas(baseline: WindowStats, after: WindowStats) -> dict[str, float
         if a is None or b is None:
             continue
         if b != 0:
+            # Percent change relative to baseline magnitude; ``abs(b)``
+            # ensures the sign comes from (a - b), not from b itself.
             deltas[f] = (a - b) / abs(b) * 100.0
         else:
             deltas[f] = float(a)
@@ -370,6 +516,12 @@ class ImpactMonitor:
         self._session: dict[str, Any] | None = None
 
     def _ops_for(self, start_ts: float, end_ts: float) -> Mapping[str, Any] | None:
+        """Safe call into the ops-sampler stats function, if wired.
+
+        Swallows every exception so a broken sampler can never take down
+        the impact engine; ``None`` is interpreted downstream as "no ops
+        data for this window" and the metrics render as "—".
+        """
         if self._ops_stats_fn is None:
             return None
         try:
@@ -388,13 +540,29 @@ class ImpactMonitor:
         actor_label: str,
         changed_keys: list[str],
     ) -> str:
-        """Capture (or refresh) a baseline; returns the session ``audit_id``."""
+        """Capture (or refresh) a baseline; returns the session ``audit_id``.
+
+        Two paths:
+
+        1. **Coalesce** — if the previous change was within
+           ``COALESCE_WINDOW_SEC`` (30 s), fold this change into the
+           existing session. The original ``before`` is preserved so a
+           later revert lands on the pre-experiment state, not on a
+           mid-experiment tweak.
+        2. **New session** — otherwise snapshot the baseline (walking
+           ``WINDOW_LOOKBACKS_SEC`` widths until one has enough events),
+           persist it, and seed a fresh session.
+        """
         now = time.time()
         if self._session and (now - self._session["change_ts"]) < COALESCE_WINDOW_SEC:
             self._session["after"] = after
             self._session["change_ts"] = now
+            # Union of already-changed keys + the new change, sorted for
+            # deterministic output. ``set(...) | set(...)`` is set union.
             self._session["changed_keys"] = sorted(set(self._session["changed_keys"]) | set(changed_keys))
         else:
+            # ``secrets.token_hex(6)`` — cryptographically-random 12-char
+            # hex id; used over uuid4 for shorter URL-friendly ids.
             audit_id = f"impact_{secrets.token_hex(6)}"
             baseline_window = self._capture_baseline(now)
             baseline_id = f"bl_{secrets.token_hex(6)}"
@@ -424,6 +592,13 @@ class ImpactMonitor:
         return self._session["audit_id"]
 
     def _capture_baseline(self, end_ts: float) -> WindowStats:
+        """Walk ``WINDOW_LOOKBACKS_SEC`` widest-last; return the first
+        that has ``>= MIN_BASELINE_EVENTS`` events, else widest anyway.
+
+        Prefers the narrowest (freshest) lookback to reflect the state
+        immediately before the change; widens only when the stream is
+        sparse enough that the narrow window had too few events.
+        """
         events = self._events_source()
         for lookback in WINDOW_LOOKBACKS_SEC:
             start = end_ts - lookback
@@ -436,6 +611,8 @@ class ImpactMonitor:
             if ws.sample_size >= MIN_BASELINE_EVENTS:
                 return ws
         # Last resort: widest lookback window even if under threshold.
+        # We still return *something* so the UI has a baseline to compare
+        # against — the comparability tier will flag "insufficient_events".
         start = end_ts - WINDOW_LOOKBACKS_SEC[-1]
         return compute_window(
             events,
@@ -473,6 +650,14 @@ class ImpactMonitor:
         return _assemble_report(sess, baseline, after)
 
     def _restore_from_db(self) -> ImpactReport | None:
+        """Rebuild an in-memory session from the SQLite store after a restart.
+
+        Keeps the Settings Console usable across ``uvicorn`` reloads and
+        crashes — operators don't lose their experiment just because the
+        process bounced. ``WindowStats(**baseline_payload["payload"])``
+        uses ``**`` to unpack a dict into keyword arguments, calling the
+        dataclass constructor with each stored field.
+        """
         sess = settings_db.get_active_impact_session()
         if sess is None:
             return None
@@ -481,6 +666,9 @@ class ImpactMonitor:
         baseline = (
             WindowStats(**baseline_payload["payload"]) if baseline_payload else None
         )
+        # ``{**sess, "extra": val}`` creates a new dict by merging — the
+        # explicit keys on the right override anything with the same
+        # name from ``sess``.
         self._session = {
             **sess,
             "baseline": baseline,
@@ -490,9 +678,18 @@ class ImpactMonitor:
         return self._build_report(self._session)
 
     def _build_report(self, sess: dict[str, Any]) -> ImpactReport:
+        """Recompute the after-window and assemble a fresh :class:`ImpactReport`.
+
+        Also advances the session state machine:
+        ``monitoring -> monitoring_unattended -> archived`` based on
+        wall-clock age. Every tick persists the updated session so a
+        crash between ticks doesn't lose progress.
+        """
         events = self._events_source()
         now = time.time()
         # If we crossed the unattended threshold, mark the state.
+        # (max_age - lead) = 50 min in defaults; the UI flips to an
+        # "unattended — auto-archive soon" banner at that point.
         if (
             sess["state"] == "monitoring"
             and (now - sess["change_ts"]) >= (IMPACT_SESSION_MAX_AGE_SEC - UNATTENDED_BANNER_LEAD_SEC)
@@ -500,6 +697,8 @@ class ImpactMonitor:
             sess["state"] = "monitoring_unattended"
             self._persist_session()
         if (now - sess["change_ts"]) >= IMPACT_SESSION_MAX_AGE_SEC and sess["state"] != "archived":
+            # Past max age -> archive and drop from memory. The stored row
+            # survives in SQLite so ``report_for(audit_id)`` still works.
             sess["state"] = "archived"
             sess["archived_at"] = now
             self._persist_session()
@@ -517,6 +716,12 @@ class ImpactMonitor:
         return report
 
     def _persist_session(self) -> None:
+        """Flush the current in-memory session to SQLite (upsert).
+
+        Safe to call on every tick — the SQL uses ``ON CONFLICT`` so
+        repeat calls update the same row rather than erroring on unique
+        constraint.
+        """
         if self._session is None:
             return
         sess = self._session
@@ -559,7 +764,16 @@ def _assemble_report(
     baseline: WindowStats | None,
     after: WindowStats | None,
 ) -> ImpactReport:
+    """Glue helper: evaluate gates, compute deltas, return a typed report.
+
+    Module-level (not a method) so ``report_for()`` can call it against
+    an archived session reconstructed from SQLite without needing a live
+    :class:`ImpactMonitor` instance.
+    """
     tier, reasons = evaluate_confidence(baseline, after)
+    # Short-circuit the delta computation when either window is missing
+    # so the caller sees an empty dict (and renders "—") instead of a
+    # crash on ``getattr`` against ``None``.
     deltas = compute_deltas(baseline, after) if baseline and after else {}
     immediate = [
         "event_rate_per_min",

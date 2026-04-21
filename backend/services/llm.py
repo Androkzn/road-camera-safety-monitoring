@@ -61,6 +61,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import Any, TypedDict
 
 from anthropic import AsyncAnthropic
 
@@ -161,7 +162,9 @@ _INJECTION_PATTERNS = [re.compile(p, re.I) for p in
 # Readability downgrade ladder. Used when self-consistency disagrees or when
 # we run a single-sample fallback (rate-limited path): confidence drops one
 # step. ``unreadable`` is the floor - it can't go lower.
-_DOWNGRADE = {"clear": "partial", "partial": "unreadable", "unreadable": "unreadable"}
+_DOWNGRADE: dict[str, str] = {
+    "clear": "partial", "partial": "unreadable", "unreadable": "unreadable",
+}
 
 # -----------------------------------------------------------------------------
 # CIRCUIT BREAKER STATE
@@ -179,7 +182,19 @@ _DOWNGRADE = {"clear": "partial", "partial": "unreadable", "unreadable": "unread
 # window; shorter and we hammer recovering infra, longer and we lock
 # ourselves out of brief blips.
 # -----------------------------------------------------------------------------
-_CB_STATE = {"failures": 0, "opened_at": None}
+class _CbState(TypedDict):
+    """Circuit-breaker mutable state.
+
+    ``failures`` counts consecutive failed enrichment calls (reset on
+    success). ``opened_at`` is the monotonic-clock timestamp at which
+    the breaker tripped, or ``None`` while the breaker is closed.
+    """
+
+    failures: int
+    opened_at: float | None
+
+
+_CB_STATE: _CbState = {"failures": 0, "opened_at": None}
 _CB_THRESHOLD = 3
 _CB_COOLDOWN_SEC = 60.0
 
@@ -370,7 +385,11 @@ async def _complete_anthropic(system, user: str, model_hint: str, max_tokens: in
     usage = getattr(resp, "usage", None)
     inp = getattr(usage, "input_tokens", 0) if usage else 0
     out = getattr(usage, "output_tokens", 0) if usage else 0
-    return resp.content[0].text.strip(), inp, out
+    # Anthropic's ``Message.content`` is ``list[TextBlock | ToolUseBlock]``;
+    # we only ask for text here, so the first block is always a TextBlock.
+    # ``getattr`` narrows without a branch so mypy doesn't flag the union.
+    text = getattr(resp.content[0], "text", "")
+    return text.strip(), inp, out
 
 
 async def _complete_azure(system, user: str, max_tokens: int) -> tuple[str, int, int]:
@@ -607,12 +626,19 @@ async def _vision_call(client: AsyncAnthropic, b64: str, event: dict, temp: floa
     # exception whose message mentions "response_format" - we also treat
     # that as a signal to fall back (instead of re-raising).
     try:
-        resp = await client.messages.create(
+        # ``response_format`` is part of the structured-outputs beta —
+        # the stable ``messages.create`` signature does not list it, so
+        # mypy (which sees the stable overloads) flags the call. We keep
+        # it as a kwarg and silence the overload check because the
+        # runtime ``except`` blocks below cover the SDK-version mismatch.
+        resp = await client.messages.create(  # type: ignore[call-overload]
             model=MODEL_ENRICH, max_tokens=240, temperature=temp, system=ENRICH_SYSTEM,
             messages=[{"role": "user", "content": user_content}],
             response_format={"type": "json_schema",
                              "json_schema": {"name": "enrichment", "schema": ENRICH_SCHEMA}})
-        return json.loads(resp.content[0].text.strip())
+        first = resp.content[0]
+        text = getattr(first, "text", "")
+        return json.loads(text.strip())
     except (TypeError, ImportError):
         pass
     except Exception as exc:
@@ -623,9 +649,10 @@ async def _vision_call(client: AsyncAnthropic, b64: str, event: dict, temp: floa
     # emitting JSON. Parse the text after re-prepending "{".
     resp = await client.messages.create(
         model=MODEL_ENRICH, max_tokens=240, temperature=temp, system=ENRICH_SYSTEM,
-        messages=[{"role": "user", "content": user_content},
+        messages=[{"role": "user", "content": user_content},  # type: ignore[typeddict-item]
                   {"role": "assistant", "content": "{"}])
-    raw = "{" + resp.content[0].text.strip()
+    first_text = getattr(resp.content[0], "text", "")
+    raw = "{" + first_text.strip()
     # Trim anything after the final ``}`` (trailing prose, etc.).
     end = raw.rfind("}")
     return json.loads(raw[: end + 1] if end != -1 else raw)
@@ -809,7 +836,13 @@ async def enrich_event(event: dict, thumb_path: Path) -> dict | None:
             s0 = await _vision_call(client, b64, event, 0.0)
             merged = _validate(s0, evt_id)
             if isinstance(merged, dict):
-                merged["readability"] = _DOWNGRADE.get(merged.get("readability"), merged.get("readability"))
+                # ``_DOWNGRADE.get(x, y)`` requires ``x`` to be ``str`` (dict
+                # key type) — ``.get("readability")`` is ``Any | None`` so we
+                # normalise to str before the lookup, else fall through to
+                # the original (pre-downgrade) value.
+                read_val = merged.get("readability")
+                key = read_val if isinstance(read_val, str) else ""
+                merged["readability"] = _DOWNGRADE.get(key, read_val)
                 existing = (merged.get("notes") or "").strip()
                 note = "single-sample (rate-limit fallback)"
                 merged["notes"] = f"{existing} | {note}" if existing else note

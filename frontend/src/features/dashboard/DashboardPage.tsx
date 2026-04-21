@@ -4,6 +4,27 @@
  * Reads (mostly via TanStack Query): live status, scene context, drift,
  * pytest status, plus the SSE event stream. Owns local UI state for the
  * filter bar and TestDrawer toggle. Everything else is composition.
+ *
+ * This is a "thin orchestrator" page: it wires custom hooks together and
+ * composes feature components. The fetching / stateful logic is pushed
+ * into hooks; the JSX is mostly layout.
+ *
+ * React/TS concepts first introduced in this file:
+ *   - `useEffect(fn, deps)` — side-effects after render.
+ *   - `useMemo(fn, deps)` — cache a derived value across renders.
+ *   - `useRef<T>(initial)` — mutable cell, no re-render on write.
+ *   - Multiple `useState` slots for independent filter fields.
+ *   - Destructuring a hook's return object in one statement.
+ *   - Conditional JSX fragments + React fragment shorthand `<>...</>`.
+ *
+ * --- UI mapping ---
+ * Page: DashboardPage ([file](frontend/src/features/dashboard/DashboardPage.tsx))
+ * UI element: the whole dashboard screen — top bar, the four KPI tiles,
+ *   the three status banners (perception / scene / drift), the filter bar,
+ *   the scrolling event feed in the middle, and the Copilot chat panel
+ *   on the right.
+ * Backend: GET /api/live/status, GET /api/live/scene, GET /api/drift,
+ *   GET /api/live/stream (SSE), DELETE /api/events
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -31,12 +52,23 @@ import { useScene } from "./hooks/useScene";
 
 import styles from "./DashboardPage.module.css";
 
+/**
+ * Fleet-wide dashboard page. Mounted at `/` by the app router.
+ * Renders the SummaryTiles, banners, event stream, and Copilot panel.
+ */
 export function DashboardPage() {
+  // TEACH: `useEventStream` is a shared context-backed hook. The SSE
+  // connection is opened *once* at app bootstrap (in providers.tsx) and
+  // every consumer reads from the same context — we never open a new
+  // EventSource here.
   const { events, perception, connected, clearEvents } = useEventStream();
   // D8: derive counts from the current `events` buffer instead of a ref —
   // the prior `counts: ref.current` shape silently stopped re-rendering
   // when a count changed without a new event pushing. `events` is capped
   // at ~100 in the provider so this is always O(100) at most.
+  // TEACH: `useMemo(fn, deps)` caches a derived value. It re-runs only
+  // when `events` changes. Without this we'd rescan the buffer on every
+  // unrelated render (every keystroke in a filter box, for example).
   const counts = useMemo(() => {
     let high = 0;
     let medium = 0;
@@ -59,6 +91,10 @@ export function DashboardPage() {
   });
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // TEACH: `useRef` holds a mutable value across renders *without*
+  // triggering a re-render when it changes. Here we track the previous
+  // test status so we can detect the running → failed edge and open the
+  // TestDrawer exactly once per transition.
   const prevTestStatus = useRef<string>("idle");
 
   const [filterRisk, setFilterRisk] = useState("");
@@ -69,6 +105,10 @@ export function DashboardPage() {
   // annotated \u00b13s clip without leaving the dashboard.
   const [selectedEvent, setSelectedEvent] = useState<SafetyEvent | null>(null);
 
+  // TEACH: `useEffect(fn, deps)` runs `fn` AFTER render, whenever a
+  // dep changes. The deps list here is `[testStatus?.status]` — we
+  // deliberately omit `drawerOpen` and `testStatus` itself so we only
+  // react to status *transitions*, not to unrelated re-renders.
   // Auto-open the TestDrawer when tests flip running → failed.
   useEffect(() => {
     if (testStatus?.status === "failed" && prevTestStatus.current === "running" && !drawerOpen) {
@@ -104,6 +144,8 @@ export function DashboardPage() {
   const hasFilters = filterRisk !== "" || filterType !== "";
 
   return (
+    // TEACH: `<>...</>` is a React Fragment — renders children without
+    // adding an extra DOM node. Used when a component returns siblings.
     <>
       <PageChrome
         page="dashboard"
@@ -165,6 +207,9 @@ export function DashboardPage() {
             {events.length > 0 && filtered.length === 0 && (
               <div className={styles.empty}>No events match filters</div>
             )}
+            {/* TEACH: `.map` over a list with a stable `key` per item.
+                 `event_id` is globally unique so React can diff the
+                 list correctly across renders. */}
             {filtered.map((ev, i) => (
               <EventCard key={ev.event_id} event={ev} isNew={i === 0} onSelect={setSelectedEvent} />
             ))}

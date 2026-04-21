@@ -30,6 +30,14 @@
  *   - Conditional CSS class composition
  *   - Nullish coalescing (`??`), Array.filter(Boolean) + join for
  *     building sub-text strings
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: the horizontal row of green/yellow/red status pills near
+ *   the top of the page that summarise pipeline and integration health
+ *   (Stream, Frames, Events, Perception, Scene, Tracker, LLM, Slack, Edge
+ *   Pub, PII).
+ * Backend: GET /api/admin/health (data is fetched by the parent page).
  */
 
 import type { HealthData } from "../../../shared/types/common";

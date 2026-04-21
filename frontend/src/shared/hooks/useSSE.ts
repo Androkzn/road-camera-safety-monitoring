@@ -15,7 +15,20 @@ interface UseSSEOptions<T> {
   enabled?: boolean;
 }
 
+/**
+ * Generic SSE subscription. `T` is the shape of parsed JSON messages.
+ *
+ * How it works:
+ *   - `useRef` holds the latest `onMessage` so the effect below does NOT
+ *     depend on it — otherwise every parent re-render would tear down
+ *     and reconnect the EventSource.
+ *   - `useState` tracks connection status (re-renders callers on flip).
+ *   - `useEffect` owns the EventSource lifecycle; the returned function
+ *     is the cleanup that runs on unmount / dep change.
+ */
 export function useSSE<T>({ url, onMessage, enabled = true }: UseSSEOptions<T>) {
+  // Stable ref — mutated on every render so the effect always sees the
+  // latest handler without needing it in the dep array.
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
   const [connected, setConnected] = useState(false);

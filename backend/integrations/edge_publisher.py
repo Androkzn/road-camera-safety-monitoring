@@ -72,6 +72,12 @@ replay (enforced on the cloud side). The cloud side also dedupes on
 ``event_id`` via SQLite ``INSERT OR IGNORE``.
 
 This module does NO network I/O at import time. Everything is lazy / async.
+
+UI connection
+-------------
+Page: No page
+UI element: No direct UI — ships safety events from this edge node up to the
+       cloud receiver over HTTPS.
 """
 
 # ``from __future__ import annotations`` makes every type annotation in this

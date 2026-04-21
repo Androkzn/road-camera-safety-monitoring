@@ -12,6 +12,10 @@
  *   5. DialogProvider       — exposes themed alert/confirm to every
  *                             descendant (and to non-component callers
  *                             via the `dialog` singleton).
+ *
+ * --- UI mapping ---
+ * Scope: app-wide (affects every page)
+ * UI element: no visible element — wraps every page with shared providers (React Query cache, event stream, watchdog context)
  */
 import type { ReactNode } from "react";
 import { BrowserRouter } from "react-router-dom";

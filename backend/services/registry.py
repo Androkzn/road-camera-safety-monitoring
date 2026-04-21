@@ -72,6 +72,17 @@ Python idioms used in this file (one-line explanations)
   enabling modern syntax on older interpreters and speeding up import.
 * ``defaultdict(int)`` — a dict that auto-creates a ``0`` value for any
   missing key, so ``counter[k] += 1`` works without a prior ``if k in``.
+
+UI connection
+-------------
+Page: None — endpoints exist but no React page currently renders them.
+UI element: No direct UI — runs in the background, tracking per-vehicle
+safety scores and per-driver leaderboards. The data is reachable via curl
+to ``/api/road/summary`` / ``/api/road/drivers`` for operators, but the
+React frontend does not yet show fleet-roll-up tiles.
+Consumed by: Backend routes ``GET /api/road/summary``,
+``GET /api/road/vehicle/{id}``, ``GET /api/road/drivers`` exposed in
+``backend/api/routers/road.py``. No matching frontend hook today.
 """
 
 from __future__ import annotations

@@ -1,6 +1,14 @@
 /**
  * Spinner — small CSS-only loading spinner. Sizes are in pixels for
  * predictable inline alignment alongside text.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Shown by the route loading
+ *   fallback (RouteFallback) on every page transition, and inline next
+ *   to async buttons across AdminPage, DashboardPage, MonitoringPage and
+ *   SettingsPage.
+ * UI element: small spinning circle indicator used to show that
+ *   something is loading.
  */
 import type { CSSProperties } from "react";
 

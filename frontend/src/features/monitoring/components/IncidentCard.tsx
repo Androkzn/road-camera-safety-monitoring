@@ -4,18 +4,34 @@
  * Includes severity icon, title + meta-pills, "Next move" CTA, three
  * Observed/Impact/Likely-cause cards, and optional Evidence / Steps /
  * Debug-commands / Runbook sections.
+ *
+ * One card represents a whole fingerprinted group — `count` shows how
+ * many raw lines were folded in, `latest` is the most recent one.
+ *
+ * --- UI mapping ---
+ * Page: MonitoringPage ([file](frontend/src/features/monitoring/MonitoringPage.tsx))
+ * UI element: each incident card in the feed — severity icon, title with
+ *   meta-pills, the "Next move" CTA box, the three Observed/Impact/
+ *   Likely-cause cards, and the optional Evidence / What-To-Check /
+ *   Fast-Debug-Paths / Playbook sections.
  */
 import { SEV_ICON, formatRelative, formatTimestamp } from "../utils/formatting";
 import type { WatchdogIncident } from "../types";
 
 import styles from "../MonitoringPage.module.css";
 
+/**
+ * Map an evidence-row "status" string to its CSS class. Returns "" when
+ * the CSS module unexpectedly lacks a class (defensive for HMR / missing
+ * styles). `?: string` means the arg is optional.
+ */
 function getEvidenceClass(status?: string): string {
   if (status === "breach") return styles.evidenceBreach ?? "";
   if (status === "trend") return styles.evidenceTrend ?? "";
   return styles.evidenceContext ?? "";
 }
 
+/** Props for IncidentCard — see IncidentFeed for notes on the prop pattern. */
 interface IncidentCardProps {
   incident: WatchdogIncident;
   selectMode: boolean;
@@ -24,6 +40,11 @@ interface IncidentCardProps {
   onDelete: (rawKeys: string[]) => void;
 }
 
+/**
+ * Render a single incident. In "select mode" a click anywhere on the
+ * card toggles selection; otherwise the card is a passive readout with
+ * a dedicated delete button in the corner.
+ */
 export function IncidentCard({
   incident,
   selectMode,
@@ -32,6 +53,10 @@ export function IncidentCard({
   onDelete,
 }: IncidentCardProps) {
   const latest = incident.latest;
+  // Build a className string by conditionally including classes. `filter(Boolean)`
+  // drops empty strings, then `join(" ")` produces the final space-separated list.
+  // `styles[incident.severity]` is a dynamic CSS Module lookup — the key must
+  // exist in the .module.css file.
   const cls = [
     styles.incidentCard,
     styles[incident.severity],
@@ -42,6 +67,9 @@ export function IncidentCard({
     .join(" ");
 
   return (
+    // Stable DOM id — ImmediateActions uses it with scrollIntoView to
+    // jump the operator from a quick-action button down to the full card.
+    // Click handler is conditional: only wired up in select mode.
     <article
       id={`incident-${incident.id}`}
       className={cls}
@@ -85,6 +113,9 @@ export function IncidentCard({
           <button
             type="button"
             className={styles.deleteSingle}
+            // stopPropagation() keeps the click from bubbling to the
+            // <article>'s onClick and accidentally toggling selection
+            // when select mode ever re-opens.
             onClick={(e) => {
               e.stopPropagation();
               onDelete(incident.rawKeys);
@@ -119,6 +150,8 @@ export function IncidentCard({
         </div>
       </div>
 
+      {/* Below: optional sections. Each only renders if the backend
+          provided the data. Using `&&` short-circuits on absent arrays. */}
       {latest.evidence && latest.evidence.length > 0 && (
         <div className={styles.sectionBlock}>
           <div className={styles.blockLabel}>Evidence</div>

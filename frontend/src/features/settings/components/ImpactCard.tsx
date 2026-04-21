@@ -1,5 +1,11 @@
 /**
  * ImpactCard — before/after deltas + ops + severity bars + recommendation.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the impact card on the right column showing the predicted
+ *   change in alert volume (with severity bars and ops deltas inside).
+ * Backend: GET /api/settings/impact (via the useImpact hook).
  */
 import { useUptimeTicker } from "../../../shared/hooks/useUptimeTicker";
 import { fmt, humanize, metricLabel, reasonLabel, tierClass } from "../utils/formatting";

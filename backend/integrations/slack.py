@@ -68,6 +68,12 @@ State (in-process only)
 Both buffers are in-memory and unbounded. Deployments expecting long
 Slack outages should persist them (SQLite or equivalent) with a memory
 cap — noted as a follow-up item elsewhere.
+
+UI connection
+-------------
+Page: No page
+UI element: No direct UI — sends tiered alert messages to a Slack channel
+       outside of this app.
 """
 
 # ``from __future__ import annotations`` makes type hints evaluated lazily

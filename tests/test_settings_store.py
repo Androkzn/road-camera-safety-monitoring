@@ -25,12 +25,18 @@ def store() -> SettingsStore:
 
 
 def test_snapshot_is_immutable(store: SettingsStore) -> None:
+    """Snapshot dict is frozen; mutation attempts raise TypeError.
+
+    ``pytest.raises(Exc)`` as a context manager expects ``Exc`` to be
+    raised inside the block — the test fails if it isn't.
+    """
     snap = store.snapshot()
     with pytest.raises(TypeError):
         snap["CONF_THRESHOLD"] = 0.99  # type: ignore[index]
 
 
 def test_apply_diff_atomic_swap(store: SettingsStore) -> None:
+    """``apply_diff`` either applies the whole diff or none of it (all-or-nothing)."""
     before_hash = store.revision_hash()
     result = store.apply_diff(
         {"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.7},
@@ -44,6 +50,7 @@ def test_apply_diff_atomic_swap(store: SettingsStore) -> None:
 
 
 def test_validation_failure_does_not_swap(store: SettingsStore) -> None:
+    """A diff that violates cross-field rules leaves the snapshot untouched."""
     before = store.revision_hash()
     with pytest.raises(SettingsValidationError) as exc:
         store.apply_diff({"TTC_HIGH_SEC": 5.0, "TTC_MED_SEC": 1.0})
@@ -54,6 +61,7 @@ def test_validation_failure_does_not_swap(store: SettingsStore) -> None:
 
 
 def test_revision_conflict_when_etag_stale(store: SettingsStore) -> None:
+    """If ``expected_revision_hash`` doesn't match current, raise RevisionConflict (like HTTP 412)."""
     # First apply moves the revision forward.
     store.apply_diff({"CONF_THRESHOLD": 0.55, "SLACK_HIGH_MIN_CONFIDENCE": 0.6}, actor="a")
     with pytest.raises(RevisionConflict):
@@ -64,6 +72,7 @@ def test_revision_conflict_when_etag_stale(store: SettingsStore) -> None:
 
 
 def test_privacy_confirm_required_gate(store: SettingsStore) -> None:
+    """Privacy-sensitive keys require an explicit ``confirm_privacy_change=True`` acknowledgement."""
     with pytest.raises(PrivacyConfirmRequired):
         store.apply_diff({"ALPR_MODE": "on"})
     # With explicit confirm it goes through.
@@ -95,6 +104,7 @@ def test_subscriber_exception_isolated(store: SettingsStore) -> None:
 
 
 def test_subscriber_keys_filter(store: SettingsStore) -> None:
+    """``register_subscriber_for(keys=...)`` only fires when those specific keys changed."""
     fired: list[str] = []
     store.register_subscriber_for(
         ["LLM_BUCKET_CAPACITY"], lambda b, a: fired.append("llm"), name="llm"
@@ -108,6 +118,7 @@ def test_subscriber_keys_filter(store: SettingsStore) -> None:
 
 
 def test_rollback_returns_to_last_good(store: SettingsStore) -> None:
+    """``rollback_to_last_good`` restores the previous successful snapshot."""
     store.apply_diff(
         {"CONF_THRESHOLD": 0.7, "SLACK_HIGH_MIN_CONFIDENCE": 0.75},
         actor="a",
@@ -121,12 +132,14 @@ def test_rollback_returns_to_last_good(store: SettingsStore) -> None:
 
 
 def test_unknown_key_dropped_with_warning(store: SettingsStore) -> None:
+    """Keys the spec doesn't know are silently dropped and logged as warnings."""
     result = store.apply_diff({"NOT_A_REAL_KEY": 123})
     assert result.ok
     assert any("unknown key dropped" in w for w in result.warnings)
 
 
 def test_track_history_warm_reload_resizes_deque() -> None:
+    """Changing TRACK_HISTORY_LEN live must rebuild every track's ring buffer."""
     """TrackHistory must rebuild per-track deques on TRACK_HISTORY_LEN change."""
     from collections import deque
 
@@ -150,6 +163,7 @@ def test_track_history_warm_reload_resizes_deque() -> None:
 
 
 def test_counters_increment(store: SettingsStore) -> None:
+    """Observability counters bump on both success and validation failure."""
     before = store.counters["settings_apply_total_success"]
     store.apply_diff({"CONF_THRESHOLD": 0.6, "SLACK_HIGH_MIN_CONFIDENCE": 0.65})
     assert store.counters["settings_apply_total_success"] == before + 1

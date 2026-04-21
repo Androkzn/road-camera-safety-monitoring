@@ -20,12 +20,18 @@ from backend.services.impact import (
 
 @pytest.fixture(autouse=True)
 def _reset_db(tmp_path):
+    """Point the settings DB at a fresh per-test file; restore defaults on teardown."""
     settings_db._reset_for_tests(tmp_path / "settings.db")
     yield
     settings_db._reset_for_tests(None)
 
 
 def _make_event(ts: float, *, risk: str = "low", scene: str = "urban", confidence: float = 0.7) -> dict:
+    """Helper: build a minimal event dict for impact-window tests.
+
+    The ``*`` in the signature makes everything after it keyword-only, so
+    callers must be explicit at the call site (``_make_event(42, risk="high")``).
+    """
     return {
         "timestamp_sec": ts,
         "risk": risk,
@@ -38,6 +44,11 @@ def _make_event(ts: float, *, risk: str = "low", scene: str = "urban", confidenc
 
 
 def test_jensen_shannon_basics() -> None:
+    """Sanity tests for the JSD distance used to detect scene-mix drift.
+
+    JSD is a symmetric distance between probability distributions, bounded
+    in [0, 1] when using base-2 logs. Identical → 0, disjoint → 1, symmetric.
+    """
     assert jensen_shannon_distance({"a": 1.0}, {"a": 1.0}) == pytest.approx(0.0, abs=1e-9)
     # Fully disjoint distributions have JSD = 1.0 (base-2 log).
     assert jensen_shannon_distance({"a": 1.0}, {"b": 1.0}) == pytest.approx(1.0, abs=1e-9)
@@ -49,6 +60,7 @@ def test_jensen_shannon_basics() -> None:
 
 
 def test_compute_window_aggregates_metrics() -> None:
+    """``compute_window`` produces event rate, severity histogram, and scene distribution."""
     now = 1000.0
     events = [_make_event(now - 50 + i, risk="high" if i < 5 else "low") for i in range(40)]
     ws = compute_window(events, start_ts=now - 60, end_ts=now)
@@ -61,6 +73,7 @@ def test_compute_window_aggregates_metrics() -> None:
 
 
 def test_evaluate_confidence_high_when_volumes_match_and_scene_stable() -> None:
+    """High-confidence tier when samples are plentiful and scene mix unchanged."""
     now = 1000.0
     events = [_make_event(now - 100 + i) for i in range(50)]
     baseline = compute_window(events, start_ts=now - 200, end_ts=now - 100)
@@ -78,6 +91,7 @@ def test_evaluate_confidence_high_when_volumes_match_and_scene_stable() -> None:
 
 
 def test_evaluate_confidence_caps_when_scene_drifts() -> None:
+    """If the scene mix shifts (urban → highway), confidence caps below high."""
     now = 1000.0
     base_events = [_make_event(now - 50 + i, scene="urban") for i in range(MIN_BASELINE_EVENTS)]
     after_events = [_make_event(now + i, scene="highway") for i in range(MIN_AFTER_EVENTS)]
@@ -89,6 +103,11 @@ def test_evaluate_confidence_caps_when_scene_drifts() -> None:
 
 
 def test_evaluate_confidence_low_when_under_volume() -> None:
+    """Confidence drops to ``low`` and flags ``insufficient_events`` when
+    too few samples exist in the baseline window (3 < MIN_BASELINE_EVENTS).
+
+    This prevents the UI from drawing strong conclusions from noise.
+    """
     now = 1000.0
     base_events = [_make_event(now - 5 + i) for i in range(3)]
     base = compute_window(base_events, start_ts=now - 60, end_ts=now)
@@ -118,6 +137,11 @@ def test_impact_monitor_persists_session_across_restart() -> None:
 
 
 def test_coalesce_preserves_last_good() -> None:
+    """Two quick consecutive tweaks coalesce into one session; the revert
+    target keeps pointing at the *original* ``before`` state (0.5), not the
+    intermediate 0.55 — so operators can always roll back to the last known
+    good, even if they tweaked a setting multiple times in a row.
+    """
     events: list[dict] = []
     mon = ImpactMonitor(events_source=lambda: events)
     audit1 = mon.on_settings_change(

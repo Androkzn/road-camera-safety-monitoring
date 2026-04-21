@@ -46,6 +46,19 @@ Gate layout (match the existing detection.py style: one gate per concern):
 Testability: every helper takes plain dataclasses and primitives so the
 unit tests in `tests/` can exercise it without booting the FastAPI app
 or loading YOLO weights.
+
+UI connection
+-------------
+Page: [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — runs inside the per-frame detection loop as a
+       gate that decides whether a candidate event is emitted at all and,
+       if so, which event family (FCW, BSW, RCW, RCTA) it belongs to.
+       That family label appears as the event-type tag on each incident
+       card in the Monitoring feed; events the gate suppresses simply
+       never appear on the page.
+Data flow: PolicyDecision (emit yes/no + taxonomy) -> on_frame() ->
+       emit_event() -> SSE broadcast -> consumed by useEvents hook ->
+       rendered as the event-type pill on incident cards (MonitoringPage).
 """
 
 from __future__ import annotations

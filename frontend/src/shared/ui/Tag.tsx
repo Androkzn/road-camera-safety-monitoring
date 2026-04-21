@@ -5,6 +5,14 @@
  *
  * Privacy note: per CLAUDE.md, raw plate text MUST NEVER reach the
  * frontend — when you see a "plate" Tag, the content is a hash.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Most visible on EventCard
+ *   rows (DashboardPage, AdminPage, MonitoringPage) and inside event
+ *   detail dialogs.
+ * UI element: small rectangular metadata label (track id, plate hash,
+ *   kin grouping, etc.) — colour-coded by variant so the operator can
+ *   scan rows quickly.
  */
 import type { CSSProperties, ReactNode } from "react";
 

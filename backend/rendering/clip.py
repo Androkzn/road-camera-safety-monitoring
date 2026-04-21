@@ -12,6 +12,12 @@ this path would corrupt live tracker ids.
 
 Extracted from ``server.py`` as part of the refactor plan, step 3.
 Behaviour unchanged.
+
+UI connection
+-------------
+Page: AdminPage
+UI element: Provides the annotated MP4 playback shown inside the
+       AdminEventCard component when an operator opens an event's clip.
 """
 
 import threading

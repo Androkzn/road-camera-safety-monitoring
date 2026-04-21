@@ -3,6 +3,11 @@
 Exercises the helpers (`is_reversing`, `in_blind_zone`, `blind_zone_dwell_sec`)
 and the main `classify_event` dispatcher across forward / rear / side cam
 policies, following the SAE J3063 taxonomy the module enforces.
+
+pytest features introduced here:
+    * ``@pytest.mark.parametrize(names, values)`` — runs the same test body
+      multiple times, once per row in ``values``. Massively reduces
+      copy-paste when you want to cover a lookup table or enum.
 """
 
 from collections import deque
@@ -101,6 +106,7 @@ def _history_with_samples(
 
 
 def test_is_reversing_requires_ego_not_none():
+    """No ego-flow data means we can't claim the car is reversing."""
     assert is_reversing(None) is False
 
 
@@ -109,6 +115,7 @@ def test_is_reversing_requires_ego_not_none():
     ["forward", "stationary"],
 )
 def test_is_reversing_requires_reverse_direction(direction):
+    """Any direction other than ``reverse`` fails the is_reversing check."""
     ego = _ego(direction=direction, confidence=0.9)
     assert is_reversing(ego) is False
 
@@ -122,6 +129,7 @@ def test_is_reversing_requires_reverse_direction(direction):
     ],
 )
 def test_is_reversing_requires_confidence_floor(confidence, expected):
+    """Direction=reverse only counts once confidence clears the floor."""
     ego = _ego(direction="reverse", confidence=confidence)
     assert is_reversing(ego) is expected
 
@@ -147,17 +155,20 @@ def test_in_blind_zone_only_for_side_orientation():
     ],
 )
 def test_in_blind_zone_geometry(cx, cy, expected):
+    """Exercise the ROI geometry at each cardinal boundary of the blind-zone rectangle."""
     Stub = namedtuple("Stub", ["center"])
     det = Stub(center=(cx, cy))
     assert in_blind_zone(det, 1920, 1080, "side") is expected
 
 
 def test_blind_zone_dwell_zero_without_history():
+    """Empty track history → zero dwell (can't have persisted anywhere)."""
     history = TrackHistory(maxlen=12)
     assert blind_zone_dwell_sec(42, history, 1920, 1080, "side") == 0.0
 
 
 def test_blind_zone_dwell_growing_streak():
+    """Uninterrupted in-band streak across samples accumulates dwell time."""
     # Five samples 0.2s apart, all bottoms inside the vertical band
     # (y_lo ≈ 270, y_hi ≈ 1026 for a 1080-tall frame). Span: 0.8s.
     samples = [
@@ -173,6 +184,7 @@ def test_blind_zone_dwell_growing_streak():
 
 
 def test_blind_zone_dwell_older_out_of_zone_breaks_streak():
+    """An earlier out-of-band sample breaks the streak; dwell only counts the recent run."""
     # Earliest sample out-of-band should NOT extend the dwell past the break.
     # y_lo ≈ 270 → bottom=50 is above the band (outside).
     samples = [
@@ -189,6 +201,7 @@ def test_blind_zone_dwell_older_out_of_zone_breaks_streak():
 
 
 def test_blind_zone_dwell_returns_zero_when_latest_out_of_zone():
+    """If the most recent sample is outside the band, there's no active streak → 0 s."""
     # Latest sample above the band → no active dwell streak.
     samples = [
         (0.0, 960.0, 500.0, 500),
@@ -209,6 +222,7 @@ def test_blind_zone_dwell_returns_zero_when_latest_out_of_zone():
     ["pedestrian_proximity", "vehicle_close_interaction"],
 )
 def test_forward_always_emits_fcw(event_type):
+    """Forward-cam events always emit as FCW (Forward Collision Warning) taxonomy."""
     calibration = _cal("forward")
     primary = _det(1, cls="person", cx=500.0, cy=540.0)
     secondary = _det(2, cls="car", cx=520.0, cy=540.0)
@@ -230,6 +244,7 @@ def test_forward_always_emits_fcw(event_type):
 
 
 def test_rear_suppresses_when_not_reversing():
+    """Rear-cam detections only alert while the vehicle is actually reversing."""
     calibration = _cal("rear", focal=260.0, height=1.10)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     secondary = _det(2, cls="car", cx=1000.0, cy=560.0)
@@ -250,6 +265,7 @@ def test_rear_suppresses_when_not_reversing():
 
 
 def test_rear_emits_rcw_when_reversing_longitudinal():
+    """While reversing, longitudinal (fore/aft) motion maps to RCW taxonomy."""
     calibration = _cal("rear", focal=260.0, height=1.10)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     # Secondary has a longitudinal-dominant motion: cy moves ~100 px over 1s,
@@ -279,6 +295,7 @@ def test_rear_emits_rcw_when_reversing_longitudinal():
 
 
 def test_rear_emits_rcta_when_reversing_lateral():
+    """While reversing, lateral (left/right) motion maps to RCTA (cross-traffic)."""
     calibration = _cal("rear", focal=260.0, height=1.10)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     # Lateral-dominant: cx sweeps ~300 px over 1s, cy ~static.
@@ -307,6 +324,7 @@ def test_rear_emits_rcta_when_reversing_lateral():
 
 
 def test_side_suppresses_out_of_blind_zone():
+    """Side-cam detection outside the cross-road ROI is silently suppressed."""
     calibration = _cal("side", focal=260.0, height=1.0)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     # Far-left edge — outside the horizontal ROI band.
@@ -328,6 +346,7 @@ def test_side_suppresses_out_of_blind_zone():
 
 
 def test_side_suppresses_short_dwell():
+    """Blink-of-an-eye detections don't qualify; need sustained dwell to alert."""
     calibration = _cal("side", focal=260.0, height=1.0)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     secondary = _det(2, cls="person", cx=960.0, cy=540.0)
@@ -350,6 +369,7 @@ def test_side_suppresses_short_dwell():
 
 
 def test_side_emits_bsw_with_pedestrian_display():
+    """Pedestrian dwelling in the blind spot → BSW with pedestrian-specific display."""
     calibration = _cal("side", focal=260.0, height=1.0)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     secondary = _det(2, cls="person", cx=960.0, cy=540.0)
@@ -378,6 +398,7 @@ def test_side_emits_bsw_with_pedestrian_display():
 
 
 def test_side_emits_bsw_with_vehicle_display():
+    """Vehicle dwelling in the blind spot → BSW with vehicle-specific display."""
     calibration = _cal("side", focal=260.0, height=1.0)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     secondary = _det(2, cls="car", cx=960.0, cy=540.0)
@@ -405,6 +426,7 @@ def test_side_emits_bsw_with_vehicle_display():
 
 
 def test_side_suppresses_when_ego_reversing():
+    """Side blind-spot doesn't apply while the car is reversing — rear policy takes over."""
     calibration = _cal("side", focal=260.0, height=1.0)
     primary = _det(1, cls="car", cx=960.0, cy=540.0)
     secondary = _det(2, cls="person", cx=960.0, cy=540.0)
@@ -425,6 +447,7 @@ def test_side_suppresses_when_ego_reversing():
 
 
 def test_unknown_orientation_suppresses():
+    """Misconfigured orientation (typo) results in suppression, not a crash."""
     calibration = _cal("diagonal")  # operator typo
     primary = _det(1, cls="person", cx=500.0, cy=540.0)
     secondary = _det(2, cls="car", cx=520.0, cy=540.0)

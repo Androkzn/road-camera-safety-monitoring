@@ -26,9 +26,15 @@ interface TopBarProps {
   children?: ReactNode;
 }
 
+/**
+ * TopBar — nav + live-connection pill. Pure presentational.
+ * `useLocation()` reads the current URL from react-router context so we
+ * can highlight the active nav link.
+ */
 export function TopBar({ connected, errorCount = 0, driftCount = 0, children }: TopBarProps) {
   const { pathname } = useLocation();
 
+  // Tri-state: connected / disconnected / still-connecting (undefined).
   const statusVariant = connected === true ? "ok" : connected === false ? "bad" : "wait";
   const statusLabel =
     connected === true ? "live" : connected === false ? "disconnected" : "connecting…";

@@ -41,6 +41,10 @@ interface EventStreamActionsCtx {
   clearEvents: () => void;
 }
 
+// Three separate contexts — splitting data / connection / actions means a
+// consumer that only reads `connected` won't re-render when a new event
+// pushes into `events`. `createContext` sets the default value used when
+// a component is rendered outside the provider (tests, storybook).
 const DataCtx = createContext<EventStreamDataCtx>({
   events: [],
   perception: null,
@@ -90,18 +94,26 @@ export function EventStreamProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** Subscribe to the rolling event buffer + latest perception state. */
 export function useEventStreamData(): EventStreamDataCtx {
   return useContext(DataCtx);
 }
 
+/** Subscribe ONLY to the connected flag — cheap, no event-buffer re-renders. */
 export function useEventStreamConnection(): boolean {
   return useContext(ConnectionCtx);
 }
 
+/** Subscribe to stable action callbacks (clearEvents). Never re-renders on data changes. */
 export function useEventStreamActions(): EventStreamActionsCtx {
   return useContext(ActionsCtx);
 }
 
+/**
+ * Back-compat aggregate — returns everything in one object. Prefer the
+ * split hooks above in new code so consumers only re-render on the slice
+ * they actually use.
+ */
 export function useEventStreamCtx(): EventStreamCtx {
   const data = useEventStreamData();
   const connected = useEventStreamConnection();

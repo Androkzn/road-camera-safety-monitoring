@@ -33,6 +33,22 @@
  * MJPEG (multipart/x-mixed-replace). An <img> element decodes it for
  * free. If we ever switch to HLS/WebRTC we'll need a <video ref={...}>
  * and a `useRef`/`useEffect` pair to wire up the player.
+ *
+ * TRANSPORT NOTE: This component always uses MJPEG because it's the
+ * *single* hero feed — one open connection, no deadlock risk. The
+ * multi-tile grid (see StreamImage / MultiSourceGrid) is different: it
+ * picks between MJPEG and short-polling based on page protocol because
+ * HTTP/1.1 browsers cap 6 concurrent connections per host. With ≥6
+ * tiles open, MJPEG would starve the SSE event stream. See CLAUDE.md
+ * "Live video transport (admin grid)" for the full rationale.
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: the single big "hero" video panel with five large counter
+ *   tiles overlaid on top of it (detections, persons, vehicles,
+ *   interactions, fps).
+ * Backend: MJPEG /admin/video_feed for the picture; the counter values
+ *   are fed in via props from the page's SSE state.
  */
 
 // TEACH: `useState` creates an independent slot of component state.

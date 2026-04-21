@@ -4,6 +4,21 @@ Runs on the main asyncio loop — handed events from the perception thread
 via ``asyncio.run_coroutine_threadsafe(emit_event(...), state.loop)``.
 
 Extracted from ``server.py`` (step 7).
+
+UI connection
+-------------
+Page: [AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx) and
+       [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — this is the final stop where a finished
+       safety event gets enriched (LLM narration, ALPR), saved into the
+       recent-events buffer, and pushed out to every connected browser.
+       Each call to emit_event() is what makes a new incident card pop
+       into the Monitoring feed and a new entry appear in the recent
+       events list on the Admin page.
+Data flow: emit_event() -> enrichment + audit log + recent-events
+       buffer + Slack -> SSE broadcast (via broadcast.py) -> consumed by
+       useEvents hook -> rendered as a new incident card on
+       MonitoringPage and as a recent-events entry on AdminPage.
 """
 
 import asyncio

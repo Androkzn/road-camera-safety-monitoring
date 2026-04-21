@@ -1,8 +1,19 @@
 /**
  * SelectionBar — bulk-edit toolbar visible only in select mode.
+ *
+ * Shows how many items are selected, plus Select-all / Deselect-all /
+ * Delete / Cancel buttons. Disabled state prevents empty or concurrent
+ * deletes.
+ *
+ * --- UI mapping ---
+ * Page: MonitoringPage ([file](frontend/src/features/monitoring/MonitoringPage.tsx))
+ * UI element: the bulk-edit toolbar that appears between the meta cards
+ *   and the incident feed when the user clicks "Select"; holds the
+ *   selected-count, Select-all / Deselect-all, Delete and Cancel buttons.
  */
 import styles from "../MonitoringPage.module.css";
 
+/** Props — counts drive labels; four callbacks wire the buttons. */
 interface SelectionBarProps {
   selectedCount: number;
   filteredCount: number;
@@ -13,6 +24,10 @@ interface SelectionBarProps {
   onCancel: () => void;
 }
 
+/**
+ * Render the toolbar. Delete button is disabled when nothing is
+ * selected OR when a deletion is already in flight.
+ */
 export function SelectionBar({
   selectedCount,
   filteredCount,

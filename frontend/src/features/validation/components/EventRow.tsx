@@ -8,6 +8,8 @@
  * byte-identical to the pre-split output.
  */
 import { cx } from "../../../shared/lib/cx";
+// `import type` imports only TypeScript type definitions — erased at
+// build time, zero runtime cost.
 import type { SafetyEvent } from "../../../shared/types/common";
 import { RiskBadge } from "../../../shared/ui";
 import {
@@ -21,8 +23,17 @@ import {
   type Verdict,
 } from "../utils/verdict";
 
+// CSS Modules: class names are scoped per-file at build time. `styles.row`
+// becomes something like `EventsPanel_row__a1b2c` so styles don't collide.
 import styles from "./EventsPanel.module.css";
 
+/**
+ * Props contract for {@link EventRow}.
+ *
+ * `interface` declares an object shape in TypeScript. The `?` marks a
+ * field as optional — callers may omit it. `() => void` is a callback
+ * type: a function taking no args and returning nothing.
+ */
 export interface EventRowProps {
   ev: SafetyEvent;
   verdict: Verdict;
@@ -30,11 +41,18 @@ export interface EventRowProps {
   onClick?: () => void;
 }
 
+/**
+ * Render a single event as a clickable row. The row is keyboard-accessible
+ * when `onClick` is supplied — Enter or Space triggers the same handler
+ * as a mouse click, and ARIA attributes advertise the button role.
+ */
+// Props are destructured directly in the parameter list with a type annotation.
 export function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
   const risk = ev.risk_level;
   const objects = formatObjects(ev.objects);
   const conf = formatConfidencePct(ev.confidence);
 
+  // Nested ternary picks one of three CSS classes based on verdict.
   const badgeClass =
     verdict === "verified"
       ? styles.badgeVerified
@@ -43,12 +61,17 @@ export function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
         : styles.badgePending;
 
   return (
+    // `cx(...)` joins truthy class names — `onClick && styles.rowClickable`
+    // adds the clickable style only when a handler was provided.
     <div
       className={cx(styles.row, styles[risk], onClick && styles.rowClickable)}
       onClick={onClick}
+      // ARIA role + tabIndex make the div behave like a button for screen
+      // readers + keyboard users when it's actually interactive.
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={(e) => {
+        // Mirror native button behaviour: Space or Enter activates.
         if (onClick && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           onClick();
@@ -73,6 +96,8 @@ export function EventRow({ ev, verdict, dispute, onClick }: EventRowProps) {
       </div>
       <span className={cx(styles.badge, badgeClass)}>{verdictLabel(verdict)}</span>
 
+      {/* Conditional rendering: `{cond && <JSX/>}` renders the JSX only
+          when `cond` is truthy — a common React idiom. */}
       {verdict === "disputed" && dispute && (
         <div className={styles.dispute}>
           <span className={styles.disputeLabel}>{dispute.kind}</span>

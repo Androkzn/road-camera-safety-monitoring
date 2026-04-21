@@ -7,6 +7,14 @@
  *
  * Forwards every other native <button> attribute (type, onClick,
  * disabled, aria-*, …) so callers don't lose any HTML semantics.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). The single button element
+ *   used everywhere — toolbar actions, dialog confirms, card headers,
+ *   form submits across every page.
+ * UI element: themed button (default / primary / danger / warning / ghost
+ *   / subtle), three sizes, optional left/right icon slots, and an
+ *   icon-only square variant.
  */
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
@@ -40,6 +48,9 @@ const sizeClass: Record<ButtonSize, string> = {
   lg: styles.sizeLg ?? "",
 };
 
+// `forwardRef` lets parent code attach a ref to the underlying <button>
+// (useful for focus management / measuring). The generic `<HTMLButtonElement,
+// ButtonProps>` types the ref target and props.
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   {
     variant = "default",
@@ -49,7 +60,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     rightIcon,
     className,
     children,
+    // Default to type="button" — HTML's default "submit" inside a <form>
+    // is a classic source of accidental submissions.
     type = "button",
+    // Rest-spread: everything else native (onClick, disabled, aria-*) flows
+    // through to the DOM node.
     ...rest
   },
   ref,

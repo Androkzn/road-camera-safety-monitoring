@@ -35,6 +35,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "httpx>=0.27.0",
     "pyright>=1.1.400",
+    "mypy>=1.11.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -59,3 +60,71 @@ pythonVersion = "3.12"
 typeCheckingMode = "basic"
 reportMissingTypeStubs = "none"
 reportMissingImports = "none"
+
+# --- mypy: narrow strict-mode scope (audit §1.1) ---
+#
+# Coverage is tiered so we can merge a meaningful strict baseline today
+# without blocking on ~80 route-handler annotations that would add no
+# safety. Run via ``make typecheck`` or
+# ``.venv/bin/python -m mypy --config-file pyproject.toml``.
+#
+# Tier 1 (fully strict): contracts + critical glue.
+#   * ``backend.api.models`` — every wire-format pydantic model.
+#   * ``backend.services.llm`` — failover, rate budget, circuit breaker.
+#     Bugs here silently degrade enrichment and cost visibility.
+#
+# Tier 2 (baseline): routers under ``backend.api.routers`` and the
+# ``backend.api.{feedback,settings}`` feature mounts. Strict minus the
+# per-function return-type requirement, because route handlers overwhelmingly
+# return dicts that FastAPI coerces via ``response_model=…``; the Pydantic
+# model is already the contract. Widening to full strict here is tracked
+# as a follow-up but shouldn't block the initial landing.
+#
+# Tier 3 (everything else): not mypy-checked — pyright keeps doing a
+# project-wide basic pass, unchanged.
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "backend/api",
+    "backend/services/llm.py",
+]
+strict = true
+# Third-party code outside our scope (numpy, cv2, ultralytics, lapx, etc.)
+# lacks stubs. ``follow_imports = silent`` keeps us off their type errors.
+follow_imports = "silent"
+# Router handlers are the biggest source of annotation churn. Turning this
+# off project-wide is the "tier 2 baseline" referred to above; the
+# ``backend.api.models`` override below flips it back on for the contracts.
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+# Pragmatic relaxations so we can merge the initial scope without a
+# weeks-long cleanup. Each of these is narrower than disabling ``strict``
+# and can be tightened later.
+disallow_untyped_calls = false
+disallow_any_generics = false
+warn_return_any = false
+# Routers import * through ``backend.api.routers.__init__``; disabling
+# ``no_implicit_reexport`` keeps that pattern type-safe.
+implicit_reexport = true
+
+# Tier 1: fully strict on the contract module.
+[[tool.mypy.overrides]]
+module = ["backend.api.models"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# Third-party deps without stubs — ignore their missing-import noise.
+[[tool.mypy.overrides]]
+module = [
+    "cv2.*",
+    "numpy.*",
+    "ultralytics.*",
+    "lapx.*",
+    "yt_dlp.*",
+    "anthropic.*",
+    "httpx.*",
+    "psutil.*",
+    "dotenv.*",
+    "openai.*",
+]
+ignore_missing_imports = true

@@ -39,6 +39,15 @@ Python idioms used in this file
 * ``traceback.print_exc()`` — prints the current exception's full stack,
   useful in background loops where the error otherwise disappears.
 * ``f"..."`` — f-string, Python's inline string interpolation syntax.
+
+UI connection
+-------------
+Page: None — Slack-only background worker; no React page consumes this.
+UI element: No direct UI — runs in the background. Its output appears as
+hourly and daily digest messages in the operator's Slack channel, never in
+the web app.
+Consumed by: No frontend route. Triggered internally by the FastAPI lifespan
+on startup; flushes through ``backend/integrations/slack.py``.
 """
 
 from __future__ import annotations

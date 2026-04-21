@@ -64,6 +64,20 @@ jitter. Instead we fit a slope over the last N samples (~2 seconds at 2 fps):
 monotonic growth + a minimum absolute pixel delta + a minimum center motion
 across the window are all required before any TTC value is published. This
 trades latency (TTC updates every ~2 s, not every frame) for robustness.
+
+UI connection
+-------------
+Page: [AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx) and
+       [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — runs inside the per-frame detection loop. Its
+       output (bounding boxes, distances, time-to-collision values, risk
+       buckets) shows up as the green/yellow/red boxes drawn over each
+       live camera tile on AdminPage and as the risk pill plus distance /
+       TTC numbers on every incident card in the Monitoring feed.
+Data flow: Detection -> on_frame() -> annotated JPEG (live tile) +
+       emit_event() -> SSE broadcast -> consumed by useDetections /
+       useEvents hooks -> rendered as overlay boxes on AdminPage and
+       as incident cards on MonitoringPage.
 """
 
 # ``from __future__ import annotations`` makes type hints lazily evaluated.

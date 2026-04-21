@@ -10,6 +10,15 @@
  *
  * Composition: TopBar → SelectedStreamHeader → optional HealthStrip →
  *              MultiSourceGrid + Tabs(Detections | Events | History).
+ *
+ * --- UI mapping ---
+ * Page: AdminPage ([AdminPage.tsx](frontend/src/features/admin/AdminPage.tsx))
+ * UI element: the entire admin shell — orchestrates the focused-stream
+ *   header, optional pipeline-health strip, the live video grid, and the
+ *   right-hand tabs that switch between live detections, the live events
+ *   list, and the past-events history list.
+ * Backend: GET /api/admin/health, GET /api/live/sources, SSE /api/live/stream,
+ *   SSE /admin/detections.
  */
 
 import { useEffect, useMemo, useState } from "react";

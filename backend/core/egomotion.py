@@ -74,6 +74,20 @@ Python idioms used (once-per-file):
 - ``cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)`` — BGR -> single-channel grayscale.
 - ``cv2.resize`` with ``cv2.INTER_AREA`` — quality-preserving downscale.
 - ``a | None`` — union type meaning "either an ``a`` or ``None``".
+
+UI connection
+-------------
+Page: [MonitoringPage.tsx](frontend/src/features/monitoring/MonitoringPage.tsx)
+UI element: No direct UI — runs inside the per-frame detection loop as a
+       compensation step that subtracts apparent camera motion (PTZ pan,
+       wind sway) from per-object motion. Its effect appears indirectly
+       on the Monitoring page: incident cards that would have been
+       false-positive "approaching" alerts caused by camera movement
+       simply never get created and never appear in the feed.
+Data flow: Camera-flow vector -> on_frame() per-object relative motion ->
+       gates that decide whether to emit -> when an event survives,
+       emit_event() -> SSE broadcast -> rendered as an incident card
+       (MonitoringPage).
 """
 
 from __future__ import annotations

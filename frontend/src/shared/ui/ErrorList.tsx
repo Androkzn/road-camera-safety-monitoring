@@ -11,6 +11,14 @@
  *       { key: "ROAD_FPS", reason: "must be a positive integer" },
  *     ]}
  *   />
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Most heavily used by
+ *   SettingsPage for validation errors and by ValidationPage / AdminPage
+ *   for API error surfaces.
+ * UI element: red (or amber, for warnings) bordered alert box with an
+ *   optional title and a bulleted list of error rows; renders nothing
+ *   when the errors array is empty.
  */
 import { cx } from "../lib/cx";
 
