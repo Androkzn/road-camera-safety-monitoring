@@ -26,8 +26,8 @@ Reference documents for deep dives:
 
 **Possible next improvements.**
 - ~~Introduce `mypy --strict` on `backend/api/` and `backend/services/llm.py` first~~ — **shipped** (see §18).
-- ~~Replace the central `event: dict` contract with `pydantic.BaseModel` … and auto-generate TS types~~ — **shipped** (see §17). `frontend/src/shared/types/common.ts` is now a 43-line backward-compat shim re-exporting from the generated 462-line `generated.ts`.
-- Move `StreamSlot` + `Episode` out of `backend/state.py` into a dedicated `backend/domain/` package once a second slot type exists — **still pending** (see §19).
+- ~~Replace the central `event: dict` contract with `pydantic.BaseModel` … and auto-generate TS types~~ — **shipped** (see §17). `frontend/src/shared/types/common.ts` is now a 50-line backward-compat shim re-exporting from the generated 462-line `generated.ts`.
+- ~~Move `StreamSlot` + `Episode` out of `backend/state.py` into a dedicated `backend/domain/` package~~ — **shipped** (see §19). `backend/domain/episode.py` (190 LoC) and `backend/domain/stream_slot.py` (254 LoC) now own the per-source classes; `backend/state.py` dropped from 791 → 400 LoC and re-exports both names for backwards compat.
 - Runtime test harness shapes are modeled as `TestResultModel` / `TestStatusModel` in `backend/api/models.py` and flow through §17 codegen; **still pending:** tightening any remaining dict-only responses on the tests router to those models everywhere.
 
 **Alternative solutions & trade-offs.**
@@ -256,7 +256,7 @@ Data flow:
 **Why it matters.** Review and test scopes map to feature folders — one engineer owns `features/settings/`, another `features/admin/`, and they don't touch each other's imports. Lazy routes mean `/settings` doesn't pay the cost of loading the watchdog bundle. Single `EventSource` means the server sees one subscriber per tab, not four.
 
 **Possible next improvements.**
-- ~~Replace hand-mirrored `shared/types/common.ts` (340 LoC) with codegen from Pydantic backend models~~ — **shipped** (see §17). `common.ts` is now a 43-line re-export shim around `generated.ts`.
+- ~~Replace hand-mirrored `shared/types/common.ts` (340 LoC) with codegen from Pydantic backend models~~ — **shipped** (see §17). `common.ts` is now a 50-line re-export shim around `generated.ts`.
 - Enforce the "no cross-feature imports" rule for real: `settings/`, `dashboard/`, and `validation/` still reach into sibling features and should promote shared hooks/components into `shared/`.
 - Keep `SettingsPage.tsx` thin and prevent regression — the page has been decomposed, but its dependencies still span multiple domains.
 - Surface `HttpApiError.retryAfterSec` in a reusable toast component.
@@ -512,9 +512,9 @@ What remains:
 
 **What changed.** The hand-maintained `frontend/src/shared/types/common.ts` (previously 334 LoC of "trust me, the backend really does emit this shape") was replaced with a generated artefact:
 
-- **`backend/api/models.py`** — all wire-shape Pydantic models live here. This branch added `EnrichmentModel`, `DetectionObjectModel`, `DetectionSnapshotModel`, `WatchdogFindingModel`, and test-harness models (`TestResultModel`, `TestStatusModel`, wrapping the runtime tests payload) to fill out the previously untyped payloads. `models.py` exports an explicit list (`__all__`) of everything that is part of the public contract.
-- **`scripts/generate_ts_types.py`** — walks the exported Pydantic models, emits JSON Schema, and converts to TypeScript declarations in `frontend/src/shared/types/generated.ts` (462 LoC, machine-written).
-- **`frontend/src/shared/types/common.ts`** — now a **43-line backward-compat shim** that simply `export type { ... } from "./generated"`. Every existing `import { Enrichment } from "shared/types/common"` keeps working untouched.
+- **`backend/api/models.py`** — all wire-shape Pydantic models live here. This branch added `EnrichmentModel`, `DetectionObjectModel`, `DetectionSnapshotModel`, `DriftReportModel`, `SceneThresholdsModel`, `PerceptionStateMessage` (discriminated-union variant of the perception SSE envelope, `_meta: "perception_state"`), the watchdog family (`WatchdogEvidenceModel`, `WatchdogFindingModel`, `WatchdogTopIncidentModel`, `WatchdogStatusModel`), and test-harness models (`TestResultModel`, `TestStatusModel`, wrapping the runtime tests payload) to fill out the previously untyped payloads. `risk_level` / `stream_type` are now `Literal` unions so the generated TS is a string-literal union rather than `string`. `bbox` is declared as a fixed-length `tuple[float, float, float, float]` so the emitted TS is a 4-tuple (safe to index under `noUncheckedIndexedAccess`). `models.py` exports an explicit `EXPORTED_MODELS` tuple that the codegen walks.
+- **`scripts/generate_ts_types.py`** — walks `EXPORTED_MODELS`, asks each model for its JSON Schema, and converts the schema to TypeScript declarations in `frontend/src/shared/types/generated.ts` (462 LoC, machine-written). The walker is intentionally in-tree (no npm dep): it preserves Pydantic docstrings as JSDoc, collapses nullable-optional `field: X | None = None` to the `field?: X` FE convention, renders `prefixItems` as TS tuples, and renames `EventModel → SafetyEvent` / `SourceStatusModel → LiveSourceStatus` / etc. via a central override map.
+- **`frontend/src/shared/types/common.ts`** — now a **50-line backward-compat shim** that simply `export type { ... } from "./generated"`. Every existing `import { Enrichment } from "shared/types/common"` keeps working untouched.
 - **`start.py::regenerate_ts_types()`** — runs codegen *before* the Vite build, so a backend model change can never ship without the matching TS update. Failure is loud **and launch-blocking**: if generation exits non-zero, `start.py` aborts before building the frontend against stale types.
 
 **Why.** The old `common.ts` was a refactor trap: any backend rename or field addition silently desynced from the frontend until a runtime parse error in StrictMode dev. "Source of truth in two places" is not a source of truth.
@@ -522,9 +522,9 @@ What remains:
 **Why it matters.** The wire contract is now physically generated from the Pydantic models. A field rename in `backend/api/models.py::DetectionSnapshotModel` produces a TypeScript type error at the next `start.py` (or `npm run build`), not a runtime mystery. The `_public` thumbnails / plate-hash invariants from §6 are now *expressible* in the type system because the generator follows model boundaries.
 
 **Possible next improvements.**
-- Hash-pin `generated.ts` in CI (`git diff --exit-code` after running the generator) to fail builds where someone forgot to regenerate.
+- Hash-pin `generated.ts` in CI (`make generate-types && git diff --exit-code`) to fail builds where someone forgot to regenerate.
 - Generate a Python-side `__schema_hash__` constant alongside the TS so we can detect contract drift in tests, not just at build.
-- Promote codegen from `start.py` into a Makefile target (`make types`) so CI can call it independently of the launcher.
+- ~~Promote codegen from `start.py` into a Makefile target~~ — **shipped** as `make generate-types`; CI can call it independently of the launcher.
 - Once the generator is exercised in CI, retire the `common.ts` shim and have features import from `shared/types/generated` directly.
 
 **Alternative solutions & trade-offs.**
@@ -537,21 +537,37 @@ What remains:
 
 ## 18. Strict static typing — `mypy` scoped to the API and LLM layer
 
-**What changed.** `mypy>=1.11.0` was added to dev deps in `pyproject.toml`, and a `[tool.mypy]` block enables `strict = true` on a deliberately narrow scope:
+**What changed.** `mypy>=1.11.0` was added to dev deps in `pyproject.toml`, and a `[tool.mypy]` block enables `strict = true` on a deliberately narrow scope with a **two-tier policy**:
 
 ```
-files = [
-    "backend/api",
-    "backend/services/llm.py",
-    "backend/api/models.py",
-]
+[tool.mypy]
+files = ["backend/api", "backend/services/llm.py"]
 strict = true
 follow_imports = "silent"
+# Tier 2 — routers: relax untyped-def enforcement.
+# Route handlers return dicts that FastAPI coerces via `response_model=`;
+# forcing return annotations everywhere is churn without new safety.
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+# Pragmatic relaxations (each can be tightened later, one knob at a time).
+disallow_untyped_calls = false
+disallow_any_generics = false
+warn_return_any = false
+implicit_reexport = true  # routers re-export through __init__
+
+# Tier 1 — contracts: fully strict on models.py.
+[[tool.mypy.overrides]]
+module = ["backend.api.models"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
 ```
 
-Plus pragmatic relaxations (`disallow_untyped_calls = false`, `disallow_any_generics = false`, `warn_return_any = false`) so the initial scope merges without a weeks-long cleanup, and `[[tool.mypy.overrides]]` for stub-less third-party deps (`cv2`, `numpy`, `ultralytics`, `lapx`, `yt_dlp`, `anthropic`, `httpx`, `psutil`, `dotenv`).
+Plus `[[tool.mypy.overrides]]` for stub-less third-party deps (`cv2`, `numpy`, `ultralytics`, `lapx`, `yt_dlp`, `anthropic`, `httpx`, `psutil`, `dotenv`, `openai`). Shipping the initial scope required real type fixes — not just annotations — in the llm + live routers:
 
-**Two different commands:** **`make typecheck`** runs **`pyright`** against the `[tool.pyright]` `include` list (`backend/server.py`, `backend/startup.py`, `backend/state.py`, `backend/perception/emit.py`, `backend/security`, `backend/api`, …) at `typeCheckingMode = "basic"` — quick signal for the hot path + API surface, not full-repo strictness. **`mypy`** is configured separately: run **`.venv/bin/python -m mypy --config-file pyproject.toml`** for the narrow strict scope above. Use it alongside `make lint` (`py_compile` smoke on a few entrypoints).
+- **`backend/services/llm.py`**: `_CB_STATE` typed as a `TypedDict` (fixed four `int | None` operand errors around the circuit breaker), `_DOWNGRADE.get(merged.get("readability"))` narrowed before the lookup, `resp.content[0].text` narrowed away from the `TextBlock | ToolUseBlock` union via `getattr`, and two targeted `# type: ignore[...]` annotations around the Anthropic structured-outputs beta kwarg (whose runtime fallback is already guarded by `except`).
+- **`backend/api/routers/live.py`**: extracted `_resolve_slot(source_id)` helper so the two `?source_id=` routes stop rebinding a variable from `StreamSlot` to `StreamSlot | None` across branches.
+
+**Three ways to run it.** **`make typecheck`** runs **`pyright`** against the `[tool.pyright]` `include` list (`backend/server.py`, `backend/startup.py`, `backend/state.py`, `backend/perception/emit.py`, `backend/security`, `backend/api`, …) at `typeCheckingMode = "basic"` — quick signal for the hot path + API surface, not full-repo strictness. **`make typecheck-mypy`** runs the strict scope above (`.venv/bin/python -m mypy --config-file pyproject.toml`). Use both alongside `make lint` (`py_compile` smoke on a few entrypoints).
 
 **Why.** Two of the most failure-sensitive surfaces in the system — the request/response contracts and the LLM resilience layer — were the parts most worth typing first. Strictness elsewhere (perception hot path, integrations) would burn weeks on `numpy`/`cv2` annotations for marginal benefit.
 
@@ -576,9 +592,9 @@ Plus pragmatic relaxations (`disallow_untyped_calls = false`, `disallow_any_gene
 If the interviewer asks "what is still weak?", answer directly:
 
 - **Auth is still the biggest product-readiness gap.** The doc is already honest about that; stating it proactively makes the rest of the architecture story more credible.
-- **Type contracts are closed-loop but not yet fully CI-gated.** §17 + §18 landed Pydantic → generated TS and **mypy** strict on API + LLM (plus **`make typecheck`** → **pyright** on a configured include set — a different tool). Remaining work: codegen drift-check (`make types && git diff --exit-code` once a `make types` target exists), **`mypy`** in CI, and tightening any stray dict responses on the tests router against the test models.
+- **Type contracts are closed-loop but not yet fully CI-gated.** §17 + §18 landed Pydantic → generated TS (shipped as `make generate-types`, auto-run from `start.py`) and **mypy** strict on API + LLM (shipped as `make typecheck-mypy`), plus **`make typecheck`** → **pyright** on a configured include set (a different tool). Remaining work: codegen drift-check (`make generate-types && git diff --exit-code`) and **`make typecheck-mypy`** in CI; tightening any stray dict responses on the tests router against the test models.
 - **A few frontend architecture rules are still aspirational.** The "no cross-feature imports" rule is directionally right, but the current tree still has exceptions that should be promoted into `shared/`.
-- **Second-level decomposition is partially done.** Breaking up `server.py` was the first big win; the watchdog package split (`watchdog/{model,rules,ai,storage,api}.py`) is the second. `Episode` + `StreamSlot` still live in `backend/state.py` (no `backend/domain/` package on disk yet), and `backend/services/impact.py` (813 LoC) and `backend/api/settings.py` (640 LoC) are the next file-level split candidates.
+- **Second-level decomposition is progressing.** Breaking up `server.py` was the first big win; the watchdog package split (`watchdog/{model,rules,ai,storage,api}.py`) was the second; the domain split (`backend/domain/episode.py`, `backend/domain/stream_slot.py`) — which §1 listed as pending in an earlier pass — is now on disk, with `backend/state.py` (791 → 400 LoC) re-exporting the names for backwards compat. Remaining file-level split candidates: `backend/services/impact.py` (813 LoC) and `backend/api/settings.py` (640 LoC).
 - **Single-instance assumption.** `SettingsStore` is one in-memory singleton per edge process — no leader election, no fleet-wide config coordination yet.
 - **Operational durability of JSONL stores.** `data/audit.jsonl` and `data/watchdog.jsonl` grow unbounded — rotation/compaction policy is implicit, not enforced.
 - **No formal benchmarks.** Capacity envelope (§16) is order-of-magnitude reasoning, not measured numbers.
@@ -607,8 +623,8 @@ This section helps because it shows engineering judgment, not just feature enthu
 | *Why one LLM module?* | One place to put the breaker, the cost ceiling, and the plate-hash. When a provider fails the rest of the system degrades gracefully (rules-only watchdog, skipped enrichment) instead of cascading. | LangChain / per-call SDK use — fragments breaker state, makes cost tracking impossible, re-opens the privacy invariant N times. |
 | *Why HMAC on edge → cloud?* | Application-level message authentication. TLS proves you're talking to the right server; HMAC proves the batch was minted by an authorized edge. Receiver is also idempotent on event id, so retries are safe. | Trust TLS only — anyone with the URL can POST forged events; OAuth — needs an IdP every edge can reach (incompatible with air-gap). |
 | *How does `SettingsStore` stay safe under concurrent reads?* | Atomic pointer rebind to a new immutable `MappingProxyType` snapshot under a short `RLock`; readers call `STORE.snapshot()` lock-free. A reader never blocks a writer, a writer never blocks readers, and no one ever sees a partially-applied diff. | Mutex-per-read — wrong order of magnitude on the hot path; SQLite-per-read — adds microseconds where we need nanoseconds. |
-| *How is the wire contract kept in sync between Python and TS?* | Pydantic models in `backend/api/models.py` are the source of truth. `scripts/generate_ts_types.py` emits `frontend/src/shared/types/generated.ts` (462 LoC); the legacy `common.ts` is now a 43-line re-export shim. `start.py` regenerates types before every Vite build. | OpenAPI codegen — needs `response_model=` everywhere first; hand-written types — exactly the regime we just left. |
-| *Why mypy on a narrow scope rather than the whole codebase?* | Strict **`mypy`** where wire contracts and provider failover live (`backend/api`, `backend/services/llm.py`); relaxed defaults elsewhere because typing `numpy`/`cv2`/`ultralytics` shapes is weeks of cleanup for marginal value. Run **`python -m mypy --config-file pyproject.toml`**. **`make typecheck`** is separate — it runs **`pyright`** on the `[tool.pyright]` include list, not mypy. | `mypy --strict` everywhere — blocks the rest of the work; **pyright-only** — different guarantees; optional **`pydantic.mypy`** plugin if you add it to `pyproject.toml` for stricter Pydantic-aware checks. |
+| *How is the wire contract kept in sync between Python and TS?* | Pydantic models in `backend/api/models.py` are the source of truth. `scripts/generate_ts_types.py` emits `frontend/src/shared/types/generated.ts` (462 LoC); the legacy `common.ts` is now a 50-line re-export shim. `start.py` regenerates types before every Vite build, and `make generate-types` runs codegen standalone. | OpenAPI codegen — needs `response_model=` everywhere first; hand-written types — exactly the regime we just left. |
+| *Why mypy on a narrow scope rather than the whole codebase?* | Strict **`mypy`** where wire contracts and provider failover live (`backend/api`, `backend/services/llm.py`), with a **two-tier policy**: fully strict on `backend.api.models` (the contract), strict-minus-untyped-defs on routers (their returns are already constrained by `response_model=`). Relaxed defaults elsewhere because typing `numpy`/`cv2`/`ultralytics` shapes is weeks of cleanup for marginal value. Run **`make typecheck-mypy`**. **`make typecheck`** is separate — it runs **`pyright`** on the `[tool.pyright]` include list, not mypy. | `mypy --strict` everywhere — blocks the rest of the work; **pyright-only** — different guarantees; optional **`pydantic.mypy`** plugin if you add it to `pyproject.toml` for stricter Pydantic-aware checks. |
 | *What's the capacity envelope?* | Bounded by browser HTTP/2 multiplexing and TARGET_FPS, not by Python. Encode-only-when-watched, lock-free config reads, async LLM. Honest answer: "depends on resolution + GPU + tile count, but the architecture isn't the bottleneck." | Quoting a fake "N cameras per edge" number — interviewers will probe and you'll have nothing to back it up. |
 | *How is documentation organised?* | `CLAUDE.md` is the agent contract (invariants to enforce). `docs/audit/*` and `docs/improvements/*-audit-2026-04-20.md` are diligence-ready. `docs/architecture.md` is for newcomers. ADRs are the next step. | Notion-only — drifts from code, agent can't read it; mkdocs site — agents read markdown by path, not generated HTML. |
 | *What invariants must not break?* | (1) No raw plate in any buffer. (2) Don't short-circuit conflict gates — each kills one FP class. (3) LLM calls only through `services/llm.py` (failover + rate budget + circuit breaker + cost tracking). (4) ≤5 tools per agent (hallucination grows above that). (5) Paths only from `backend/config.py`. (6) `SettingsStore` writes are atomic snapshot rebinds — never mutate in place. (7) Edge → cloud batches are HMAC-signed and idempotent. | Relaxing any of these "for speed" — each has a documented FP class, outage mode, or hallucination mode it was added to prevent. |
