@@ -810,3 +810,7 @@
 {"ts": "2026-04-21T14:33:41.658Z", "action": "access_public_thumbnail", "resource": "evt_1776782010773_0003_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-21T14:33:41.658Z", "action": "access_public_thumbnail", "resource": "evt_1776781994702_0002_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-21T14:33:41.658Z", "action": "access_public_thumbnail", "resource": "evt_1776781990053_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T14:37:37.337Z", "action": "access_public_thumbnail", "resource": "evt_1776782010773_0003_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T14:37:37.338Z", "action": "access_public_thumbnail", "resource": "evt_1776781990053_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T14:37:37.339Z", "action": "access_public_thumbnail", "resource": "evt_1776781994702_0002_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T14:38:17.334Z", "action": "access_public_thumbnail", "resource": "evt_1776782291217_0004_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}

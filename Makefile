@@ -1,6 +1,6 @@
 .PHONY: install dev test lint run start stop restart status logs docker-build docker-up docker-down clean
 
-ROAD_PORT ?= 8001
+ROAD_PORT ?= 8000
 PID_FILE := .road_safety.pid
 LOG_FILE := .road_safety.log
 
