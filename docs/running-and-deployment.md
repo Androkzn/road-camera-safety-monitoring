@@ -12,7 +12,7 @@ The codebase ships **two separate FastAPI apps**:
 
 | App | What it does | Entry point (Python path) | Port |
 |---|---|---|---|
-| **Edge app** | Perception pipeline + live admin UI. Reads camera frames, runs YOLOv8, emits events. | `backend.server:app` | `8001` (local), `8000` (Docker default) |
+| **Edge app** | Perception pipeline + live admin UI. Reads camera frames, runs YOLOv8, emits events. | `road_safety.server:app` | `8001` (local), `8000` (Docker default) |
 | **Cloud receiver** | HMAC-verified ingest endpoint + SQLite store. Receives events from edge nodes. | `cloud.receiver:app` | `8001` (Docker profile) |
 
 In **production**, these run on different machines:
@@ -25,7 +25,7 @@ cloud receiver is optional, only needed if you're testing the edge→cloud
 handoff.
 
 > "FastAPI app" means a Python object — the variable `app` inside
-> `backend/server.py` or `cloud/receiver.py`. It's the web application
+> `road_safety/server.py` or `cloud/receiver.py`. It's the web application
 > itself. A web server process (uvicorn) loads this object and listens on
 > a port.
 
@@ -42,7 +42,7 @@ you use depends on whether you're developing, demo'ing, or deploying.
 
 1. Builds the React frontend (`npm run build` → `frontend/dist/`).
 2. Runs the pytest suite (optional).
-3. Launches uvicorn pointing at `backend.server:app`.
+3. Launches uvicorn pointing at `road_safety.server:app`.
 4. Waits for `/api/live/status` to return `200`.
 5. Opens the admin UI in your default browser.
 
@@ -52,16 +52,16 @@ uvicorn invocation.
 
 **Used by:** developers, only.
 
-### Layer 2 — `backend.server:app` (the actual FastAPI app)
+### Layer 2 — `road_safety.server:app` (the actual FastAPI app)
 
-The line `app = create_app()` at `backend/server.py:190` is the real
+The line `app = create_app()` at `road_safety/server.py:190` is the real
 entry point. Everything else (start.py, Docker, uvicorn flags) is just a
 way to get a uvicorn process that loads this object.
 
 If you strip everything away, the minimum command to run the app is:
 
 ```bash
-.venv/bin/python -m uvicorn backend.server:app --port 8001
+.venv/bin/python -m uvicorn road_safety.server:app --port 8001
 ```
 
 **Used by:** uvicorn, Docker, any production runtime.
@@ -70,7 +70,7 @@ If you strip everything away, the minimum command to run the app is:
 
 `uvicorn` is the actual process that binds the port and runs the Python
 async event loop. Think of it as "the web server". uvicorn loads
-`backend.server:app` and serves it over HTTP.
+`road_safety.server:app` and serves it over HTTP.
 
 **Used by:** everything — uvicorn is always the process that actually
 runs. `start.py` / Docker / the Makefile are all just different ways of
@@ -80,7 +80,7 @@ spawning it.
 
 ```
     make start        ┐
-    make run          ├─► start.py ──► uvicorn ──► backend.server:app
+    make run          ├─► start.py ──► uvicorn ──► road_safety.server:app
     python start.py   ┘
                                                          ▲
     docker compose up ──► (container) ──► uvicorn ──────┘
@@ -88,7 +88,7 @@ spawning it.
     make dev-hot ──────► uvicorn --reload ───────────────┘
 ```
 
-All roads lead to `uvicorn → backend.server:app`.
+All roads lead to `uvicorn → road_safety.server:app`.
 
 ---
 
@@ -148,7 +148,7 @@ things in the terminal.
 ### Option E — bare uvicorn (no magic)
 
 ```bash
-.venv/bin/python -m uvicorn backend.server:app --host 127.0.0.1 --port 8001
+.venv/bin/python -m uvicorn road_safety.server:app --host 127.0.0.1 --port 8001
 ```
 
 This is what all the other options call under the hood. Useful for
@@ -199,7 +199,7 @@ RUN apt install libgl1 libglib2.0-0 ffmpeg
 COPY pyproject.toml → pip install
 COPY backend/ cloud/ static/ data/corpus/ start.py
 EXPOSE 8000
-CMD uvicorn backend.server:app --host 0.0.0.0 --port 8000
+CMD uvicorn road_safety.server:app --host 0.0.0.0 --port 8000
 ```
 
 Note: the Dockerfile does **not** build the frontend. It expects
@@ -256,7 +256,7 @@ small FastAPI app that accepts HMAC-signed JSON events from edge nodes.
   IN EACH VEHICLE                         AWS REGION
   ┌─────────────────────────┐            ┌──────────────────────────────┐
   │  Camera → Jetson        │            │                              │
-  │  ├── backend.server:app │   HTTPS    │  Route 53 (DNS)              │
+  │  ├── road_safety.server:app │   HTTPS    │  Route 53 (DNS)              │
   │  │    YOLOv8, tracking  │ ──────────▶│       │                      │
   │  │    PII redaction     │  HMAC-     │       ▼                      │
   │  │    event construct   │  signed    │  ALB (HTTP/2, TLS from ACM)  │
