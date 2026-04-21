@@ -169,7 +169,7 @@ cloud.
 - **Models (YOLOv8 weights):** `yolov8s.pt`, `rtdetr-l.pt` at the repo
   root. Auto-downloaded on first run.
 - **Config:** `.env` (your local secrets) + environment-variable
-  defaults in `backend/config.py`.
+  defaults in `road_safety/config.py`.
 
 ### What ports?
 
@@ -197,7 +197,7 @@ locally.
 FROM python:3.12-slim
 RUN apt install libgl1 libglib2.0-0 ffmpeg
 COPY pyproject.toml → pip install
-COPY backend/ cloud/ static/ data/corpus/ start.py
+COPY road_safety/ cloud/ static/ data/corpus/ start.py
 EXPOSE 8000
 CMD uvicorn road_safety.server:app --host 0.0.0.0 --port 8000
 ```
@@ -332,7 +332,7 @@ The app already:
 
 - Listens on `0.0.0.0` when run via the Dockerfile CMD.
 - Reads every tunable from environment variables (no hardcoded paths
-  outside `backend/config.py`).
+  outside `road_safety/config.py`).
 - Runs cleanly as a single container with no external runtime
   dependencies beyond the Python stdlib, `ffmpeg`, and `libgl1`.
 - Has a `HEALTHCHECK` already defined in the Dockerfile, which ALB
@@ -366,4 +366,4 @@ a POC.
 - The HMAC on edge-to-cloud ingest authenticates **devices**, not
   humans. It does not protect the admin UI.
 
-Audit logging still runs; see [backend/compliance/audit.py](../backend/compliance/audit.py).
+Audit logging still runs; see [road_safety/compliance/](../road_safety/compliance/).
