@@ -35,29 +35,40 @@
  */
 import { usePolling } from "./usePolling";
 import { api } from "../lib/api";
+// `type`-only import: erased at build time.
 import type { WatchdogStatus, WatchdogFinding } from "../types";
 
+// useWatchdog — standalone polling hook; returns { status, findings, refresh, deleteFindings, clearAll }.
+// Currently unused by any page — the app uses WatchdogContext via useWatchdogCtx in MonitoringPage.tsx instead.
+// Kept as a self-contained alternative for tests or future pages that want their own copy.
 export function useWatchdog() {
+  // Poll the status summary every 15s. `<WatchdogStatus>` generic tells usePolling the data shape.
+  // Destructure + rename: `data: status` means "the field named data, but call it status here".
   const { data: status, refetch: refreshStatus } = usePolling<WatchdogStatus>({
     fetcher: api.getWatchdogStatus,
     intervalMs: 15_000,
   });
 
+  // Poll the last 100 findings every 30s (slower cadence — findings change less often than status).
+  // Numeric separator `15_000` is just a readability aid for 15000.
   const { data: findings, refetch: refreshFindings } = usePolling<WatchdogFinding[]>({
     fetcher: () => api.getWatchdogRecent(100),
     intervalMs: 30_000,
   });
 
+  // Trigger both refetches at once (e.g. when a refresh button is clicked).
   const refresh = () => {
     refreshStatus();
     refreshFindings();
   };
 
+  // Mutating endpoint: delete specific finding keys, then refetch so the UI matches server state.
   const deleteFindings = async (keys: string[]) => {
     await api.deleteWatchdogFindings(keys);
     refresh();
   };
 
+  // Mutating endpoint: clear everything, then refetch.
   const clearAll = async () => {
     await api.clearWatchdogFindings();
     refresh();

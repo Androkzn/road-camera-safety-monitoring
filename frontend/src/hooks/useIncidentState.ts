@@ -38,21 +38,26 @@
  *   - UI: intended for use by frontend/src/pages/MonitoringPage.tsx and its
  *     incident cards (to show acknowledged/resolved chips and hide-on-ack).
  */
+// React imports: useCallback memoizes a function; useEffect runs side-effects; useState re-renders on change.
 import { useCallback, useEffect, useState } from "react";
 
+// Union type: the value is exactly one of these two strings.
 export type UserStatus = "acknowledged" | "resolved";
 
+// Shape stored per incident in localStorage; `by?` is optional.
 export interface StoredIncidentState {
   status: UserStatus;
   at: string;
   by?: string;
 }
 
+// `Record<K, V>` = an object type whose keys are K and values are V. Here: incidentId -> stored state.
 type Store = Record<string, StoredIncidentState>;
 
 const STORE_KEY = "watchdog:incidentState:v1";
 const VISIT_KEY = "watchdog:lastVisit:v1";
 
+// Helper: reads+parses the persisted store; returns `{}` on missing data or quota/private-mode errors.
 function readStore(): Store {
   try {
     const raw = localStorage.getItem(STORE_KEY);
@@ -62,6 +67,7 @@ function readStore(): Store {
   }
 }
 
+// Helper: serializes and writes the store; swallows quota/private-mode errors so the UI keeps working in memory.
 function writeStore(s: Store) {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(s));
@@ -70,17 +76,23 @@ function writeStore(s: Store) {
   }
 }
 
+// useIncidentState — per-browser ack/resolve workflow on top of watchdog data.
+// Consumed by: intended for frontend/src/pages/MonitoringPage.tsx and its incident cards (ack chips, hide-on-ack).
 export function useIncidentState() {
+  // Lazy initializer `() => readStore()` runs readStore once on first render; later renders reuse the state.
   const [store, setStore] = useState<Store>(() => readStore());
 
+  // Mark one incident as acknowledged (default operator name "operator"). Stable identity via useCallback([]).
   const acknowledge = useCallback((id: string, by = "operator") => {
     setStore((prev) => {
+      // Object spread + computed key `[id]:` creates a new object with that entry overwritten/added.
       const next: Store = { ...prev, [id]: { status: "acknowledged", at: new Date().toISOString(), by } };
       writeStore(next);
       return next;
     });
   }, []);
 
+  // Mark one incident as resolved; same pattern as `acknowledge`.
   const resolve = useCallback((id: string, by = "operator") => {
     setStore((prev) => {
       const next: Store = { ...prev, [id]: { status: "resolved", at: new Date().toISOString(), by } };
@@ -89,6 +101,7 @@ export function useIncidentState() {
     });
   }, []);
 
+  // Re-open an incident by deleting its entry; back to "no local state" so the UI treats it as new again.
   const reopen = useCallback((id: string) => {
     setStore((prev) => {
       const next: Store = { ...prev };
@@ -98,6 +111,7 @@ export function useIncidentState() {
     });
   }, []);
 
+  // Wipe all local incident state (useful for a "forget everything" settings action).
   const purgeAll = useCallback(() => {
     setStore({});
     writeStore({});
@@ -106,7 +120,10 @@ export function useIncidentState() {
   return { store, acknowledge, resolve, reopen, purgeAll };
 }
 
+// useLastVisit — returns the last-visit timestamp captured at mount (before we stamp a new one).
+// Consumed by: intended for MonitoringPage / incident cards to badge "new since last visit".
 export function useLastVisit() {
+  // Destructure only the value (no setter needed). Lazy initializer reads localStorage once.
   const [lastVisit] = useState<number>(() => {
     try {
       const raw = localStorage.getItem(VISIT_KEY);
@@ -116,6 +133,8 @@ export function useLastVisit() {
     }
   });
 
+  // Mount-only effect (deps []): schedule stamping the current visit time and also stamp on tab close.
+  // `[]` means: run exactly once when the component mounts; cleanup runs once on unmount.
   useEffect(() => {
     const markVisited = () => {
       try {
@@ -124,8 +143,11 @@ export function useLastVisit() {
         /* ignore */
       }
     };
+    // setTimeout delays the stamp 4s so very brief glances don't count as "visited".
     const timer = setTimeout(markVisited, 4000);
+    // beforeunload fires when the user navigates away / closes the tab — stamp the visit then too.
     window.addEventListener("beforeunload", markVisited);
+    // Cleanup on unmount: clear pending timer, detach listener, and stamp once more for good measure.
     return () => {
       clearTimeout(timer);
       window.removeEventListener("beforeunload", markVisited);

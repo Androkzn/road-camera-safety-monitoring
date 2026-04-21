@@ -40,6 +40,9 @@
  *     (EventCard), components/tests (TestBadge, TestDrawer), and
  *     components/layout/TopBar.
  */
+// React hooks: useState = state that re-renders, useEffect = side-effects,
+// useRef = mutable value that survives renders without triggering re-renders,
+// useMemo = cached computed value recomputed only when inputs change.
 import { useState, useEffect, useRef, useMemo } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import {
@@ -51,6 +54,7 @@ import {
 } from "../components/dashboard";
 import { EventCard } from "../components/events";
 import { TestBadge, TestDrawer } from "../components/tests";
+// Data-fetching hooks — each wraps one API endpoint / SSE stream.
 import { useEventStream } from "../hooks/useEventStream";
 import { useLiveStatus } from "../hooks/useLiveStatus";
 import { useScene } from "../hooks/useScene";
@@ -59,19 +63,35 @@ import { useTests } from "../hooks/useTests";
 import { humanEventType } from "../lib/format";
 import styles from "./DashboardPage.module.css";
 
+// Renders the "/dashboard" page — the main operator view: summary tiles,
+// perception/scene/drift banners, filter bar, live event feed, and the
+// Copilot chat side panel.
 export function DashboardPage() {
+  // SSE /stream/events: rolling events list + perception snapshot + total/high/medium counters.
   const { events, perception, connected, counts } = useEventStream();
+  // Polls /api/live/status — provides source name + pipeline start time.
   const { data: liveStatus } = useLiveStatus();
+  // Polls /api/live/scene — feeds SceneBannerRow.
   const { data: scene } = useScene();
+  // Polls /api/drift — feeds DriftBannerRow; `refetch` is called by its Refresh button.
   const { data: drift, refetch: refreshDrift } = useDrift();
+  // Polls /api/tests/status and exposes a Re-run action for the drawer.
   const { status: testStatus, rerun: rerunTests } = useTests();
 
+  // Controls the slide-in test drawer on the right side.
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // useRef holds a value across renders without triggering a re-render when
+  // changed — perfect for "remember previous value" logic. Here it remembers
+  // the last test status so we can detect the running→failed transition.
   const prevTestStatus = useRef<string>("idle");
 
+  // Event-list risk filter ("" = show all, else "high" | "medium" | "low").
   const [filterRisk, setFilterRisk] = useState("");
+  // Event-list type filter (empty string = no type filter applied).
   const [filterType, setFilterType] = useState("");
 
+  // Auto-opens the test drawer exactly when tests transition running → failed,
+  // but only if the drawer is currently closed. Runs whenever testStatus.status changes.
   useEffect(() => {
     if (
       testStatus?.status === "failed" &&
@@ -84,8 +104,13 @@ export function DashboardPage() {
   }, [testStatus?.status]);
 
   const sourceName = liveStatus?.source ?? "—";
+  // Live-ticking uptime (seconds since pipeline start) shown in SummaryTiles.
   const [uptimeSec, setUptimeSec] = useState<number | null>(null);
 
+  // Starts a 1s tick to refresh uptimeSec from liveStatus.started_at. The
+  // returned cleanup clearInterval()s it when started_at changes or the
+  // component unmounts. The "!" after started_at is a non-null assertion —
+  // we already checked it truthy on the previous line.
   useEffect(() => {
     if (!liveStatus?.started_at) return;
     const tick = () => {
@@ -96,14 +121,19 @@ export function DashboardPage() {
     return () => clearInterval(id);
   }, [liveStatus?.started_at]);
 
+  // Prefer the SSE-pushed perception state; fall back to the polled one.
   const mergedPerception = perception ?? (liveStatus?.perception || null);
 
+  // Builds the unique, sorted list of event_type strings for the type filter
+  // dropdown. Recomputes only when `events` changes — saves re-scanning every render.
   const eventTypes = useMemo(() => {
     const seen = new Set<string>();
     for (const ev of events) if (ev.event_type) seen.add(ev.event_type);
     return Array.from(seen).sort();
   }, [events]);
 
+  // Applies both risk + type filters to `events`. Recomputes only when events
+  // or either filter changes; drives the rendered <EventCard> list below.
   const filtered = useMemo(() => {
     let list = events;
     if (filterRisk) list = list.filter((e) => e.risk_level === filterRisk);
@@ -111,14 +141,18 @@ export function DashboardPage() {
     return list;
   }, [events, filterRisk, filterType]);
 
+  // True if at least one dropdown is set — controls the "Clear" button visibility.
   const hasFilters = filterRisk !== "" || filterType !== "";
 
   return (
     <>
+      {/* Top nav bar — source name + connection dot, with the test-status badge on the right. */}
       <TopBar sourceName={sourceName} connected={connected}>
+        {/* Coloured "tests: passed/failed/running" chip; clicking toggles the drawer. */}
         <TestBadge status={testStatus} onClick={() => setDrawerOpen((o) => !o)} />
       </TopBar>
 
+      {/* Slide-in right-side drawer showing per-test results; auto-opens on failure. */}
       <TestDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -126,19 +160,26 @@ export function DashboardPage() {
         onRerun={rerunTests}
       />
 
+      {/* Main two-column layout: left panel with the feed + banners, right panel with the Copilot. */}
       <div className={styles.app}>
         <section className={styles.panel}>
+          {/* Four summary tiles at the top: Total events / High / Medium / Uptime. */}
           <SummaryTiles
             total={counts.total}
             high={counts.high}
             medium={counts.medium}
             uptimeSec={uptimeSec}
           />
+          {/* Perception banner (e.g. "Night — low light"). */}
           <PerceptionBannerRow perception={mergedPerception} />
+          {/* Scene banner (e.g. "Urban · high pedestrian rate"). */}
           <SceneBannerRow scene={scene} />
+          {/* Drift banner with refresh button — surfaces precision trend shifts. */}
           <DriftBannerRow drift={drift} onRefresh={refreshDrift} />
 
+          {/* Filter bar: risk dropdown + type dropdown + optional Clear button + count. */}
           <div className={styles.filterBar}>
+            {/* Risk dropdown — filters the event list by risk_level. */}
             <select
               className={styles.filterSelect}
               value={filterRisk}
@@ -149,6 +190,7 @@ export function DashboardPage() {
               <option value="medium">Medium</option>
               <option value="low">Low</option>
             </select>
+            {/* Type dropdown — options built dynamically from the live events. */}
             <select
               className={styles.filterSelect}
               value={filterType}
@@ -161,6 +203,7 @@ export function DashboardPage() {
                 </option>
               ))}
             </select>
+            {/* "Clear" button — only visible while at least one filter is active. */}
             {hasFilters && (
               <button
                 className={styles.clearBtn}
@@ -172,6 +215,7 @@ export function DashboardPage() {
                 Clear
               </button>
             )}
+            {/* Small right-aligned "N / M events" counter. */}
             <span className={styles.filterCount}>
               {hasFilters
                 ? `${filtered.length} / ${events.length}`
@@ -180,19 +224,24 @@ export function DashboardPage() {
             </span>
           </div>
 
+          {/* Scrolling live event feed — one EventCard per filtered event. */}
           <div className={styles.stream}>
+            {/* Placeholder before any events arrive. */}
             {events.length === 0 && (
               <div className={styles.empty}>Waiting for events…</div>
             )}
+            {/* Placeholder when events exist but filters excluded them all. */}
             {events.length > 0 && filtered.length === 0 && (
               <div className={styles.empty}>No events match filters</div>
             )}
+            {/* The first card (i === 0) gets isNew so it can animate in. */}
             {filtered.map((ev, i) => (
               <EventCard key={ev.event_id} event={ev} isNew={i === 0} />
             ))}
           </div>
         </section>
 
+        {/* Right-hand Copilot chat panel — LLM Q&A over live data. */}
         <CopilotPanel />
       </div>
     </>

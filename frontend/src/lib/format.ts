@@ -38,20 +38,30 @@
  *     frontend/src/components/dashboard/SummaryTiles.tsx.
  */
 
+// pad2 — left-pads a number to 2 digits (e.g. 7 -> "07"). Local helper only.
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
+// formatWallTime — ISO timestamp or millisecond number -> "HH:MM:SS". Returns "—" on invalid input.
+// Used in: components/events/EventCard.tsx, components/events/AdminEventCard.tsx.
+// The `?` after `ts` marks it optional; union type `string | number` accepts either.
+// Template string (backticks) lets us embed `${...}` expressions inline.
 export function formatWallTime(ts?: string | number): string {
   const d = ts ? new Date(ts) : new Date();
   if (isNaN(d.getTime())) return "—";
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
+// humanEventType — "pedestrian_proximity" -> "Pedestrian proximity".
+// Used in: components/events/EventCard.tsx, components/events/AdminEventCard.tsx.
 export function humanEventType(t?: string): string {
   return (t || "event")
     .replace(/_/g, " ")
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
+// formatUptime — seconds -> "1h 05m" (over an hour) or "03:42" (minutes:seconds).
+// Used in: components/dashboard/SummaryTiles.tsx (and anywhere LiveStatus.uptime_seconds is shown).
+// `secs == null` catches both null and undefined (nullish comparison).
 export function formatUptime(secs?: number | null): string {
   if (secs == null || secs < 0) return "—";
   const h = Math.floor(secs / 3600);
@@ -60,10 +70,16 @@ export function formatUptime(secs?: number | null): string {
   return h > 0 ? `${h}h ${pad2(m)}m` : `${pad2(m)}:${pad2(s)}`;
 }
 
+// formatConfidence — 0.82 -> "82%". Returns "—" when missing.
+// Used in: components/events/EventCard.tsx (confidence chip in the meta line).
 export function formatConfidence(c?: number | null): string {
   return c != null ? `${Math.round(c * 100)}%` : "—";
 }
 
+// normalizeThumbnail — ensures thumbnail paths work as <img src> values:
+// leaves absolute URLs untouched, prefixes bare paths with "/" so the browser
+// hits the FastAPI static mount.
+// Used in: components/events/EventCard.tsx, components/events/AdminEventCard.tsx.
 export function normalizeThumbnail(thumb?: string): string {
   if (!thumb) return "";
   if (/^https?:/.test(thumb) || thumb.startsWith("/")) return thumb;

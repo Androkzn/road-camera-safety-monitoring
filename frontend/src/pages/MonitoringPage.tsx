@@ -186,36 +186,56 @@ function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {
   });
 }
 
+// Renders the full "/monitoring" page: top bar, header, summary tiles,
+// selection bar (when in select mode), Immediate Actions queue, and the main
+// grouped-incident feed.
 export function MonitoringPage() {
+  // Only need the SSE connected-dot status here, not the event list.
   const { connected } = useEventStream();
   const { data: liveStatus } = useLiveStatus();
+  // Shared watchdog store (findings + delete helpers) from WatchdogContext.
   const { status, findings, deleteFindings, clearAll } = useWatchdogCtx();
 
+  // Active severity filter; toggles which summary tile is highlighted.
   const [filter, setFilter] = useState<SevFilter>("all");
+  // True while the user is in multi-select mode (checkboxes visible).
   const [selectMode, setSelectMode] = useState(false);
+  // Set of incident ids currently checked. `Set<string>` — the `<string>`
+  // generic fills the type placeholder so TS knows the set holds strings.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // True while a delete/clear request is in flight (disables buttons).
   const [deleting, setDeleting] = useState(false);
 
+  // Caches the grouped incidents and only recomputes when `findings` changes —
+  // saves re-running buildIncidents() on every unrelated re-render.
   const incidents = useMemo(() => buildIncidents(findings ?? []), [findings]);
+  // Applies the severity filter. Recomputes only when filter or incidents change.
   const filtered = useMemo(
     () => (filter === "all" ? incidents : incidents.filter((item) => item.severity === filter)),
     [filter, incidents],
   );
 
+  // Per-severity counts for the four summary tiles at the top.
   const errors = incidents.filter((item) => item.severity === "error").length;
   const warnings = incidents.filter((item) => item.severity === "warning").length;
   const infos = incidents.filter((item) => item.severity === "info").length;
   const totalIncidents = incidents.length;
   const repeatingIncidents = incidents.filter((item) => item.count > 1).length;
+  // Top 3 non-info incidents used by the "Immediate Actions" queue row.
   const actionQueue = filtered.filter((item) => item.severity !== "info").slice(0, 3);
 
+  // Clicking a tile toggles its filter on/off (second click returns to "all").
   const toggle = (sev: SevFilter) => setFilter((prev) => (prev === sev ? "all" : sev));
 
+  // useCallback caches the function reference so children don't re-render
+  // unnecessarily. Exits select mode and clears the checkbox state.
   const exitSelectMode = useCallback(() => {
     setSelectMode(false);
     setSelected(new Set());
   }, []);
 
+  // Adds or removes one incident id from the selected set. `...prev` spreads
+  // the old set into a new one so we don't mutate state in place.
   const toggleSelect = useCallback((key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -225,10 +245,14 @@ export function MonitoringPage() {
     });
   }, []);
 
+  // "Select all" button action — marks every currently-visible incident.
   const selectAllVisible = useCallback(() => {
     setSelected(new Set(filtered.map((item) => item.id)));
   }, [filtered]);
 
+  // Async handler for the red "Delete (n)" button in the selection bar.
+  // Collapses all selected incidents to their raw finding keys and sends one
+  // batch delete request to the backend.
   const handleDeleteSelected = useCallback(async () => {
     if (selected.size === 0) return;
     setDeleting(true);
@@ -243,6 +267,7 @@ export function MonitoringPage() {
     }
   }, [deleteFindings, exitSelectMode, filtered, selected]);
 
+  // Handler for the header "Clear All" button — wipes every finding.
   const handleClearAll = useCallback(async () => {
     setDeleting(true);
     try {
@@ -253,28 +278,34 @@ export function MonitoringPage() {
     }
   }, [clearAll, exitSelectMode]);
 
+  // Top-bar labels.
   const sourceName = liveStatus?.source ?? "—";
   const lastAgo = status?.last_run_ago_sec;
 
   return (
     <>
+      {/* Top nav bar — shared with the other pages. */}
       <TopBar sourceName={sourceName} connected={connected} />
 
       <div className={styles.page}>
+        {/* Page header: title + right-aligned Select / Clear All buttons. */}
         <div className={styles.header}>
           <div className={styles.titleRow}>
             <div>
+              {/* "Error Monitoring" page title and subtitle. */}
               <h1>Error Monitoring</h1>
               <p className={styles.subtitle}>
                 Grouped into actionable incidents with impact, evidence, and next debugging moves.
               </p>
             </div>
             <div className={styles.headerActions}>
+              {/* "Select" button — only shown when not already in select mode and incidents exist. */}
               {!selectMode && filtered.length > 0 && (
                 <button className={styles.actionBtn} onClick={() => setSelectMode(true)}>
                   Select
                 </button>
               )}
+              {/* Red "Clear All" button — wipes every incident when clicked. */}
               {!selectMode && totalIncidents > 0 && (
                 <button
                   className={`${styles.actionBtn} ${styles.clearBtn}`}
@@ -287,6 +318,7 @@ export function MonitoringPage() {
             </div>
           </div>
 
+          {/* Four summary tiles: Errors / Warnings / Info / Incidents. Clicking one filters the list below. */}
           <div className={styles.summaryGrid}>
             <FilterTile label="Errors" value={errors} variant="error" active={filter === "error"} onClick={() => toggle("error")} />
             <FilterTile label="Warnings" value={warnings} variant="warning" active={filter === "warning"} onClick={() => toggle("warning")} />
@@ -294,17 +326,21 @@ export function MonitoringPage() {
             <FilterTile label="Incidents" value={totalIncidents} variant="total" active={filter === "all"} onClick={() => setFilter("all")} />
           </div>
 
+          {/* Three meta cards below the tiles: run count, queue size, cadence. */}
           <div className={styles.metaGrid}>
+            {/* Watchdog run count + "Last check Ns ago" meta card. */}
             <div className={styles.metaCard}>
               <span className={styles.metaLabel}>Watchdog</span>
               <strong>{status?.run_count ?? 0} runs</strong>
               <span>{lastAgo != null ? `Last check ${Math.round(lastAgo)}s ago` : "Waiting for first check"}</span>
             </div>
+            {/* "Active Queue" card — visible incident count and repeat count. */}
             <div className={styles.metaCard}>
               <span className={styles.metaLabel}>Active Queue</span>
               <strong>{filtered.length} visible incidents</strong>
               <span>{repeatingIncidents} repeating in the recent window</span>
             </div>
+            {/* "Cadence" card — shows the watchdog scan interval. */}
             <div className={styles.metaCard}>
               <span className={styles.metaLabel}>Cadence</span>
               <strong>{status?.interval_sec ?? 60}s interval</strong>
@@ -313,8 +349,10 @@ export function MonitoringPage() {
           </div>
         </div>
 
+        {/* Sticky selection toolbar — only rendered while in select mode. */}
         {selectMode && (
           <div className={styles.selectionBar}>
+            {/* Left side: selection count + select-all / deselect-all shortcuts. */}
             <div className={styles.selectionInfo}>
               <span>{selected.size} incident groups selected</span>
               <button className={styles.selBarBtn} onClick={selectAllVisible}>
@@ -324,6 +362,7 @@ export function MonitoringPage() {
                 Deselect all
               </button>
             </div>
+            {/* Right side: the red "Delete (n)" batch-delete button + Cancel. */}
             <div className={styles.selectionActions}>
               <button
                 className={`${styles.selBarBtn} ${styles.deleteBtn}`}
@@ -340,15 +379,18 @@ export function MonitoringPage() {
         )}
 
         <div className={styles.content}>
+          {/* "Immediate Actions" row — up to 3 highest-priority non-info incidents as clickable shortcuts. */}
           {actionQueue.length > 0 && (
             <section className={styles.queueSection}>
               <div className={styles.sectionHeader}>Immediate Actions</div>
+              {/* 3-up grid of coloured shortcut cards; clicking scrolls to the full incident below. */}
               <div className={styles.queueGrid}>
                 {actionQueue.map((incident) => (
                   <button
                     key={incident.id}
                     className={`${styles.queueCard} ${styles[incident.severity]}`}
                     onClick={() => {
+                      // Smooth-scroll the matching full incident card into view.
                       const el = document.getElementById(`incident-${incident.id}`);
                       el?.scrollIntoView({ behavior: "smooth", block: "start" });
                     }}
@@ -365,13 +407,16 @@ export function MonitoringPage() {
             </section>
           )}
 
+          {/* Main incident feed section: header + empty-state message + list of cards. */}
           <section className={styles.feedSection}>
+            {/* "Showing N incident groups" status header. */}
             <div className={styles.sectionHeader}>
               {filter === "all"
                 ? `Showing ${filtered.length} incident groups`
                 : `Showing ${filtered.length} ${filter} incident${filtered.length !== 1 ? "s" : ""}`}
             </div>
 
+            {/* Empty-state placeholder shown when nothing matches the current filter. */}
             {filtered.length === 0 && (
               <div className={styles.emptyList}>
                 {filter !== "all"
@@ -382,47 +427,58 @@ export function MonitoringPage() {
               </div>
             )}
 
+            {/* The scrolling list of full incident cards, one per group. */}
             <div className={styles.incidentList}>
               {filtered.map((incident) => {
                 const latest = incident.latest;
                 const isSelected = selected.has(incident.id);
                 return (
+                  // One full incident card. `id` on the element is the anchor used by the Immediate Actions buttons.
                   <article
                     id={`incident-${incident.id}`}
                     className={`${styles.incidentCard} ${styles[incident.severity]} ${selectMode ? styles.selectable : ""} ${isSelected ? styles.selected : ""}`}
                     key={incident.id}
                     onClick={selectMode ? () => toggleSelect(incident.id) : undefined}
                   >
+                    {/* Card header row: left = checkbox + severity icon + title + pills; right = per-card delete "×". */}
                     <div className={styles.incidentHeader}>
                       <div className={styles.incidentHeaderLeft}>
+                        {/* Checkbox indicator shown only in select mode. */}
                         {selectMode && (
                           <span className={`${styles.checkbox} ${isSelected ? styles.checked : ""}`}>
                             {isSelected ? "✓" : ""}
                           </span>
                         )}
+                        {/* Small "!!"/"!"/"i" severity badge inside each incident card header. */}
                         <span className={`${styles.sevIcon} ${styles[incident.severity]}`}>
                           {SEV_ICON[incident.severity] ?? "?"}
                         </span>
                         <div className={styles.incidentTitleBlock}>
+                          {/* Title line plus the row of little grey pills (category, owner, count, AI). */}
                           <div className={styles.incidentTitleRow}>
                             <h2 className={styles.incidentTitle}>{incident.title}</h2>
                             <div className={styles.metaPills}>
                               <span className={styles.pill}>{incident.category}</span>
                               {incident.owner && <span className={styles.pill}>{incident.owner}</span>}
+                              {/* "Seen Nx" repeat pill — only when the incident occurred more than once. */}
                               {incident.count > 1 && <span className={`${styles.pill} ${styles.repeatPill}`}>Seen {incident.count}x</span>}
+                              {/* "AI hypothesis" pill for AI-sourced findings. */}
                               {latest.source === "ai" && <span className={`${styles.pill} ${styles.aiPill}`}>AI hypothesis</span>}
                             </div>
                           </div>
+                          {/* Timeline sub-row: First seen / Last seen timestamps. */}
                           <div className={styles.incidentTimeline}>
                             <span>First seen {formatTimestamp(incident.firstSeen)}</span>
                             <span>Last seen {formatTimestamp(incident.lastSeen)} ({formatRelative(incident.lastSeen)})</span>
                           </div>
                         </div>
                       </div>
+                      {/* Top-right "×" per-card delete button (hidden while in select mode). */}
                       {!selectMode && (
                         <button
                           className={styles.deleteSingle}
                           onClick={(e) => {
+                            // Stop the card's own onClick from also firing.
                             e.stopPropagation();
                             deleteFindings(incident.rawKeys);
                           }}
@@ -433,11 +489,13 @@ export function MonitoringPage() {
                       )}
                     </div>
 
+                    {/* Highlighted "Next move" strip right under the header. */}
                     <div className={styles.nextStepBox}>
                       <span className={styles.nextStepLabel}>Next move</span>
                       <strong>{latest.suggestion || "Inspect the evidence attached to this incident."}</strong>
                     </div>
 
+                    {/* Three-column summary panel: Observed / Impact / Likely Cause. */}
                     <div className={styles.summaryPanel}>
                       <div className={styles.summaryCard}>
                         <span className={styles.summaryLabel}>Observed</span>
@@ -456,6 +514,7 @@ export function MonitoringPage() {
                       </div>
                     </div>
 
+                    {/* "Evidence" block — coloured chips (breach/trend/context) with measured values. */}
                     {latest.evidence && latest.evidence.length > 0 && (
                       <div className={styles.sectionBlock}>
                         <div className={styles.blockLabel}>Evidence</div>
@@ -474,6 +533,7 @@ export function MonitoringPage() {
                       </div>
                     )}
 
+                    {/* "What To Check" numbered investigation steps list. */}
                     {latest.investigation_steps && latest.investigation_steps.length > 0 && (
                       <div className={styles.sectionBlock}>
                         <div className={styles.blockLabel}>What To Check</div>
@@ -485,6 +545,7 @@ export function MonitoringPage() {
                       </div>
                     )}
 
+                    {/* "Fast Debug Paths" — monospaced command chips. */}
                     {latest.debug_commands && latest.debug_commands.length > 0 && (
                       <div className={styles.sectionBlock}>
                         <div className={styles.blockLabel}>Fast Debug Paths</div>
@@ -498,6 +559,7 @@ export function MonitoringPage() {
                       </div>
                     )}
 
+                    {/* Footer "Playbook: …" line linking to the runbook, when provided. */}
                     {latest.runbook && <div className={styles.runbook}>Playbook: {latest.runbook}</div>}
                   </article>
                 );
@@ -510,6 +572,9 @@ export function MonitoringPage() {
   );
 }
 
+// Renders one clickable summary tile in the top-of-page grid (Errors /
+// Warnings / Info / Incidents). The `active` prop paints the active-border
+// highlight so the user sees which filter is on.
 function FilterTile({
   label,
   value,
@@ -524,6 +589,7 @@ function FilterTile({
   onClick: () => void;
 }) {
   return (
+    // Whole tile is a <button> so keyboard focus + Enter work.
     <button className={`${styles.tile} ${styles[`t${variant}`]} ${active ? styles.tileActive : ""}`} onClick={onClick}>
       <div className={styles.tLabel}>{label}</div>
       <div className={styles.tValue}>{value}</div>

@@ -37,14 +37,23 @@
 import type { PerceptionState, SceneContext, DriftReport } from "../../types";
 import styles from "./PerceptionBanner.module.css";
 
+// Props for the Perception row. `| null` means "the full object or null
+// while the initial fetch is pending".
 interface PerceptionBannerProps {
   perception: PerceptionState | null;
 }
 
+// Renders the top "Perception" banner row on the Dashboard, sitting directly
+// below the SummaryTiles. Turns red when the perception state is not "nominal".
 export function PerceptionBannerRow({ perception }: PerceptionBannerProps) {
+  // `?.` = optional chaining: reads `.state` if perception isn't null, else undefined.
+  // `??` = nullish coalescing: fall back to "nominal" when undefined/null.
   const state = perception?.state ?? "nominal";
+  // Drives the red "degraded" styling when state is anything other than nominal.
   const degraded = state !== "nominal";
 
+  // Build a compact "chip" list of metrics. Only push pieces that are present,
+  // so we can safely join with " · " later without showing empty segments.
   const metrics: string[] = [];
   if (perception?.luminance != null)
     metrics.push(`lum ${Number(perception.luminance).toFixed(0)}`);
@@ -56,20 +65,29 @@ export function PerceptionBannerRow({ perception }: PerceptionBannerProps) {
     metrics.push(`n=${perception.samples}`);
 
   return (
+    // One horizontal banner row — label, state, reason, metrics; red background when degraded
     <div className={`${styles.banner} ${degraded ? styles.degraded : ""}`}>
+      {/* Left-most "Perception" label */}
       <span className={styles.lbl}>Perception</span>
+      {/* Primary state text, e.g. "nominal" or "degraded" */}
       <span className={styles.st}>{state}</span>
+      {/* Short reason string from the backend (e.g. "warmup", "low-luminance") */}
       <span className={styles.reason}>{perception?.reason ?? "warmup"}</span>
+      {/* Trailing metrics joined by middle-dot separators */}
       <span className={styles.metrics}>{metrics.join(" · ")}</span>
     </div>
   );
 }
 
+// Props for the Scene row.
 interface SceneBannerProps {
   scene: SceneContext | null;
 }
 
+// Renders the middle "Scene" banner row on the Dashboard, directly below the
+// Perception banner. Always neutral styling — informational only.
 export function SceneBannerRow({ scene }: SceneBannerProps) {
+  // Same metric-chip building pattern: push only present pieces.
   const metrics: string[] = [];
   if (scene?.speed_proxy_mps != null)
     metrics.push(`~${Number(scene.speed_proxy_mps).toFixed(1)} m/s`);
@@ -79,27 +97,39 @@ export function SceneBannerRow({ scene }: SceneBannerProps) {
     metrics.push(`TTC≤${scene.thresholds.ttc_high_sec}s`);
 
   return (
+    // Scene row — styled inline with `borderTop: "none"` to sit flush under the Perception row
     <div className={styles.banner} style={{ borderTop: "none" }}>
+      {/* "Scene" label on the left */}
       <span className={styles.lbl}>Scene</span>
+      {/* Scene label, e.g. "street_level" or "unknown" */}
       <span className={styles.st}>{scene?.label ?? "unknown"}</span>
+      {/* Human reason string, falls back to em-dash */}
       <span className={styles.reason}>{scene?.reason ?? "—"}</span>
+      {/* Scene metrics chips (speed, pedestrian rate, TTC threshold) */}
       <span className={styles.metrics}>{metrics.join(" · ")}</span>
     </div>
   );
 }
 
+// Props for the Drift row. `onRefresh` is called when the banner is clicked.
 interface DriftBannerProps {
   drift: DriftReport | null;
   onRefresh: () => void;
 }
 
+// Renders the bottom "Drift" banner row on the Dashboard. Clickable — the
+// whole banner acts as a refresh button for the drift report. Turns red when
+// a drift alert is currently triggered.
 export function DriftBannerRow({ drift, onRefresh }: DriftBannerProps) {
+  // True when backend reports a drift alert — drives the red "degraded" look.
   const alertTriggered = drift?.alert_triggered ?? false;
 
+  // Local display strings. Defaults cover the "no labelled feedback yet" case.
   let stateText = "—";
   let reasonText = "no labelled feedback yet";
   let metricsText = "";
 
+  // Only overwrite defaults when we have a non-empty evaluation window.
   if (drift?.window_size) {
     stateText = drift.precision != null ? `P=${Number(drift.precision).toFixed(2)}` : "—";
     reasonText = drift.trend ? `trend: ${drift.trend}` : "";
@@ -107,15 +137,20 @@ export function DriftBannerRow({ drift, onRefresh }: DriftBannerProps) {
   }
 
   return (
+    // Drift row — clickable banner; cursor pointer + tooltip communicate that clicking refreshes
     <div
       className={`${styles.banner} ${alertTriggered ? styles.degraded : ""}`}
       style={{ borderTop: "none", cursor: "pointer" }}
       title="Click to refresh drift report"
       onClick={onRefresh}
     >
+      {/* "Drift" label on the left */}
       <span className={styles.lbl}>Drift</span>
+      {/* Precision state, e.g. "P=0.87" */}
       <span className={styles.st}>{stateText}</span>
+      {/* Trend reason, e.g. "trend: falling" */}
       <span className={styles.reason}>{reasonText}</span>
+      {/* Sample counts on the right: window size, true positives, false positives */}
       <span className={styles.metrics}>{metricsText}</span>
     </div>
   );

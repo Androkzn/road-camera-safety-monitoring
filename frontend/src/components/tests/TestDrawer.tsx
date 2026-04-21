@@ -91,12 +91,16 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
   }
 
   return (
+    /* <> … </> is a React Fragment — renders siblings without adding an extra DOM wrapper. */
     <>
+      {/* Dim overlay behind the drawer. Clicking it closes the drawer. `.open` class triggers the fade-in. */}
       <div
         className={`${styles.overlay} ${open ? styles.open : ""}`}
         onClick={onClose}
       />
+      {/* <aside> = the drawer panel itself, slides in from the right when `.open` is applied. */}
       <aside className={`${styles.drawer} ${open ? styles.open : ""}`}>
+        {/* Drawer header bar — title on the left, X close button on the right. */}
         <div className={styles.head}>
           <h2>Test Suite</h2>
           <button className={styles.closeBtn} onClick={onClose} title="Close">
@@ -104,6 +108,7 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
           </button>
         </div>
 
+        {/* 2x2 grid of summary tiles: Total / Passed / Failed / Skipped. Each tile is colored by variant. */}
         <div className={styles.summaryGrid}>
           <SummaryTile label="Total" value={total} variant="total" />
           <SummaryTile label="Passed" value={passed} variant="pass" />
@@ -111,13 +116,16 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
           <SummaryTile label="Skipped" value={skipped} variant="skip" />
         </div>
 
+        {/* Progress area — horizontal bar + current status line + elapsed time. */}
         <div className={styles.progress}>
           <div className={styles.barWrap}>
+            {/* Inner fill — its width is driven by `pct`. barClass re-colors it green/red when done. */}
             <div
               className={`${styles.barFill} ${barClass}`}
               style={{ width: `${pct}%` }}
             />
           </div>
+          {/* Two-line row under the bar: left = text label (e.g. "Running… 3/10"), right = elapsed seconds. */}
           <div className={styles.progressLabels}>
             <span>{progressLabel}</span>
             <span>
@@ -126,7 +134,9 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
           </div>
         </div>
 
+        {/* Scrollable list of test results grouped by source file. */}
         <div className={styles.testList}>
+          {/* Empty state: shown when there are no results yet — different text while running vs idle. */}
           {(!d?.results || d.results.length === 0) && (
             <div className={styles.emptyList}>
               {state === "running"
@@ -134,11 +144,14 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
                 : "No test results yet"}
             </div>
           )}
+          {/* One `.map` per file group. `.map([file, tests] => …)` destructures each [key, value] pair from Object.entries. */}
           {Object.entries(byFile).map(([file, tests]) => {
+            // Roll-up status of this file: all passed, any failed, or mixed.
             const allPassed = tests.every((t) => t.outcome === "passed");
             const anyFailed = tests.some(
               (t) => t.outcome === "failed" || t.outcome === "error",
             );
+            // File-level icon + color for the section header.
             const fileIcon = anyFailed ? "✗" : allPassed ? "✓" : "○";
             const fileColor = anyFailed
               ? "var(--high)"
@@ -147,12 +160,16 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
                 : "var(--muted)";
 
             return (
+              /* One section per test file. `key={file}` helps React track reorders across renders. */
               <div className={styles.fileGroup} key={file}>
+                {/* Section header: colored status icon + file path, e.g. "✓ tests/test_foo.py". */}
                 <div className={styles.fileHeader}>
                   <span style={{ color: fileColor }}>{fileIcon}</span> {file}
                 </div>
+                {/* Inner loop: one row per test inside this file. */}
                 {tests.map((t) => (
                   <div key={t.node_id}>
+                    {/* Single test row: outcome icon + test name + duration in ms on the right. */}
                     <div className={styles.testItem}>
                       <span className={`${styles.testIcon} ${styles[t.outcome]}`}>
                         {ICONS[t.outcome] ?? "?"}
@@ -164,6 +181,7 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
                         {t.duration_ms > 0 ? `${t.duration_ms.toFixed(0)}ms` : ""}
                       </span>
                     </div>
+                    {/* Error detail block — only shown when pytest attached a message (usually on failure). */}
                     {t.message && (
                       <div className={styles.testError}>{t.message}</div>
                     )}
@@ -174,6 +192,7 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
           })}
         </div>
 
+        {/* Bottom action bar: "Re-run Tests" button (disabled while a run is in progress) and elapsed-time label. */}
         <div className={styles.actions}>
           <button onClick={onRerun} disabled={state === "running"}>
             Re-run Tests
@@ -189,6 +208,8 @@ export function TestDrawer({ open, onClose, status, onRerun }: TestDrawerProps) 
   );
 }
 
+// SummaryTile — one of the four colored tiles at the top of the drawer (Total / Passed / Failed / Skipped).
+// Props inline-typed: `label` is the caption, `value` is the big number, `variant` picks the tile color class.
 function SummaryTile({
   label,
   value,
@@ -199,8 +220,10 @@ function SummaryTile({
   variant: string;
 }) {
   return (
+    /* Template-string className combines the base tile class with a variant class like `.tpass` / `.tfail`. */
     <div className={`${styles.tile} ${styles[`t${variant}`]}`}>
       <div className={styles.tLabel}>{label}</div>
+      {/* Falsy guard: value `0` is falsy, so it renders "—". Intentional — empty tiles look cleaner than zeros. */}
       <div className={styles.tValue}>{value || "—"}</div>
     </div>
   );

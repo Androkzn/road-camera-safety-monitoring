@@ -34,23 +34,38 @@
  *     `npm run dev`.
  */
 
+// defineConfig — Vite helper that just returns its argument but adds type-checking.
 import { defineConfig } from "vite";
+// React plugin — enables JSX/TSX transforms and Fast Refresh (hot reload).
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  // plugins — turn on the React plugin so .tsx files compile correctly.
   plugins: [react()],
   server: {
+    // port — dev server runs on http://localhost:3000 (the browser URL).
     port: 3000,
+    // proxy — dev-only path forwarding. Anything the browser fetches under
+    // these prefixes gets relayed to the FastAPI backend on 127.0.0.1:8001
+    // (the project's preferred port; matches `start.py --port 8001`). Without
+    // this, browser requests would hit Vite and fail, or require CORS headers.
     proxy: {
+      // All REST endpoints (defined in road_safety/server.py & api/*.py).
       "/api": "http://127.0.0.1:8001",
+      // SSE endpoints like /stream/events used by useEventStream.
       "/stream": "http://127.0.0.1:8001",
+      // Copilot chat endpoint consumed by useChat.
       "/chat": "http://127.0.0.1:8001",
+      // Static thumbnails served by FastAPI for EventCard <img src>.
       "/thumbnails": "http://127.0.0.1:8001",
+      // Live MJPEG video stream shown in the Admin "Live" tab.
       "/admin/video_feed": "http://127.0.0.1:8001",
+      // Raw detections overlay stream (debug view).
       "/admin/detections": "http://127.0.0.1:8001",
     },
   },
   build: {
+    // outDir — production build output folder. FastAPI mounts this at "/" in prod.
     outDir: "dist",
   },
 });
