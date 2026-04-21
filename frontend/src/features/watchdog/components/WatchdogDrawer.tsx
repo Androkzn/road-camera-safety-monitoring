@@ -5,6 +5,13 @@
  * Design goal per CLAUDE.md: this is an *incident queue*, not a log
  * tail — grouped by category, filterable by severity, with bulk
  * select + delete for triage workflows.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: the watchdog drawer that slides in from the right with
+ *   incident cards, severity filter, and bulk select / delete actions.
+ * Backend: triggers POST /api/watchdog/findings/delete and
+ *   DELETE /api/watchdog/findings via the WatchdogContext mutators.
  */
 
 // `useState` — component-local state; `useCallback` — memoized callbacks.
