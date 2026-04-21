@@ -2,8 +2,8 @@
 
 # --- Background dev-server shortcuts ---
 # Terminal equivalents of the /start and /stop Claude Code slash commands.
-# Default port is 8001 (override: `make start PORT=8080`).
-PORT ?= 8001
+# Default port is 8002 (override: `make start PORT=8080`).
+PORT ?= 8002
 PID_FILE := .road_safety.pid
 LOG_FILE := .road_safety.log
 
