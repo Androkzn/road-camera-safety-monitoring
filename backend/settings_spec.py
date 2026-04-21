@@ -436,17 +436,11 @@ def _cross_field_errors(merged: dict[str, Any]) -> list[ValidationError]:
             errs.append({"key": "MIN_SCALE_GROWTH", "reason": "must be > 1.0"})
         if merged["LLM_BUCKET_CAPACITY"] < 1:
             errs.append({"key": "LLM_BUCKET_CAPACITY", "reason": "must be >= 1"})
-        # Slack high-tier confidence floor must be at least the per-detection
-        # confidence floor — anything below CONF_THRESHOLD has already been
-        # filtered out by detection, so a lower Slack floor would be moot.
-        # (We deliberately do NOT compare against VEHICLE_PAIR_CONF_FLOOR
-        # here because that is a *pair-mean* gate while Slack reads the
-        # *peak-event* confidence — different metrics.)
-        if merged["SLACK_HIGH_MIN_CONFIDENCE"] < merged["CONF_THRESHOLD"]:
-            errs.append({
-                "key": "SLACK_HIGH_MIN_CONFIDENCE",
-                "reason": "must be >= CONF_THRESHOLD (otherwise the floor is moot)",
-            })
+        # Note: SLACK_HIGH_MIN_CONFIDENCE < CONF_THRESHOLD is allowed. Detection
+        # already filters out anything below CONF_THRESHOLD, so a lower Slack
+        # floor is simply redundant — not incorrect. Blocking apply on this
+        # was hostile UX (operator raises CONF_THRESHOLD and the apply fails
+        # referencing a field they didn't touch). Leave it to the operator.
     except KeyError as exc:
         errs.append({"key": str(exc).strip("'"), "reason": "missing for cross-field check"})
     return errs

@@ -83,31 +83,6 @@ def live_source_pause(source_id: str):
     return {"ok": True, **slot.status_dict()}
 
 
-@router.post("/api/live/sources/restart_all")
-def live_source_restart_all():
-    """Restart every slot from the beginning (full reset).
-
-    HTTP: POST /api/live/sources/restart_all
-    """
-    results: list[dict] = []
-    for sid, slot in list(state.slots.items()):
-        if not slot.original_source:
-            continue
-        if slot.is_running():
-            stop_slot(slot)
-        try:
-            start_slot(slot)
-            results.append({"id": sid, "ok": True, **slot.status_dict()})
-        except Exception as exc:
-            slot.last_error = str(exc)
-            log.warning("restart_all: slot %s failed: %s", sid, exc)
-            results.append({
-                "id": sid, "ok": False, "error": str(exc), **slot.status_dict(),
-            })
-    audit.log("stream_restart_all", "all", detail={"count": len(results)})
-    return {"ok": True, "results": results}
-
-
 def _slugify_id(seed: str) -> str:
     """Build a short, URL-safe id from a seed string (e.g. a YouTube URL).
 

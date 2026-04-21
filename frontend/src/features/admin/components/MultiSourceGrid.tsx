@@ -1,8 +1,8 @@
 /**
  * MultiSourceGrid — layout container for one tile per perception source.
  *
- * Renders the bulk toolbar (start-all / pause-all / restart-all) plus
- * the focused-source layout. Each tile is a `StreamTile` that owns its
+ * Renders the bulk toolbar (start-all / pause-all) plus the
+ * focused-source layout. Each tile is a `StreamTile` that owns its
  * own mutations via `useStreamControl` — the grid does not prop-drill
  * per-source callbacks anymore.
  *
@@ -22,17 +22,11 @@ import { StreamTile } from "./StreamTile";
 interface MultiSourceGridProps {
   focusedId: string | null;
   onFocusChange: (id: string | null) => void;
-  /** Overrides the inline `restartAll` call for the Restart toolbar
-   *  button. AdminPage uses this to pair the stream restart with a
-   *  client-side event-list wipe so replayed local-file fixtures don't
-   *  re-fill the feed with identical-looking events right after the
-   *  operator cleared it. */
-  onRestart?: () => Promise<void> | void;
 }
 
-export function MultiSourceGrid({ focusedId, onFocusChange, onRestart }: MultiSourceGridProps) {
+export function MultiSourceGrid({ focusedId, onFocusChange }: MultiSourceGridProps) {
   const { sources, loading, error } = useLiveSourcesList();
-  const { restartAll, restartingAll, bulkSetRunning, bulkBusy } = useStreamRegistry();
+  const { bulkSetRunning, bulkBusy } = useStreamRegistry();
 
   // Esc exits focus mode — common expectation for "maximized" UI.
   useEffect(() => {
@@ -110,21 +104,6 @@ export function MultiSourceGrid({ focusedId, onFocusChange, onRestart }: MultiSo
             title="Pause every running stream"
           >
             Pause
-          </button>
-          <button
-            type="button"
-            className={styles.toolbarBtn}
-            onClick={() => {
-              // Prefer the parent-supplied handler (AdminPage wipes the
-              // event list first so a replayed local-file fixture doesn't
-              // repopulate it with identical-looking detections).
-              if (onRestart) void onRestart();
-              else void restartAll();
-            }}
-            disabled={sources.length === 0 || restartingAll}
-            title="Restart every stream from the beginning and reset the map marker"
-          >
-            {restartingAll ? "Restarting…" : "Restart"}
           </button>
         </div>
       </div>

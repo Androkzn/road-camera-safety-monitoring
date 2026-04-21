@@ -78,28 +78,21 @@ def render_annotated_frame(frame, detections, interactions, distances_m=None):
 
 
 def _make_placeholder_jpeg() -> bytes:
-    """Build a small dark-grey 'Warming up…' placeholder JPEG once at import.
+    """Build a small plain dark-grey placeholder JPEG once at import.
 
     The MJPEG generator emits this placeholder to slots that have not yet
     published their first annotated frame. Without it, browsers loading the
     multi-source admin page during boot see a connection with no data,
     time out, and render a black tile that never recovers — even after the
     slot starts producing frames a few seconds later.
+
+    The tile is deliberately text-free: cv2.putText at 320x180 looked
+    crude when the browser scaled it to a full tile. Any "warming up"
+    messaging is rendered in CSS by the frontend so it stays crisp.
     """
     import numpy as np  # local import: avoid pulling numpy on bare module load
 
-    # 320x180 dark-grey canvas with a centred "WARMING UP" caption.
     img = np.full((180, 320, 3), 28, dtype=np.uint8)
-    cv2.putText(
-        img,
-        "WARMING UP…",
-        (50, 100),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.9,
-        (180, 180, 180),
-        2,
-        cv2.LINE_AA,
-    )
     ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
     if not ok:
         # Defensive fallback: minimal valid JPEG if encoding fails for any reason.

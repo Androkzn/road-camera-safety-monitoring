@@ -10,7 +10,7 @@
  *   - `useStreamControl(sourceId)` — per-source start/pause/detection,
  *     mounted inside a tile component. Derives `busy` from the
  *     mutation's `isPending`.
- *   - `useStreamRegistry()` — add / remove / restartAll.
+ *   - `useStreamRegistry()` — add / remove.
  *
  * The per-id `start` / `pause` / `setDetection` / `remove` helpers exposed
  * here are intentionally coarse — they fire one-shot mutations through
@@ -46,11 +46,6 @@ export interface UseLiveSourcesResult {
   setDetection: (id: string, enabled: boolean) => Promise<void>;
   add: (input: { url: string; name?: string }) => Promise<{ ok: boolean; error?: string }>;
   remove: (id: string) => Promise<void>;
-  restartAll: () => Promise<void>;
-  /** Monotonically-increasing counter bumped on every successful
-   *  `restartAll()`. Kept for source-compat; see `useStreamRegistry`. */
-  restartAllToken: number;
-  restartingAll: boolean;
   /** Legacy busy-map. Populated only for `remove` (via registry) now;
    *  `start` / `pause` busy state is no longer tracked here — mount
    *  `useStreamControl(id)` inside a tile if you need it. */
@@ -181,9 +176,6 @@ export function useLiveSources(
     setDetection,
     add: registry.add,
     remove: registry.remove,
-    restartAll: registry.restartAll,
-    restartAllToken: registry.restartAllToken,
-    restartingAll: registry.restartingAll,
     busyById,
   };
 }

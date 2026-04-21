@@ -12,7 +12,7 @@
  *              MultiSourceGrid + Tabs(Detections | Events | History).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { POLL_INTERVAL_MS } from "../../shared/config/runtime";
 import { useEventStream } from "../../shared/hooks/useEventStream";
@@ -38,13 +38,8 @@ import styles from "./AdminPage.module.css";
 export function AdminPage() {
   const { data: health } = useAdminHealth();
   const { frames } = useDetections();
-  const { events: liveEvents, connected, clearEvents } = useEventStream();
+  const { events: liveEvents, connected } = useEventStream();
   const liveSources = useLiveSources(POLL_INTERVAL_MS.liveSources);
-
-  const handleRestart = useCallback(async () => {
-    clearEvents();
-    await liveSources.restartAll();
-  }, [clearEvents, liveSources]);
 
   const [focusedId, setFocusedId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -121,7 +116,6 @@ export function AdminPage() {
           <MultiSourceGrid
             focusedId={focusedId}
             onFocusChange={setFocusedId}
-            onRestart={handleRestart}
           />
         </div>
 

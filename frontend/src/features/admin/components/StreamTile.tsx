@@ -96,6 +96,9 @@ export function StreamTile({ source, focused, minimized, onFocusToggle }: Stream
               className={styles.video}
               onError={() => setImgError(true)}
             />
+            {running && source.frames_processed === 0 && (
+              <span className={styles.warmingBadge}>Warming up…</span>
+            )}
             {!running && !source.last_error && <span className={styles.pausedBadge}>Paused</span>}
           </>
         ) : (
