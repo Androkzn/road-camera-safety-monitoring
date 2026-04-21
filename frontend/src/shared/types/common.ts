@@ -237,7 +237,6 @@ export interface HealthData {
     slack_configured: boolean;
     edge_publisher: boolean;
     pii_redaction: string;
-    dsar_endpoint: boolean;
   };
   perception: {
     state: string;

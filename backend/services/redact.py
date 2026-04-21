@@ -218,10 +218,9 @@ def write_thumbnails(
     After this function returns, the event has TWO on-disk artefacts:
 
       internal_path  ->  UNREDACTED thumbnail with primary/secondary
-                         bboxes drawn. Stays on the local host. ONLY
-                         readers: (a) the internal ALPR vision call in
-                         ``enrich_event``, (b) operators holding a valid
-                         ``X-DSAR-Token`` accessing ``/api/thumbs/...``.
+                         bboxes drawn. Stays on the local host. Read
+                         only by the internal ALPR vision call in
+                         ``enrich_event``.
 
       public_path    ->  REDACTED thumbnail (faces + plates blurred) with
                          bboxes redrawn on top of the blurred copy. This

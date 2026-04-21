@@ -50,8 +50,7 @@ frontend/src/
 - Backend talks to the frontend via SSE (`/api/live/stream`) and JSON endpoints (`/api/...`). No websockets.
 - Data fetching goes through **TanStack Query** (`useQuery` / `useMutation`). Polling hooks wrap `useQuery` with `refetchInterval` (+ `refetchIntervalInBackground: false` for non-critical UI), not hand-rolled `setInterval`. The legacy `shared/hooks/usePolling.ts` was deleted; do not reintroduce it.
 - SSE is owned by `<EventStreamProvider>` (mounted in [app/providers.tsx](frontend/src/app/providers.tsx)); consumers read via `useEventStreamCtx()` (or the back-compat `useEventStream` alias). One `EventSource` per app — never mount the SSE primitive directly in a feature.
-- Public thumbnails only — never call endpoints requiring `X-DSAR-Token` from the frontend without an explicit privileged path.
-- POC builds use open JSON APIs (`fetchJson` / `apiFetch` in `shared/lib/fetchClient.ts`); there is no browser-stored credential.
+- POC builds use open JSON APIs (`fetchJson` / `apiFetch` in `shared/lib/fetchClient.ts`); there is no authentication, no browser-stored credential, and no token prompt anywhere in the UI.
 
 ## Routing
 
