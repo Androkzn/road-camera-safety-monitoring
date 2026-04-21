@@ -1,369 +1,384 @@
-# Running the App: Local, Docker, Production
+# Running the App: Local & Production
 
-This doc explains where the app runs, what the entry points are, and how
-the local setup maps onto a real production deployment on AWS. It is
-written for someone who is new to Python and the project.
+This doc covers:
 
----
+1. What the app is.
+2. How to run it locally (just `make start`).
+3. How the local process actually works.
+4. What's missing for production, and how to add it — with trade-offs.
 
-## 1. The mental model
-
-The codebase ships **two separate FastAPI apps**:
-
-| App | What it does | Entry point (Python path) | Port |
-|---|---|---|---|
-| **Edge app** | Perception pipeline + live admin UI. Reads camera frames, runs YOLOv8, emits events. | `road_safety.server:app` | `8001` (local), `8000` (Docker default) |
-| **Cloud receiver** | HMAC-verified ingest endpoint + SQLite store. Receives events from edge nodes. | `cloud.receiver:app` | `8001` (Docker profile) |
-
-In **production**, these run on different machines:
-
-- The **edge app** runs in the vehicle, on a small Linux computer next to the camera.
-- The **cloud receiver** runs in AWS.
-
-In **local dev**, you almost always run just the edge app on your Mac. The
-cloud receiver is optional, only needed if you're testing the edge→cloud
-handoff.
-
-> "FastAPI app" means a Python object — the variable `app` inside
-> `road_safety/server.py` or `cloud/receiver.py`. It's the web application
-> itself. A web server process (uvicorn) loads this object and listens on
-> a port.
+> **This is a POC (proof of concept).** It is **not** production-ready
+> as-shipped. It has no authentication, uses SQLite + local disk for
+> state, serves the React UI from the same process as the perception
+> workers, and has no horizontal-scaling story. All of those are
+> intentional for a POC — the goal was to validate the perception
+> pipeline end-to-end, not to survive a production SLA. Section 5
+> explains what you'd change and why.
 
 ---
 
-## 2. What is the "entry point"?
+## 1. What the app is
 
-There isn't one entry point — there are **three layers**, and which one
-you use depends on whether you're developing, demo'ing, or deploying.
+**Road-camera safety monitoring.** Pulls video from fixed road cameras
+(intersection cams, highway poles, parking-structure cams) over HLS /
+RTSP / YouTube live streams. Runs YOLOv8 object detection + tracking on
+each frame, redacts PII (plates, faces), and emits conflict events when
+vehicles or pedestrians approach a near-miss.
 
-### Layer 1 — `start.py` (dev launcher)
-
-`start.py` is a convenience script. It:
-
-1. Builds the React frontend (`npm run build` → `frontend/dist/`).
-2. Runs the pytest suite (optional).
-3. Launches uvicorn pointing at `road_safety.server:app`.
-4. Waits for `/api/live/status` to return `200`.
-5. Opens the admin UI in your default browser.
-
-This is what the Makefile targets `make run` and `make start` call under
-the hood. It exists so a new developer doesn't have to memorize the
-uvicorn invocation.
-
-**Used by:** developers, only.
-
-### Layer 2 — `road_safety.server:app` (the actual FastAPI app)
-
-The line `app = create_app()` at `road_safety/server.py:190` is the real
-entry point. Everything else (start.py, Docker, uvicorn flags) is just a
-way to get a uvicorn process that loads this object.
-
-If you strip everything away, the minimum command to run the app is:
-
-```bash
-.venv/bin/python -m uvicorn road_safety.server:app --port 8001
-```
-
-**Used by:** uvicorn, Docker, any production runtime.
-
-### Layer 3 — the OS-level process (uvicorn)
-
-`uvicorn` is the actual process that binds the port and runs the Python
-async event loop. Think of it as "the web server". uvicorn loads
-`road_safety.server:app` and serves it over HTTP.
-
-**Used by:** everything — uvicorn is always the process that actually
-runs. `start.py` / Docker / the Makefile are all just different ways of
-spawning it.
-
-### Visual summary
-
-```
-    make start        ┐
-    make run          ├─► start.py ──► uvicorn ──► road_safety.server:app
-    python start.py   ┘
-                                                         ▲
-    docker compose up ──► (container) ──► uvicorn ──────┘
-                                                         ▲
-    make dev-hot ──────► uvicorn --reload ───────────────┘
-```
-
-All roads lead to `uvicorn → road_safety.server:app`.
+There are no cameras in vehicles. No on-vehicle hardware. Every
+camera is third-party infrastructure at a fixed location.
 
 ---
 
-## 3. Running locally (the options)
+## 2. How to run it locally
 
-### Option A — `make start` (recommended, with logs)
+One command:
 
 ```bash
 make start
 ```
 
-Foreground. Logs stream to your terminal. Ctrl+C stops. Serves the
-production-built React bundle from `frontend/dist/`. No hot-reload.
+That's it. Logs stream to your terminal. Ctrl+C stops.
 
-**Use this** when you just want to see the app working.
+### What `make start` does under the hood
 
-### Option B — `make dev-hot-lite` (hot reload, fast)
+1. **Pre-flight cleanup** — frees port 8001 and kills any stray
+   `yt-dlp` / `ffmpeg` workers from a previous run, so the command is
+   idempotent (you can run it twice in a row without errors).
+2. **Launches `start.py`** — a convenience script that:
+   - Builds the React frontend (`npm run build` → `frontend/dist/`).
+   - Skips the pytest suite (`--skip-tests` baked in).
+   - Launches `uvicorn road_safety.server:app --port 8001`.
+   - Waits for `/api/live/status` to return `200`.
+3. **Ctrl+C** triggers a cleanup trap that sends `SIGTERM` to the
+   whole process group, then `SIGKILL` to anything that didn't exit
+   within 0.5s. Catches the yt-dlp / ffmpeg children too, which
+   otherwise ignore the first signal.
 
-```bash
-make dev-hot-lite
-```
+### Where the app runs
 
-Two processes launched together:
+Always on **your Mac**. Opens at `http://localhost:8001`. Nothing
+touches AWS, no remote state, no cloud calls except the video pull
+from YouTube / the camera CDN (and optional LLM enrichment if
+`ANTHROPIC_API_KEY` is set in `.env`).
 
-- **uvicorn with `--reload`** on port `8001`. Restarts the backend when
-  you save a `.py` file.
-- **Vite dev server** on port `3000`. Hot-patches the frontend when you
-  save a `.tsx` / `.ts` / `.css` file.
+### Where data lives
 
-Opens at `http://localhost:3000`. Vite proxies API calls to `127.0.0.1:8001`.
-
-Overrides `ROAD_STREAM_SOURCES=''` so the app uses bundled MP4 clips
-instead of live YouTube streams → startup in ~2 seconds instead of ~70.
-
-**Use this** for daily development.
-
-### Option C — `make dev-hot` (hot reload, real streams)
-
-Same as `dev-hot-lite` but respects your `.env` — so it uses the YouTube
-streams configured there. Startup takes ~70 seconds because each
-`yt-dlp` + `ffmpeg` pipe has to negotiate with YouTube.
-
-**Use this** only when you're specifically testing live-stream
-ingestion.
-
-### Option D — `make start-bg` (background, logs to file)
-
-```bash
-make start-bg   # detach, write logs to .road_safety.log
-make logs       # tail the logs
-make stop       # kill it
-```
-
-Use for demos where you want the server running while you do other
-things in the terminal.
-
-### Option E — bare uvicorn (no magic)
-
-```bash
-.venv/bin/python -m uvicorn road_safety.server:app --host 127.0.0.1 --port 8001
-```
-
-This is what all the other options call under the hood. Useful for
-understanding what's happening; not what you use day-to-day.
-
----
-
-## 4. Where does it actually run?
-
-Always on **your Mac** in all local modes (A–E). None of these touch the
-cloud.
-
-### Where does data live?
-
-- **Compiled frontend:** `frontend/dist/` (created by `npm run build`).
-  The FastAPI process serves these HTML/JS files statically.
-- **Thumbnails, DB, logs:** `data/` directory. Created on first run.
-- **Models (YOLOv8 weights):** `yolov8s.pt`, `rtdetr-l.pt` at the repo
+- **Built React bundle:** `frontend/dist/` (regenerated on every
+  `make start`).
+- **Thumbnails, DB, JSONL event logs:** `data/` directory.
+- **YOLOv8 model weights:** `yolov8s.pt`, `rtdetr-l.pt` at the repo
   root. Auto-downloaded on first run.
-- **Config:** `.env` (your local secrets) + environment-variable
-  defaults in `road_safety/config.py`.
-
-### What ports?
-
-| Port | What |
-|---|---|
-| `8001` | Edge app (FastAPI + bundled React) |
-| `3000` | Vite dev server (only in `dev-hot-lite` / `dev-hot`) |
-| `8001` (Docker) | Cloud receiver, only if you start it with `--profile cloud` |
-
-> Port conflict note: if you run `make dev-hot-lite` AND `docker compose
-> --profile cloud up`, both want `8001`. Pick one or change the
-> `ROAD_CLOUD_PORT` env var for Docker.
+- **Config:** `.env` + defaults in [road_safety/config.py](../road_safety/config.py).
 
 ---
 
-## 5. Docker
+## 3. How it works (one process, one port)
 
-The repo has a `Dockerfile` and a `docker-compose.yml`. They are for
-production-style runs and for reviewers who don't want to install Python
-locally.
-
-### Dockerfile summary
-
-```dockerfile
-FROM python:3.12-slim
-RUN apt install libgl1 libglib2.0-0 ffmpeg
-COPY pyproject.toml → pip install
-COPY road_safety/ cloud/ static/ data/corpus/ start.py
-EXPOSE 8000
-CMD uvicorn road_safety.server:app --host 0.0.0.0 --port 8000
+```
+  ┌────────────────────────────── your Mac ────────────────────────────────┐
+  │                                                                         │
+  │   ┌─────────────────────────────────────────────────────────────────┐   │
+  │   │  uvicorn (one Python process, port 8001)                        │   │
+  │   │                                                                 │   │
+  │   │   road_safety.server:app  (FastAPI)                             │   │
+  │   │   │                                                             │   │
+  │   │   ├─ background asyncio tasks (one per camera):                 │   │
+  │   │   │    StreamReader → YOLOv8 → ByteTrack → gates → Episode      │   │
+  │   │   │                                                             │   │
+  │   │   ├─ static files:  frontend/dist/  (the React UI)              │   │
+  │   │   │                                                             │   │
+  │   │   └─ HTTP routes:                                               │   │
+  │   │        GET /             → index.html (React shell)             │   │
+  │   │        GET /api/...      → JSON (status, events, settings)      │   │
+  │   │        GET /stream/events→ SSE (live event push)                │   │
+  │   │        GET /admin/video_feed/{id} → MJPEG stream                │   │
+  │   └───┬─────────────────────────────────────────────────────────────┘   │
+  │       │                                                                 │
+  │       │ spawns N child processes at startup (one per camera feed):      │
+  │       ▼                                                                 │
+  │   yt-dlp ──pipe──▶ ffmpeg ──pipe──▶ (back into Python as raw frames)    │
+  └─────────────────────────────────────────────────────────────────────────┘
+              ▲                           │
+              │ HTTPS (camera CDN)        │ HTTP to browser
+              │                           ▼
+    [Road-cam HLS / YouTube live]  [Safari/Chrome on localhost:8001]
 ```
 
-Note: the Dockerfile does **not** build the frontend. It expects
-`static/` to contain a pre-built bundle (or the app falls back to that
-when `frontend/dist/` is absent). For a real container deploy you'd
-either build the frontend inside Docker (multi-stage) or bake the
-existing `frontend/dist/` into the image.
+### Entry point
 
-### Local container run
+Everything reduces to one line:
 
 ```bash
-make docker-up              # starts the edge app on :8000
-make docker-up-cloud        # adds the cloud receiver on :8001
-make docker-down            # stop
+uvicorn road_safety.server:app --port 8001
 ```
 
-Or directly:
+- `uvicorn` = the web server process (binds the port, handles HTTP).
+- `road_safety.server:app` = the FastAPI application object (your code).
+- `make start` / `start.py` / `Dockerfile CMD` are all just wrappers
+  around this.
 
-```bash
-docker compose up --build
-docker compose --profile cloud up --build
-```
+### Step-by-step
 
-Data persists in named volumes (`app-data`, `cloud-data`) so events and
-thumbnails survive container restarts.
+1. FastAPI's **lifespan hook** loads YOLOv8, warms the model, reads
+   `ROAD_STREAM_SOURCE` from `.env`.
+2. For each camera URL in `.env`, Python spawns a `yt-dlp` +
+   `ffmpeg` pipe that decodes frames back into the Python process
+   at ~2 fps.
+3. Each camera runs an **asyncio task** with the perception pipeline:
+   YOLOv8 → tracking → gates → Episode.
+4. Events that pass all gates are **broadcast over SSE** + written
+   to `data/` as JSONL + thumbnail.
+5. Your browser opens `http://localhost:8001`, receives the React UI
+   from `frontend/dist/`, and opens an SSE connection to receive
+   live events.
 
-### When to use Docker vs. native
+### Why everything is in one process
 
-- **Native Python (`make start`)** — faster startup, easier debugging,
-  can use Apple Metal (MPS) for GPU-accelerated YOLO.
-- **Docker (`make docker-up`)** — reproducible, matches production,
-  doesn't require a working Python env. But perception runs on CPU
-  inside the container (no MPS passthrough), so detection is slower.
-
-For dev work on a Mac: use native. For sharing with someone who doesn't
-have a Python setup: Docker.
+Perception and the admin UI share memory: the UI's MJPEG stream reads
+the latest annotated frame straight from the perception task's output
+buffer. No IPC, no queue hop. This is the right design for a POC — it
+collapses a lot of complexity. It's also the thing that most needs to
+change before production (see Section 5).
 
 ---
 
-## 6. Production on AWS
+## 4. POC scope
 
-The **edge app** does **not** run on AWS. It runs on an embedded Linux
-computer (typically NVIDIA Jetson) inside each vehicle, next to the
-camera. Running perception in the cloud would miss the latency window
-for safety-critical decisions and would cost ~1 GB/day per camera in
-uplink bandwidth.
+The intent of this build is to validate:
 
-Only the **cloud receiver** (`cloud.receiver:app`) goes to AWS. It's a
-small FastAPI app that accepts HMAC-signed JSON events from edge nodes.
+- The perception pipeline (detection → tracking → gates → events).
+- PII redaction as a privacy invariant enforced at ingest.
+- The operator experience (live dashboard, incident queue, watchdog).
+- LLM enrichment with failover and cost tracking.
 
-### Reference architecture
+It is **not** intended to:
 
-```
-  IN EACH VEHICLE                         AWS REGION
-  ┌─────────────────────────┐            ┌──────────────────────────────┐
-  │  Camera → Jetson        │            │                              │
-  │  ├── road_safety.server:app │   HTTPS    │  Route 53 (DNS)              │
-  │  │    YOLOv8, tracking  │ ──────────▶│       │                      │
-  │  │    PII redaction     │  HMAC-     │       ▼                      │
-  │  │    event construct   │  signed    │  ALB (HTTP/2, TLS from ACM)  │
-  │  └── edge publisher     │   JSON +   │       │                      │
-  │      (queue, retry,     │   thumbs   │       ▼                      │
-  │       HMAC sign)        │            │  ECS Fargate                 │
-  │                         │            │  └── cloud.receiver:app      │
-  └─────────────────────────┘            │       │                      │
-                                         │       ├──▶ RDS Postgres      │
-                                         │       ├──▶ S3 (thumbnails)   │
-                                         │       ├──▶ CloudWatch (logs) │
-                                         │       └──▶ SNS → Slack/email │
-                                         │                              │
-                                         │  Secrets Manager (HMAC key,  │
-                                         │    LLM API keys)             │
-                                         └──────────────────────────────┘
-```
+- Handle more than ~10 concurrent cameras.
+- Survive a production SLA.
+- Be exposed to the public internet.
+- Support multiple operators with different permissions.
+- Persist state across container restarts in a managed environment.
 
-### Mapping local → AWS
+Section 5 lists what you'd change to get there.
 
-| Concern | Local dev | AWS production |
+---
+
+## 5. Production setup — what's missing and how to add it
+
+A production deployment needs a different shape than the POC. Here's
+what's missing, ranked roughly by criticality, with concrete options
+and trade-offs for each.
+
+### 5.1 Authentication (show-stopper)
+
+**Missing:** every API route is open. Anyone who can reach the URL can
+read events, change settings, export data, stream live video.
+
+**Options:**
+
+| Option | Effort | Trade-off |
 |---|---|---|
-| Run the Python app | uvicorn on your Mac | **ECS Fargate** running the Docker image (same container as local) |
-| Serve HTTPS + HTTP/2 | plain HTTP on localhost | **ALB** (Application Load Balancer) + **ACM** cert |
-| Database | `data/cloud.db` (SQLite) | **RDS Postgres** (Aurora Serverless is a fit for spiky loads) |
-| Thumbnails | local disk `data/thumbnails/` | **S3** bucket, private, pre-signed URLs for UI |
-| Secrets (`.env`) | local file | **Secrets Manager**, injected as env vars at task start |
-| Logs | stdout / `.road_safety.log` | **CloudWatch Logs** (stdout is captured automatically) |
-| Metrics | none | **CloudWatch Metrics** + dashboards |
-| Alerts (Slack/email) | direct HTTP from Python | keep direct HTTP, or route via **SNS** for fan-out |
-| Per-vehicle identity | `.env` vars | **IoT Core** certificates (one per vehicle) |
-| Event buffering under spikes | none | **SQS** queue between ALB and Fargate |
-| Frontend hosting | served by uvicorn | **S3 + CloudFront** (CDN) serving `frontend/dist/`, calling the API over HTTPS |
-| DNS | `localhost` | **Route 53** |
+| **Cognito User Pool + ALB auth listener** | 1–2 days (config only, no code) | AWS-native, integrates with ALB out of the box, supports social / SAML / OIDC. Tied to AWS. |
+| **API Gateway authorizer** | 2–3 days | Works for JSON APIs; awkward for SSE and MJPEG long-lived connections. |
+| **Homegrown JWT + bcrypt users** | ~1 week | Portable, no AWS lock-in. But: you own password rotation, MFA, session management. Rarely worth it. |
+| **OAuth2 via Auth0 / Clerk / WorkOS** | 2–3 days | Cleanest UX for enterprise SSO. Adds a per-seat vendor cost. |
 
-### Minimum-viable AWS deployment steps
+**Recommendation:** Cognito for AWS-hosted deployments. The ALB auth
+listener does the redirect dance without any Python code change — you
+just tell FastAPI to trust the `x-amzn-oidc-identity` header the ALB
+injects.
 
-For a POC deployment of the cloud receiver only (edge node stays on a
-Jetson in the vehicle):
+### 5.2 Stateful storage (mandatory for HA and scaling)
 
-1. **Build and push the container.**
-   ```bash
-   aws ecr create-repository --repository-name road-safety
-   docker build -t road-safety .
-   docker tag road-safety:latest <account>.dkr.ecr.<region>.amazonaws.com/road-safety:latest
-   docker push <account>.dkr.ecr.<region>.amazonaws.com/road-safety:latest
-   ```
+**Missing:** SQLite in `data/settings.db`, thumbnails in
+`data/thumbnails/`, event logs in `data/*.jsonl`. Fargate containers
+have ephemeral filesystems — all of this evaporates on restart, and
+nothing is shareable between two tasks.
 
-2. **Create an ECS cluster + Fargate service** running that image, with
-   the command overridden to `uvicorn cloud.receiver:app --host 0.0.0.0
-   --port 8001`.
+**Options per piece of state:**
 
-3. **Put an ALB in front** of the service. Attach an ACM certificate
-   for TLS. Route only POST `/ingest/events` through it (the receiver's
-   only endpoint that matters).
+**Settings DB:**
+| Option | Trade-off |
+|---|---|
+| **RDS Postgres** (single AZ `db.t4g.small`) | Default choice. Low cost, reliable. One Python driver change. |
+| **Aurora Serverless v2** | Scales to zero when idle; better for spiky workloads. Higher per-hour cost when active. |
+| **DynamoDB** | Managed, scales automatically, cheap at rest. But: no SQL — you'd rewrite the settings layer from tables to a key-value model. |
 
-4. **Provision an RDS Postgres instance** and update the receiver to
-   use Postgres instead of SQLite (the receiver currently hardcodes
-   SQLite; that's the one code change needed).
+**Thumbnails:**
+| Option | Trade-off |
+|---|---|
+| **S3 + CloudFront + pre-signed URLs** | Obvious choice. Durable, cheap, CDN-fronted. |
+| **EFS mount** | Looks like a filesystem to Python (minimal code change) but ~10× more expensive than S3 and still single-region. |
 
-5. **Store `ROAD_CLOUD_HMAC_SECRET` in Secrets Manager** and reference
-   it from the ECS task definition.
+**Event log:**
+| Option | Trade-off |
+|---|---|
+| **CloudWatch Logs** (from stdout) | Free with Fargate. Query via Logs Insights. Good for most operations. |
+| **OpenSearch** | Better for long-retention + complex queries. Adds real cost (~$100/month minimum). |
+| **S3 + Athena** | Cheapest for years-long retention. Slower queries. |
 
-6. **Point Route 53** at the ALB, and give each vehicle's edge node the
-   DNS name as its `ROAD_CLOUD_ENDPOINT`.
+**Recommendation:** RDS Postgres + S3 + CloudWatch. Straightforward,
+cheap, and the code change is mostly swapping two modules.
 
-7. **Enable CloudWatch** for the task definition (free; it's just
-   stdout capture).
+### 5.3 Separate the React UI from the backend
 
-### What does **not** need to change
+**Missing:** the UI ships from the same uvicorn process that runs
+perception. Every UI deploy restarts perception. Every perception
+restart drops active video streams for ~70 seconds.
 
-The app already:
+**Options:**
 
-- Listens on `0.0.0.0` when run via the Dockerfile CMD.
-- Reads every tunable from environment variables (no hardcoded paths
-  outside `road_safety/config.py`).
-- Runs cleanly as a single container with no external runtime
-  dependencies beyond the Python stdlib, `ffmpeg`, and `libgl1`.
-- Has a `HEALTHCHECK` already defined in the Dockerfile, which ALB
-  target groups will consume directly.
+| Option | Effort | Trade-off |
+|---|---|---|
+| **S3 + CloudFront** | 1 day | Standard static-site deploy. CDN caching. Independent release cadence. Frontend deploys in ~30s instead of 5min. |
+| **Amplify Hosting** | Half a day | AWS's managed front-door for SPAs. Has PR previews out of the box. A bit more expensive and more vendor-tied. |
+| **Vercel / Netlify** | Half a day | Best UX for pure frontend. Bills per seat. Not AWS-native so data-transfer paths get weird. |
 
-So the AWS port is mostly **infrastructure**, not code changes. The
-biggest code change is swapping SQLite → Postgres in the cloud receiver
-(one module in `cloud/receiver.py`).
+**Trade-off to understand:** splitting the UI requires adding **CORS**
+support to the backend (so the React app at `https://app.example.com`
+can call the API at `https://api.example.com`). That's ~10 lines of
+FastAPI middleware. You also need a build-time env var
+(`VITE_API_BASE_URL`) so the bundle knows where to call.
+
+**Recommendation:** S3 + CloudFront. Cheapest, most flexible, and it's
+the path that unlocks clean Cognito auth later.
+
+### 5.4 Graceful startup and shutdown
+
+**Missing:**
+
+- **Startup is all-or-nothing.** The lifespan hook waits for every
+  camera to connect (~70s for 6 YouTube feeds) before the app answers
+  `/api/admin/health`. During that window, ALB marks the task
+  unhealthy, rolling deploys drop traffic, autoscaling can't respond.
+- **Shutdown leaks child processes.** On SIGTERM, yt-dlp / ffmpeg
+  subprocesses survive, pipe-break messages flood, and the task
+  doesn't drain cleanly.
+
+**Options:**
+
+**For startup:**
+| Option | Trade-off |
+|---|---|
+| **Lazy camera init + per-camera readiness flag** | App becomes healthy in ~2s; cameras attach in background. `/api/live/sources` exposes per-camera state. Clean, correct. ~1 day of work. |
+| **Accept 70s startup + increase ALB start-period** | Zero code change. But rolling deploys still drop traffic, and autoscaling can't respond quickly. Not really a fix, just hiding the problem. |
+
+**For shutdown:**
+| Option | Trade-off |
+|---|---|
+| **Lifespan shutdown hook that kills subprocesses** | Handle SIGTERM → close stream readers → `proc.terminate()` each subprocess → `proc.wait(timeout=5)` → `kill()`. ~half a day. The right fix. |
+| **Container stop grace period extended to 60s** | Zero code change. Tasks take a minute to die. Deploys get slower. Partial workaround. |
+
+**Recommendation:** do both real fixes (lazy init + proper shutdown).
+Combined effort ~1.5 days. Big quality-of-life improvement for ops.
+
+### 5.5 Horizontal scaling
+
+**Missing:** the app is one process. Past ~10 cameras it starves; past
+one Fargate task you have no way to partition cameras across
+instances.
+
+**Options:**
+
+| Option | Effort | Trade-off |
+|---|---|---|
+| **Vertical scale (bigger Fargate task)** | Half a day | Go from 2 vCPU → 16 vCPU. Gets you to maybe 20 cameras. No HA. Eventually hits a ceiling. |
+| **Manual partitioning via env vars** | 1 day | `ROAD_STREAM_SOURCE_SHARD=0/3` splits cameras by hash. Works, but requires hand-editing env vars when camera count changes. |
+| **Split into gateway + worker tiers with leases** | 1–2 weeks | The real answer. Gateway handles UI / API / SSE (stateless, autoscales on user load). Workers claim cameras via DynamoDB lease table (autoscale on camera count). Redis pub/sub glues events. |
+| **GPU fleet for perception** | +1 week | g4dn.xlarge fits ~20–40 cameras per T4 GPU. g5.xlarge fits ~40–80 on an A10G. Only matters past ~25 cameras; below that CPU Fargate is fine. |
+
+**Trade-off to understand:** the worker/gateway split solves real
+problems (independent scaling, per-worker blast radius, rolling deploys
+that don't drop video) but adds real complexity (lease stale-detection,
+pub/sub delivery gaps, MJPEG transport that can't round-trip through
+Redis cheaply). Don't do it past a certain camera count — but don't do
+it before.
+
+**Recommendation:** stay on the monolith until camera count forces it.
+Rule of thumb: split when you hit 20+ cameras, or when a single
+perception-tier restart dropping video for 70s becomes operationally
+intolerable.
+
+### 5.6 Observability
+
+**Missing:** logs via stdout are the only telemetry. No metrics, no
+traces, no per-camera health.
+
+**Options:**
+
+| Option | Effort | Trade-off |
+|---|---|---|
+| **Prometheus `/metrics` endpoint via `prometheus-fastapi-instrumentator`** | Half a day | Industry standard. Auto-captures request counts, latency histograms, errors. Scrape via CloudWatch Agent. |
+| **OpenTelemetry + AWS X-Ray** | 2–3 days | Distributed traces. Worth it when you split into multiple tiers (Section 5.5). Overkill for a monolith. |
+| **CloudWatch Embedded Metric Format (EMF) in logs** | 1 day | Emit metrics as structured JSON lines; CloudWatch extracts them. No new endpoint needed. Locked to AWS. |
+
+**Recommendation:** Prometheus endpoint first — one library import and
+a mount. Add OpenTelemetry later if/when you split tiers.
+
+### 5.7 Abuse protection
+
+**Missing:** no rate limiting on API endpoints (there's a narrow
+per-IP limiter for clip rendering, but nothing else). No WAF.
+
+**Options:**
+
+| Option | Effort | Trade-off |
+|---|---|---|
+| **AWS WAF rules in front of ALB** | 1 day | Managed rule sets for bots, SQL injection, etc. Billed per rule per million requests. The right place for this. |
+| **FastAPI-level rate limit (slowapi)** | Half a day | Per-IP or per-key rate buckets in Python. Fine for finer-grained rules, but doesn't protect against floods that overwhelm the task. |
+| **CloudFront + `AWS-AWSManagedRulesCommonRuleSet`** | Half a day | Free tier for common attack patterns. Catches the worst stuff for zero effort. |
+
+**Recommendation:** CloudFront managed rules (free) + WAF rate-based
+rule (~$10/month). Add slowapi in Python only if you need
+per-authenticated-user budgets.
 
 ---
 
-## 7. Quick reference — which command to use when
+## 6. Recommended production path (priorities in order)
+
+If someone asked "do these in order, with minimal scope creep":
+
+1. **Split UI to S3 + CloudFront** (Section 5.3) — ~1 day, unlocks
+   everything else.
+2. **Add Cognito auth** (Section 5.1) — mandatory before any external
+   exposure.
+3. **Move state to RDS + S3** (Section 5.2) — required before running
+   more than one task.
+4. **Fix startup and shutdown** (Section 5.4) — required for zero-
+   downtime deploys.
+5. **Add Prometheus metrics** (Section 5.6) — enables smart
+   autoscaling later.
+6. **Add WAF + CloudFront managed rules** (Section 5.7) — cheap
+   insurance.
+7. **Split perception workers only when camera count forces it**
+   (Section 5.5).
+
+Total effort for items 1–6: **~2 weeks** of focused work for one
+engineer. That's the path from POC to a credible small-scale
+production deployment (≤25 cameras, one region, one operator team).
+
+Item 7 is a larger rewrite that only pays off past 20–30 cameras.
+
+---
+
+## 7. Quick reference
 
 | I want to… | Command |
 |---|---|
-| Run the app and see it work | `make start` |
-| Iterate on Python or React with auto-reload | `make dev-hot-lite` |
-| Test real YouTube stream ingestion | `make dev-hot` |
-| Leave the app running in the background | `make start-bg` + `make logs` / `make stop` |
-| Run as a reviewer would (no Python env needed) | `make docker-up` |
-| Stop everything | Ctrl+C (foreground) / `make stop` (bg) / `make dev-stop` (dev-hot) |
+| Run the app (POC) | `make start` |
+| Stop it | Ctrl+C |
+| Run as a reviewer would (no Python env) | `make docker-up` |
+
+---
 
 ## 8. Access model reminder
 
-This codebase has **no authentication**. Every API route is open. It is
-a POC.
+This codebase has **no authentication**. Every API route is open. It
+is a POC.
 
 - Safe to expose on `localhost` or a VPN.
-- **Not** safe to expose on the public internet without putting an auth
-  layer (Cognito, API Gateway authorizer, or equivalent) in front.
-- The HMAC on edge-to-cloud ingest authenticates **devices**, not
-  humans. It does not protect the admin UI.
+- **Not** safe to expose on the public internet without Section 5.1
+  in place.
 
 Audit logging still runs; see [road_safety/compliance/](../road_safety/compliance/).

@@ -257,7 +257,7 @@ Stream → Detection → Tracking → Risk Classification → Event Emission →
 │     │                       audit.py                                            │
 │     │                       retention.py                                        │
 │     │                                                                           │
-│     └──→ static/index.html (SSE dashboard)                                     │
+│     └──→ frontend/dist/index.html (React SSE dashboard)                        │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼ HMAC-signed HTTPS

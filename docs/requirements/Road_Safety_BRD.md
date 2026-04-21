@@ -234,7 +234,7 @@ See `docs/requirements/Road_Safety_TRD.md` §9 for the endpoint contract and aut
 | `road_safety/compliance/audit.py` | Compliance audit trail | Shipped |
 | `tools/eval_detect.py` | Precision/recall evaluation harness | Shipped |
 | `tools/analyze.py` | Offline batch analysis | Shipped |
-| `frontend/src/*` + `static/*` fallback | Operator dashboard UI | Shipped |
+| `frontend/src/*` | Operator dashboard UI (React SPA) | Shipped |
 
 ### 4.2 Rollout Strategy
 

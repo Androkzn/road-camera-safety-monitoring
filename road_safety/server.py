@@ -947,11 +947,7 @@ app = FastAPI(title="Live Safety Review", lifespan=lifespan)
 
 THUMBS_DIR.mkdir(parents=True, exist_ok=True)
 
-_REACT_BUILD = (STATIC_DIR / "assets").exists()
-if _REACT_BUILD:
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
-else:
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
 def _find_event(event_id: str) -> dict | None:
     for ev in reversed(state.recent_events):
@@ -1450,15 +1446,13 @@ async def watchdog_delete_selected(request: Request):
 
 @app.get("/admin")
 def admin_page():
-    if _REACT_BUILD:
-        return FileResponse(STATIC_DIR / "index.html")
-    return FileResponse(STATIC_DIR / "admin.html")
+    return FileResponse(STATIC_DIR / "index.html")
+
 
 @app.get("/dashboard")
 def dashboard_page():
-    if _REACT_BUILD:
-        return FileResponse(STATIC_DIR / "index.html")
     return FileResponse(STATIC_DIR / "index.html")
+
 
 @app.get("/monitoring")
 def monitoring_page():

@@ -92,7 +92,7 @@ Belongs in this document:
 | Agent Executor | AI Agents | `road_safety/services/agents.py` | Tool-calling agent orchestration |
 | Eval Harness | Testing | `tools/eval_detect.py` | Precision/recall evaluation |
 | Batch Analyzer | Utility | `tools/analyze.py` | Offline batch analysis |
-| Dashboard | UI | `frontend/src/*` + `static/*` fallback | Operator dashboard (SSE-powered) |
+| Dashboard | UI | `frontend/src/*` | Operator dashboard (React SPA, SSE-powered) |
 
 ### File Structure
 
@@ -139,10 +139,7 @@ road-safety/
 │   ├── eval_detect.py        ← Detection evaluation harness
 │   └── eval_enrich.py        ← LLM enrichment evaluation
 ├── tests/                    ← pytest suite (135 tests)
-├── frontend/                 ← React/Vite dashboard source
-├── static/
-│   ├── index.html            ← Fallback operator dashboard UI
-│   └── admin.html            ← Fallback admin video + detection UI
+├── frontend/                 ← React/Vite dashboard source (built to frontend/dist/)
 ├── data/
 │   ├── corpus/               ← RAG knowledge base (markdown)
 │   └── test_suite/           ← Evaluation test clips + manifests
@@ -210,7 +207,7 @@ road-safety/
 | 4 | `context.py` | CREATE | Scene classification + risk threshold engine | §6.3 step 4-5 |
 | 5 | `quality.py` | CREATE | Perception quality monitor (luminance, sharpness, confidence) | §6.3 step 5 |
 | 6 | `server.py` | CREATE | FastAPI orchestrator: episode management, event emission, SSE, REST APIs | §6.3 steps 6-10 |
-| 7 | `frontend/src/*` + `static/index.html` fallback | CREATE | Operator dashboard with SSE event stream | §11.1 |
+| 7 | `frontend/src/*` | CREATE | Operator dashboard (React SPA) with SSE event stream | §11.1 |
 | 8 | `pyproject.toml` | CREATE | Python project metadata + dependencies | §3.3 |
 
 ### Implementation Details
