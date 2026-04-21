@@ -460,7 +460,7 @@ class StreamSlot:
             #   1. The polling endpoint (``/admin/frame/{id}``) is a separate
             #      viewer path that doesn't increment ``_mjpeg_subscribers``;
             #      dropping the cached frame here strands every poll-based
-            #      tile on the "WARMING UP" placeholder until the next
+            #      tile on the dark placeholder JPEG until the next
             #      perception tick (~0.5s) produces a fresh encode. With 6
             #      streams contending for the shared YOLO model the actual
             #      encode rate is closer to 0.5fps per slot, so the gap is

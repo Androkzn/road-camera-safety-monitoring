@@ -1,8 +1,8 @@
 /**
  * useSettingsApply — owns the Settings Console draft lifecycle.
  *
- * Composes on top of `useSettings`, `useSettingsTemplates`, `useImpact`,
- * and turns them into a single page-shaped state object.
+ * Composes on top of `useSettings` and `useImpact` and turns them into
+ * a single page-shaped state object.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -14,12 +14,10 @@ import { extractValidationErrors, isPrivacyConfirmRequired } from "../utils/vali
 import type { ApplyResultPayload, DraftValue } from "../types";
 
 import type { SettingsState } from "./useSettings";
-import type { SettingsTemplatesState } from "./useSettingsTemplates";
 import type { ImpactState } from "./useImpact";
 
 interface UseSettingsApplyArgs {
   settings: SettingsState;
-  templates: SettingsTemplatesState;
   impact: ImpactState;
   dialog: DialogApi;
 }
@@ -49,15 +47,12 @@ export interface UseSettingsApplyResult {
   applyResult: ApplyResultPayloadView | null;
   submitting: boolean;
   apply: () => Promise<void>;
-  rollback: () => Promise<void>;
-  applyTemplate: (id: string) => Promise<void>;
   discardDraft: () => void;
   dismissApplyResult: () => void;
 }
 
 export function useSettingsApply({
   settings,
-  templates,
   impact,
   dialog,
 }: UseSettingsApplyArgs): UseSettingsApplyResult {
@@ -183,93 +178,6 @@ export function useSettingsApply({
     await doApply();
   }, [doApply]);
 
-  const rollback = useCallback(async () => {
-    const ok = await dialog.confirm({
-      title: "Rollback to last-known-good",
-      message:
-        "Restore the snapshot that was active immediately before the most recent apply. " +
-        "Subscribers (LLM bucket, track-history rebuild, etc.) will re-fire.",
-      okLabel: "Rollback",
-      variant: "danger",
-    });
-    if (!ok) return;
-    setSubmitting(true);
-    try {
-      const res = await settings.rollback();
-      setWarnings(res.warnings || []);
-      setApplyResult({
-        kind: "rollback",
-        diff: {},
-        applied_now: res.applied_now || [],
-        pending_restart: res.pending_restart || [],
-        audit_id: res.audit_id ?? null,
-      });
-
-      console.info("[settings] rollback ok", {
-        applied_now: res.applied_now,
-        pending_restart: res.pending_restart,
-      });
-      setDraft({});
-      await impact.refresh();
-    } catch (exc) {
-      await dialog.alert({
-        title: "Rollback failed",
-        message: (exc as Error).message,
-        variant: "danger",
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  }, [settings, impact, dialog]);
-
-  const applyTemplate = useCallback(
-    async (id: string) => {
-      setSubmitting(true);
-      try {
-        const res = await templates.applyTemplate(id);
-        setWarnings(res.warnings || []);
-        setApplyResult({
-          kind: "template",
-          diff: {},
-          applied_now: res.applied_now || [],
-          pending_restart: res.pending_restart || [],
-          audit_id: res.audit_id ?? null,
-        });
-
-        console.info("[settings] template apply ok", {
-          template_id: id,
-          applied_now: res.applied_now,
-          pending_restart: res.pending_restart,
-        });
-        setDraft({});
-        await impact.refresh();
-      } catch (exc) {
-        if (isPrivacyConfirmRequired(exc)) {
-          const confirmed = await dialog.confirm({
-            title: "Template touches privacy setting",
-            message:
-              "This template changes a privacy-sensitive setting (ALPR_MODE). Confirm to proceed.",
-            okLabel: "Apply template",
-            variant: "warning",
-          });
-          if (confirmed) {
-            await templates.applyTemplate(id, { confirm_privacy_change: true });
-            await settings.refresh();
-          }
-          return;
-        }
-        await dialog.alert({
-          title: "Apply template failed",
-          message: (exc as Error).message,
-          variant: "danger",
-        });
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [templates, settings, impact, dialog],
-  );
-
   const discardDraft = useCallback(() => setDraft({}), []);
   const dismissApplyResult = useCallback(() => setApplyResult(null), []);
 
@@ -282,8 +190,6 @@ export function useSettingsApply({
     applyResult,
     submitting,
     apply,
-    rollback,
-    applyTemplate,
     discardDraft,
     dismissApplyResult,
   };

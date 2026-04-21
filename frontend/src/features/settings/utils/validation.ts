@@ -1,5 +1,5 @@
 /**
- * Pure error-shape predicates for the Settings apply / rollback flow.
+ * Pure error-shape predicates for the Settings apply flow.
  *
  * The settings router throws structured errors with `body.error` /
  * `body.errors` discriminators; these helpers narrow them to typed

@@ -1,5 +1,5 @@
 /**
- * SettingsHeader — page title + Discard / Rollback / Apply action bar.
+ * SettingsHeader — page title + Discard / Apply action bar.
  */
 import styles from "../SettingsPage.module.css";
 
@@ -7,7 +7,6 @@ interface SettingsHeaderProps {
   dirtyCount: number;
   submitting: boolean;
   onDiscard: () => void;
-  onRollback: () => void;
   onApply: () => void;
 }
 
@@ -15,7 +14,6 @@ export function SettingsHeader({
   dirtyCount,
   submitting,
   onDiscard,
-  onRollback,
   onApply,
 }: SettingsHeaderProps) {
   return (
@@ -29,14 +27,6 @@ export function SettingsHeader({
         </span>
         <button type="button" className={styles.btn} disabled={!dirtyCount} onClick={onDiscard}>
           Discard
-        </button>
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.btnDanger}`}
-          disabled={submitting}
-          onClick={onRollback}
-        >
-          Rollback to last-good
         </button>
         <button
           type="button"

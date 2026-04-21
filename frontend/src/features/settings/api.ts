@@ -56,11 +56,6 @@ export const settingsApi = {
       }),
     }),
 
-  rollback: () =>
-    apiFetch<ApplyResultPayload>("/api/settings/rollback", {
-      method: "POST",
-    }),
-
   captureBaseline: () =>
     apiFetch<{ ok: boolean; audit_id: string }>("/api/settings/baseline/capture", {
       method: "POST",

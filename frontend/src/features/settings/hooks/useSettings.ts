@@ -1,5 +1,5 @@
 /**
- * useSettings — fetches schema + effective values, exposes apply / rollback.
+ * useSettings — fetches schema + effective values, exposes apply.
  *
  * Endpoints are polled via TanStack Query with
  * `refetchIntervalInBackground: false` so background tabs stay quiet.
@@ -26,7 +26,6 @@ export interface SettingsState {
   error: string | null;
   refresh: () => Promise<void>;
   apply: (diff: Record<string, unknown>, opts?: ApplyOptions) => Promise<ApplyResultPayload>;
-  rollback: () => Promise<ApplyResultPayload>;
   validate: (diff: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -83,13 +82,6 @@ export function useSettings(): SettingsState {
     [effective?.revision_hash, effectiveQuery, qc],
   );
 
-  const rollback = useCallback(async () => {
-    const result = await settingsApi.rollback();
-    await effectiveQuery.refetch();
-    void qc.invalidateQueries({ queryKey: settingsQueryKeys.impact });
-    return result;
-  }, [effectiveQuery, qc]);
-
   return {
     schema: schemaQuery.data ?? null,
     effective,
@@ -97,7 +89,6 @@ export function useSettings(): SettingsState {
     error: message,
     refresh,
     apply,
-    rollback,
     validate,
   };
 }
