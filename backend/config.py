@@ -142,12 +142,12 @@ YT_COOKIES_FROM_BROWSER = os.getenv("ROAD_YT_COOKIES_FROM_BROWSER", "").strip()
 # Section: STREAM SETTINGS
 # ─────────────────────────────────────────────────────────────────────────────
 # Local-file fallback: when no operator has configured streams via
-# ``ROAD_STREAM_SOURCE`` or ``ROAD_STREAM_SOURCES``, we default to the
-# bundled MP4 clips so the admin UI has something to show out of the box.
-# The ``StreamReader`` loops local files, so the demo replays end-to-end
-# without operator action. Set either env var to point at real fixed
-# road-camera live streams (YouTube intersection cams, HLS URLs) for a
-# production deployment.
+# ``ROAD_STREAM_SOURCES``, we default to the bundled MP4 clips so the
+# admin UI has something to show out of the box. The ``StreamReader``
+# loops local files, so the demo replays end-to-end without operator
+# action. Set ``ROAD_STREAM_SOURCES`` to point at real fixed road-camera
+# live streams (YouTube intersection cams, HLS URLs) for a production
+# deployment.
 _DEMO_FRONT_CAM_FILE = PROJECT_ROOT / "resourses" / "Front Cam.mp4"
 _DEMO_REAR_CAM_FILE = PROJECT_ROOT / "resourses" / "Rear Cam.mp4"
 _DEMO_LEFT_CAM_FILE = PROJECT_ROOT / "resourses" / "Left Cam.mp4"
@@ -156,11 +156,13 @@ _DEMO_DASHCAM_SOURCE = str(_DEMO_DASHCAM_FILE) if _DEMO_DASHCAM_FILE.exists() el
 _DEMO_REAR_CAM_SOURCE = str(_DEMO_REAR_CAM_FILE) if _DEMO_REAR_CAM_FILE.exists() else ""
 _DEMO_LEFT_CAM_SOURCE = str(_DEMO_LEFT_CAM_FILE) if _DEMO_LEFT_CAM_FILE.exists() else ""
 
-# ``ROAD_STREAM_SOURCE`` — what the edge node captures from. Empty string
-# falls back to the local-file loop above. Accepted forms: HLS URL,
-# local file path, webcam index (e.g. ``0``), YouTube URL (live traffic
-# / intersection cams are the primary target).
-DEFAULT_STREAM_SOURCE = os.getenv("ROAD_STREAM_SOURCE", _DEMO_DASHCAM_SOURCE)
+# ``DEFAULT_STREAM_SOURCE`` — the bundled demo MP4 used as a fallback when
+# ``ROAD_STREAM_SOURCES`` is empty and as the source for the placeholder
+# slot kept alive after an operator removes every configured stream. It is
+# intentionally **not** env-configurable — the single source of truth for
+# live feeds is ``ROAD_STREAM_SOURCES``; deployments that want a different
+# fallback should ship a different demo MP4 in ``resourses/``.
+DEFAULT_STREAM_SOURCE = _DEMO_DASHCAM_SOURCE
 
 
 def _parse_stream_sources() -> list[dict[str, str]]:
@@ -172,10 +174,10 @@ def _parse_stream_sources() -> list[dict[str, str]]:
       - labelled: ``id|name|url`` (pipe-separated 3-tuple) — explicit ids
         let operators address streams stably from the API.
 
-    When unset, falls back to a single-element list built from
-    ``DEFAULT_STREAM_SOURCE`` (preserving the legacy single-stream
-    behaviour). When both env vars are empty, returns ``[]`` and the server
-    starts with no live sources — the operator can still add them via API.
+    When unset, falls back to the bundled demo MP4 loop in ``resourses/``
+    so the admin UI has something to show out of the box. If the demo
+    clips are also missing, returns ``[]`` and the server starts with no
+    live sources — the operator can still add them via API.
     """
     raw = os.getenv("ROAD_STREAM_SOURCES", "").strip()
     if not raw:

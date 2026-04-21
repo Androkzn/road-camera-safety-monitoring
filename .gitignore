@@ -58,6 +58,10 @@ htmlcov/
 # Runtime logs
 logs/
 
+# `make start` / `make stop` runtime artifacts
+.road_safety.pid
+.road_safety.log
+
 # Claude Code — personal overrides only; commit shared config (.claude/settings.json, rules/, skills/, hooks/)
 .claude/settings.local.json
 CLAUDE.local.md

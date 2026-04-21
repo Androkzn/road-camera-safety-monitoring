@@ -10,10 +10,14 @@
 /* eslint-disable */
 
 /**
- * Response model for GET /api/admin/health.
+ * Response body for GET /api/admin/health.
  *
- * Composite of every sub-health model above, plus a ``per_source`` map
- * so multi-camera dashboards can render per-slot tiles.
+ * Composite payload: one of every sub-health model above, plus a
+ * ``per_source`` map (keyed by source id) so multi-camera dashboards
+ * can render per-slot tiles. ``stage_timings`` is a nested dict —
+ * ``stage_timings["source_id"]["stage_name"]`` gives the
+ * ``StageTimingStatsModel`` for that stage on that source. Drives the
+ * entire admin page's dashboard tiles.
  */
 export interface HealthData {
   server: AdminServerHealth;
@@ -27,7 +31,11 @@ export interface HealthData {
 }
 
 /**
- * Which optional integrations (LLM, Slack, cloud) are configured + enabled.
+ * Optional-integrations sub-model: which LLM / Slack / cloud bits are on.
+ *
+ * Route: embedded as ``integrations`` in GET /api/admin/health. Drives
+ * the admin page's "integrations" tile and the cloud-publisher toggle
+ * state.
  */
 export interface AdminIntegrationsHealth {
   llm_configured: boolean;
@@ -38,7 +46,10 @@ export interface AdminIntegrationsHealth {
 }
 
 /**
- * Perception pipeline counters: frames, events, tracker + risk-model ids.
+ * Perception-pipeline sub-model: frame counts, event counts, model ids.
+ *
+ * Route: embedded as ``pipeline`` in GET /api/admin/health. Drives the
+ * admin page's "pipeline" tile.
  */
 export interface AdminPipelineHealth {
   frames_read: number;
@@ -51,7 +62,10 @@ export interface AdminPipelineHealth {
 }
 
 /**
- * Server process health: uptime, started-at, primary source.
+ * Server-process health sub-model: uptime, started-at, primary source.
+ *
+ * Route: embedded as ``server`` in GET /api/admin/health. Drives the
+ * admin page's "server" tile.
  */
 export interface AdminServerHealth {
   running: boolean;
@@ -63,23 +77,35 @@ export interface AdminServerHealth {
 }
 
 /**
- * Response model for POST /chat.
+ * Response body for POST /chat.
  *
- * Single field: the LLM-generated answer string. Used by the copilot
- * Q&A endpoint.
+ * Single-field wrapper around the LLM-generated answer string. The
+ * wrapper exists (instead of returning the raw string) so future
+ * fields — follow-up suggestions, citations — can be added without
+ * breaking the FE contract. Drives the copilot chat panel's reply
+ * bubble.
  */
 export interface ChatResponse {
   answer: string;
 }
 
 /**
- * One detection within a per-frame snapshot.
+ * One detection (bounding box + class) within a per-frame snapshot.
  *
- * Flat shape because the admin overlay draws dozens per frame and any
- * nested field access shows up in the profile. ``distance_axis`` is the
- * semantic axis of ``distance_m`` — forward/rear cameras report
- * ``"range"`` (longitudinal distance; TTC is meaningful); side cameras
- * report ``"lateral"`` (sideways distance; TTC is not).
+ * ``cls`` is the class string ("person", "car", …), ``conf`` is the
+ * detector's confidence (0.0-1.0), ``track_id`` is the multi-frame
+ * identity assigned by the tracker, and ``bbox`` is a four-number
+ * pixel-space box ``(x1, y1, x2, y2)``.
+ *
+ * Shape is flat on purpose: the admin overlay draws dozens of these
+ * per frame and any nested field access shows up in the profile.
+ * ``distance_axis`` tells the UI how to interpret ``distance_m`` —
+ * forward/rear cameras report ``"range"`` (longitudinal distance; TTC
+ * is meaningful); side cameras report ``"lateral"`` (sideways
+ * distance; TTC is not).
+ *
+ * Route: embedded in DetectionSnapshotModel; reaches the UI via the
+ * admin SSE stream.
  */
 export interface DetectionObject {
   cls: string;
@@ -93,11 +119,19 @@ export interface DetectionObject {
 /**
  * One per-frame snapshot broadcast over the admin SSE stream.
  *
- * Produced by the perception thread inside ``on_frame.py``; consumed by
- * the admin grid's overlay renderer. ``playback_pos_sec`` /
+ * Describes everything the perception pipeline saw in a single frame:
+ * a wall-clock timestamp ``ts``, counts of persons / vehicles /
+ * interactions, and the full list of ``DetectionObjectModel`` entries
+ * with their bounding boxes.
+ *
+ * Produced by the perception thread inside ``on_frame.py``; consumed
+ * by the admin grid's overlay renderer. ``playback_pos_sec`` /
  * ``playback_duration_sec`` are zero for live feeds and populated for
  * looped local files so the map overlay marker stays locked to the
  * frame the user is actually watching.
+ *
+ * Route: pushed over the admin SSE stream (no REST endpoint returns it
+ * directly).
  */
 export interface DetectionSnapshot {
   ts: number;
@@ -115,9 +149,15 @@ export interface DetectionSnapshot {
 /**
  * Rolling precision report from the operator-feedback drift monitor.
  *
- * Tracks whether the ratio of labelled true-vs-false positives is
- * drifting — a drop in precision is often the first signal that a
- * scene or lens change has invalidated the current thresholds.
+ * "Drift" = when the detector's real-world accuracy moves away from
+ * what was expected at deploy time. Reports how many true vs false
+ * positives the last ``window_size`` labelled events had, the
+ * resulting ``precision`` (0.0-1.0), and a trend string like "up" /
+ * "down" / "flat". ``alert_triggered`` flips to ``True`` when
+ * precision drops below a configured floor.
+ *
+ * Route: returned by GET /api/drift. Drives the drift banner on the
+ * dashboard.
  */
 export interface DriftReport {
   window_size: number;
@@ -131,9 +171,13 @@ export interface DriftReport {
 /**
  * Ego-motion summary attached to events and health endpoints.
  *
- * Ego-motion = "how fast is our own camera platform moving?" — used to
- * distinguish a rapidly-approaching obstacle from the scene simply
- * panning past the camera.
+ * "Ego-motion" = how fast OUR OWN camera platform is moving. It lets
+ * the system distinguish a rapidly-approaching obstacle from the scene
+ * simply panning past a stationary camera. ``speed_proxy_mps`` is the
+ * estimated speed in metres per second; ``confidence`` is 0.0-1.0.
+ *
+ * Routes: embedded in EventModel, GET /api/live/scene, and
+ * GET /api/admin/health.
  */
 export interface EgoFlow {
   speed_proxy_mps?: number;
@@ -143,11 +187,19 @@ export interface EgoFlow {
 /**
  * LLM / ALPR post-processing output attached to a safety event.
  *
+ * "Enrichment" = extra attributes a language model or the ALPR
+ * (Automatic License Plate Recognition) pass adds AFTER the perception
+ * pipeline has produced an event: readability hint, vehicle colour,
+ * vehicle type, and the one-way hash of the plate text.
+ *
  * SECURITY INVARIANT: ``plate_text`` / ``plate_state`` are deliberately
  * NOT fields on this model. The backend strips them at ingest in
  * ``enrich_event()``; only the hashed plate ever reaches the frontend.
  * Adding a plate-text field here would defeat the in-memory redaction
  * and let raw plates land in every SSE subscriber's buffer.
+ *
+ * Route: embedded in EventModel (so present on every event-returning
+ * endpoint).
  */
 export interface Enrichment {
   plate_hash?: string;
@@ -159,9 +211,16 @@ export interface Enrichment {
 /**
  * Canonical safety-event contract shared across list/detail/chat contexts.
  *
- * A safety event is what the perception pipeline emits when a near-miss
- * (or similar) is detected. Every list-of-events endpoint, event-detail
- * endpoint, and the copilot chat backend all agree on this shape.
+ * A "safety event" is what the perception pipeline emits when it
+ * detects something notable — typically a near-miss. Every field that
+ * can be ``None`` (``| None = None``) is optional; the non-optional
+ * fields (``event_id``, ``event_type``, ``risk_level``) are the only
+ * guaranteed ones.
+ *
+ * Routes: returned by GET /api/live/events, GET /api/events,
+ * GET /api/events/{event_id}; embedded in the copilot chat responses
+ * and the SSE event stream. Drives the EventCard, EventDialog, and
+ * the clip-player on every page that lists events.
  */
 export interface SafetyEvent {
   event_id: string;
@@ -201,10 +260,12 @@ export interface SafetyEvent {
 }
 
 /**
- * Response model for GET /api/live/sources.
+ * Response body for GET /api/live/sources.
  *
- * Wraps the full source list with a ``primary_id`` pointer so the UI
- * knows which slot to highlight as "main".
+ * Wraps the full source list (one ``SourceStatusModel`` per configured
+ * camera / file) with a ``primary_id`` pointer so the UI knows which
+ * slot to highlight as "main". Drives the source selector dropdown and
+ * the multi-camera grid.
  */
 export interface LiveSourcesResponse {
   primary_id: string;
@@ -212,11 +273,13 @@ export interface LiveSourcesResponse {
 }
 
 /**
- * Public live status response contract.
+ * Response body for GET /api/live/status.
  *
  * Dense summary used by the operator UI header: is the pipeline
- * running? how many frames? which integrations configured? which
- * sources live? Returned by GET /api/live/status.
+ * ``running``? how many frames has it seen? which integrations are
+ * configured (``llm_configured``, ``slack_configured``)? which sources
+ * are live (the ``sources`` array)? Drives the TopBar uptime widget
+ * and the dashboard's running/not-running indicator.
  */
 export interface LiveStatus {
   source: string;
@@ -243,12 +306,16 @@ export interface LiveStatus {
 /**
  * SSE message envelope for a perception-state update.
  *
- * The ``/stream/events`` SSE channel multiplexes two payload types:
- * ``SafetyEvent`` (a near-miss) and this one (a perception-quality
- * heartbeat). The frontend discriminates on ``_meta == "perception_state"``
- * — so we model it here as a ``Literal`` field to keep that contract
- * visible in the generated TS instead of living as an undeclared
- * string on the event object.
+ * SSE = Server-Sent Events: a long-lived HTTP stream the server pushes
+ * JSON lines down. The ``/stream/events`` SSE channel multiplexes two
+ * payload types: ``EventModel`` (a near-miss) and this one (a
+ * perception-quality heartbeat). The frontend picks which type a message
+ * is by checking ``_meta == "perception_state"``, so we declare ``meta``
+ * as a ``Literal`` — a type that allows exactly one string value — to
+ * keep that discriminator visible in the generated TS.
+ *
+ * Route: emitted over GET /stream/events. Consumed by the SSE client
+ * hook that feeds the dashboard's live panels.
  */
 export interface PerceptionStateMessage {
   _meta: "perception_state";
@@ -262,12 +329,14 @@ export interface PerceptionStateMessage {
 }
 
 /**
- * Live perception-quality summary.
+ * Live perception-quality summary (how well the camera is seeing right now).
  *
- * Describes *how well* the camera is seeing right now: luminance,
- * sharpness, running average of detection confidence, and a short
- * human-readable reason string. Attached to live/status and admin
- * health responses.
+ * Carries luminance (how bright the image is), sharpness (how in-focus),
+ * a running average of detection confidence, and a short human-readable
+ * ``reason`` string.
+ *
+ * Routes: embedded in GET /api/live/status and GET /api/admin/health.
+ * Drives the "perception health" dot on the operator UI header.
  */
 export interface PerceptionState {
   state: string;
@@ -282,11 +351,18 @@ export interface PerceptionState {
 /**
  * Scene classifier context attached to events and health endpoints.
  *
- * Carries the scene label (urban / highway / parking), its confidence,
- * and an ego-speed proxy derived from optical flow. The optional
- * ``pedestrian_rate_per_min`` / ``vehicle_rate_per_min`` / ``thresholds``
- * fields are populated by ``/api/live/scene`` only — on emitted events
- * we ship the trimmed 4-field subset.
+ * Tells the UI what *kind* of scene the camera is looking at: the
+ * ``label`` (``"urban"`` / ``"highway"`` / ``"parking"``), the
+ * classifier's ``confidence`` (0.0-1.0), a rough estimate of how fast
+ * the camera platform itself is moving (``speed_proxy_mps``, metres per
+ * second), and optional per-minute rates of people and vehicles seen.
+ *
+ * The extra ``pedestrian_rate_per_min`` / ``vehicle_rate_per_min`` /
+ * ``thresholds`` fields are only populated on GET /api/live/scene; on
+ * events we ship a trimmed 4-field subset to keep event payloads small.
+ *
+ * Routes: GET /api/live/scene, embedded in EventModel, embedded in
+ * GET /api/admin/health.
  */
 export interface SceneContext {
   label: string;
@@ -301,11 +377,14 @@ export interface SceneContext {
 /**
  * Adaptive risk thresholds rescaled per scene label.
  *
- * Emitted alongside the scene context by ``/api/live/scene`` so the UI
- * can surface *why* the current near-miss gates are where they are
- * (urban thresholds are tighter than highway, parking is tighter than
- * urban). Every threshold value is in its natural unit — seconds for
- * TTC, metres for distance — so the UI can render them directly.
+ * "Threshold" = the cut-off number above which the system flags a
+ * near-miss. These four values are the current cut-offs for time-to-
+ * collision (``ttc_*_sec``, in seconds) and distance (``dist_*_m``, in
+ * metres). Urban scenes use tighter numbers than highway; parking is
+ * tighter still.
+ *
+ * Route: embedded in the response of GET /api/live/scene. Drives the
+ * "why this threshold" tooltip on the dashboard's scene banner.
  */
 export interface SceneThresholds {
   ttc_high_sec: number;
@@ -315,10 +394,15 @@ export interface SceneThresholds {
 }
 
 /**
- * Per-source stream status used by live source/status endpoints.
+ * Per-source stream status (one object per configured camera / video file).
  *
- * One of these is returned per configured camera/video-file slot —
- * frame counters, playback position, detection toggle, last error, etc.
+ * Reports whether that source is currently running, how many frames it
+ * has read vs processed, its uptime, playback position (for file
+ * sources), the last error it saw, and whether detection is enabled.
+ *
+ * Routes: returned as an element of the ``sources`` array in
+ * GET /api/live/sources and GET /api/live/status. Drives the per-slot
+ * tiles on the dashboard's multi-camera grid.
  */
 export interface LiveSourceStatus {
   id: string;
@@ -340,10 +424,16 @@ export interface LiveSourceStatus {
 }
 
 /**
- * Latency stats for one pipeline stage.
+ * Latency stats for one pipeline stage (values in milliseconds).
  *
- * p50 = median, p95 = 95th-percentile, samples = how many datapoints
- * the percentiles are computed over. ``None`` when no samples yet.
+ * ``p50_ms`` is the median — the stage took less than this on half
+ * the frames; ``p95_ms`` is the 95th-percentile — it took less than
+ * this on 95% of frames (a "typical worst case"); ``samples`` is how
+ * many datapoints the percentiles are computed over. Fields are
+ * ``None`` until the stage has produced enough samples to compute
+ * them.
+ *
+ * Route: embedded in ``stage_timings`` on GET /api/admin/health.
  */
 export interface StageTimingStats {
   p50_ms?: number;
@@ -353,6 +443,15 @@ export interface StageTimingStats {
 
 /**
  * One pytest node result surfaced through the operator UI.
+ *
+ * A "node" is pytest's term for a single test function. ``outcome`` is
+ * a closed set — exactly one of ``"passed"`` / ``"failed"`` /
+ * ``"error"`` / ``"skipped"`` (declared with ``Literal`` so TS gets a
+ * union of those four strings). ``duration_ms`` is how long the test
+ * took; ``message`` carries the failure/error text when the test did
+ * not pass.
+ *
+ * Route: embedded in ``TestStatusModel.results``.
  */
 export interface TestResult {
   name: string;
@@ -364,10 +463,13 @@ export interface TestResult {
 }
 
 /**
- * Response model for GET /api/tests/status.
+ * Response body for GET /api/tests/status.
  *
- * Rolled-up counts + the full per-node result list. ``status`` drives
- * the run/stop button state in the operator UI.
+ * Rolled-up counts (``total`` / ``passed`` / ``failed`` / ``skipped``)
+ * plus the full per-node ``results`` list. ``status`` is one of
+ * ``"idle"`` / ``"running"`` / ``"passed"`` / ``"failed"`` and drives
+ * the run/stop button state in the operator UI. ``progress`` is a
+ * 0.0-1.0 fraction driving the progress bar.
  */
 export interface TestStatus {
   status: "idle" | "running" | "passed" | "failed";
@@ -383,10 +485,13 @@ export interface TestStatus {
 /**
  * One row of evidence attached to a watchdog finding.
  *
- * Roughly mirrors a log-line-with-threshold: label ("frame drop rate"),
- * value ("12%"), optional threshold ("<5%"), and optional status tag
- * ("failing" / "warning"). The watchdog groups these under each finding
- * so the UI can render a compact evidence table rather than a prose blob.
+ * Roughly mirrors a log-line-with-threshold. Example:
+ * ``label="frame drop rate"``, ``value="12%"``, ``threshold="<5%"``,
+ * ``status="failing"``. The watchdog groups these under each finding
+ * so the UI can render a compact evidence table rather than a prose
+ * blob.
+ *
+ * Route: embedded in ``WatchdogFindingModel.evidence``.
  */
 export interface WatchdogEvidence {
   label: string;
@@ -398,11 +503,21 @@ export interface WatchdogEvidence {
 /**
  * One emitted watchdog finding — operator-facing incident summary.
  *
- * The watchdog produces a queue of fingerprinted incidents (dedup key is
- * ``fingerprint``). Each finding carries its severity, category,
- * human-readable title/detail, suggested next step, and enough context
- * (evidence, investigation_steps, debug_commands) for an on-call to act
- * without round-tripping through the source code.
+ * "Watchdog" = a background task that periodically checks the system
+ * for problems and emits a record when it finds one. Each finding
+ * carries its ``severity`` (error / warning / info), ``category``,
+ * human-readable ``title`` / ``detail``, a suggested next step, and
+ * enough context (``evidence``, ``investigation_steps``,
+ * ``debug_commands``) for an on-call engineer to act without
+ * round-tripping through the source code.
+ *
+ * The ``fingerprint`` field is the dedup key: two findings with the
+ * same fingerprint are the same incident recurring, not two separate
+ * incidents.
+ *
+ * Route: returned by GET /api/watchdog/findings; embedded in
+ * ``WatchdogTopIncidentModel.latest``. Drives the monitoring page's
+ * incident cards.
  */
 export interface WatchdogFinding {
   severity: "error" | "warning" | "info";
@@ -426,10 +541,15 @@ export interface WatchdogFinding {
 }
 
 /**
- * Response model for GET /api/watchdog/status.
+ * Response body for GET /api/watchdog/status.
  *
  * Counters + grouped summary so the frontend can render the "incident
- * queue" overview (as opposed to a log-tail of every finding ever).
+ * queue" overview rather than a log-tail of every finding ever. The
+ * ``by_severity`` / ``by_category`` dicts are bucket counts; the
+ * ``top_incidents`` array is the current dashboard-worthy shortlist.
+ *
+ * Drives the monitoring page's header strip and the sidebar
+ * severity/category filters.
  */
 export interface WatchdogStatus {
   enabled: boolean;
@@ -448,6 +568,12 @@ export interface WatchdogStatus {
 
 /**
  * Top-N incident summary embedded in the watchdog status payload.
+ *
+ * One per repeating incident: carries the dedup ``fingerprint``, the
+ * number of times it has fired (``count``), when it first and last
+ * fired, and the latest finding verbatim.
+ *
+ * Route: embedded as an element of ``WatchdogStatusModel.top_incidents``.
  */
 export interface WatchdogTopIncident {
   fingerprint: string;
