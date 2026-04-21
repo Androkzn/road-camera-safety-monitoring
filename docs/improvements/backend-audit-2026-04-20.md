@@ -8,16 +8,13 @@
 
 The backend has strong domain logic and many good operational patterns, but maintainability and scale are constrained by a very large `server.py` and a few high-impact performance/correctness gaps in multi-source mode.
 
-**Auth-boundary addendum (post-review):** An earlier version of this audit under-weighted the auth surface. Multiple **control** and **media** endpoints carry explicit `AUTH: public` docstrings ([server.py:3373](backend/server.py#L3373), [:3592](backend/server.py#L3592), [:3619](backend/server.py#L3619), [:3680](backend/server.py#L3680), [:3801](backend/server.py#L3801), [:3899](backend/server.py#L3899), [:3947](backend/server.py#L3947)). The project relies on "network-gated operator UI" as its security model - that is a deployment assumption, not a code property. If the perimeter is weak, an attacker can start/stop sources, add arbitrary stream URLs (SSRF vector), toggle the validator, trigger test runs, and stream live camera feeds. See BE-D12 - BE-D15 below for details. **Treat these as pre-production blockers, not refactor items.**
-
 Top priorities:
 
-1. **Close the auth boundary** on control + media + clip + add-source endpoints (BE-D12..D15).
-2. Make event/perception metadata truly source-aware (avoid primary-slot leakage).
-3. Split `server.py` into focused modules.
-4. Remove unnecessary file and network overhead in watchdog/egress integrations.
-5. Add stronger typed API contracts for core routes.
-6. Add explicit model performance instrumentation and inference scheduling strategy.
+1. Make event/perception metadata truly source-aware (avoid primary-slot leakage).
+2. Split `server.py` into focused modules.
+3. Remove unnecessary file and network overhead in watchdog/egress integrations.
+4. Add stronger typed API contracts for core routes.
+5. Add explicit model performance instrumentation and inference scheduling strategy.
 
 ## 1.1 Current State Update (refresh)
 
@@ -28,7 +25,8 @@ This section reflects the **current repository state** after post-audit implemen
 | Decision | Status | Evidence in repo |
 |---|---|---|
 | BE-D2.A/B (`server.py` decomposition + runtime extraction) | Done | `backend/server.py` is now a thin composition root (~119 LOC); runtime/pipeline logic moved into `backend/startup.py`, `backend/state.py`, and `backend/perception/*`. |
-| BE-D12/13/14/15 auth + media + clip + SSRF hardening | Done | Control/media routes call auth guards; signed media URL flow is in `backend/security/signing.py`; clip endpoint uses auth + rate-limit in `backend/api/routers/live.py`; SSRF validator is enforced in `backend/api/routers/sources.py` via `backend/security/ssrf.py`. |
+| BE-D15 SSRF hardening on `/api/live/sources` | Done | SSRF validator is enforced in `backend/api/routers/sources.py` via `backend/security/ssrf.py`. |
+| BE-D14 clip endpoint rate limit + quantized params | Done | Clip endpoint uses per-IP rate-limit in `backend/api/routers/live.py`. |
 | BE-D6 Phase 1 typed API contracts | Done | `response_model=` is present on the target routes (`/api/live/status`, `/api/admin/health`, `/api/live/sources`, `/api/events/{id}`, `/chat`) with shared models in `backend/api/models.py`. |
 | BE-D8 snapshot/atomic read direction | Done (Phase A/B intent) | `LiveState.snapshot()` and recent-event access helpers exist in `backend/state.py`; routes consume frozen snapshots/helpers instead of direct list mutation reads. |
 | BE-D7 privacy primitive in compliance package | Done | Plate scrub helper now lives in `backend/compliance/privacy.py` and is imported from `backend/services/llm.py`. |
@@ -51,7 +49,7 @@ This section reflects the **current repository state** after post-audit implemen
 
 **Sprint 0 (pre-production blockers — see §8 for tooling prerequisites):**
 
-1. **Auth boundary.** Close the unauthenticated mutation surface (BE-D12), SSRF risk (BE-D15), clip DoS (BE-D14), and unauthenticated media streams (BE-D13). These ship **before** any refactor; every other item on this list assumes the trust boundary holds.
+1. **Network-level guards.** Close SSRF risk (BE-D15) and clip DoS (BE-D14). These ship **before** any refactor.
 
 **Sprint 1+ (normal engineering work):**
 
@@ -177,9 +175,7 @@ Recommendation:
 
 | ID | Severity | Finding | Evidence |
 |---|---|---|---|
-| **BE-12** | **Critical** | **Control endpoints unauthenticated** (start/stop slots, add source, validator toggle, test run) | `server.py:3373,3680,3801,3947` |
-| **BE-13** | **Critical** | **Live media/detection streams unauthenticated** (MJPEG, single-frame, admin-detections SSE) | `server.py:3592,3619,3899` |
-| **BE-14** | **High** | **Expensive clip rendering endpoint public + DoS-able via cache miss** | `server.py:2974,3000,3043` |
+| **BE-14** | **High** | **Expensive clip rendering endpoint DoS-able via cache miss** | `server.py:2974,3000,3043` |
 | **BE-15** | **High** | **SSRF-style risk on `/api/live/sources` (arbitrary URL fetched by edge host)** | `server.py:3801,3827`; `server.py:1313`; `stream.py:154` |
 | BE-1 | High | Primary-slot leakage in event/perception metadata under multi-source | `server.py:625-746`, `2094-2098`, `2777-2815`, `3279-3338` |
 | BE-2 | High | `server.py` monolith creates high change risk and low velocity | `server.py` (3,972 LOC) |

@@ -43,7 +43,6 @@ export interface ApplyResultPayload {
   revision_hash_before: string;
   revision_hash_after: string;
   revision_no: number;
-  audit_id?: string | null;
 }
 
 export interface ValidationErrorBody {

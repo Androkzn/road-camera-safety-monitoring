@@ -11,7 +11,6 @@ export const POLL_INTERVAL_MS = {
   liveSources: 5_000,
   liveSourcesSettings: 15_000,
   settingsEffective: 15_000,
-  settingsImpact: 5_000,
   dashboardScene: 7_000,
   dashboardDrift: 30_000,
   validator: 5_000,

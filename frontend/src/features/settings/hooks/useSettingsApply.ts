@@ -107,13 +107,11 @@ export function useSettingsApply({
           diff: beforeAfter,
           applied_now: res.applied_now || [],
           pending_restart: res.pending_restart || [],
-          audit_id: res.audit_id ?? null,
         });
 
         console.info("[settings] apply ok", {
           applied_now: res.applied_now,
           pending_restart: res.pending_restart,
-          audit_id: res.audit_id,
           warnings: res.warnings,
         });
         setDraft({});
@@ -194,7 +192,6 @@ export function useSettingsApply({
         diff: {},
         applied_now: res.applied_now || [],
         pending_restart: res.pending_restart || [],
-        audit_id: res.audit_id ?? null,
       });
 
       console.info("[settings] rollback ok", {

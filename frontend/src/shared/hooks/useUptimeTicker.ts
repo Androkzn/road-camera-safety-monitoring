@@ -2,9 +2,9 @@
  * useUptimeTicker — seconds-granularity re-render trigger for "live
  * uptime" / "X seconds ago" labels.
  *
- * Replaces the 4 duplicated `setInterval(…, 1000)` blocks identified in
- * the frontend audit (AdminPage:86, DashboardPage:102,
- * SelectedStreamHeader:55, ImpactCard:36). Each of those sites spins up
+ * Replaces duplicated `setInterval(…, 1000)` blocks identified in the
+ * frontend audit (AdminPage, DashboardPage, SelectedStreamHeader, and
+ * similar "live uptime" labels). Each site spins up
  * its own one-second heartbeat to keep an elapsed counter fresh; this
  * hook centralises that pattern.
  *

@@ -4,9 +4,8 @@ This module is the **single source of truth** for the v1 Settings Console
 schema. It defines:
 
 * :data:`SCHEMA_VERSION` — bump when the registry's *shape* changes
-  (new keys, removed keys, type changes). The number is written into every
-  template payload so older saved templates can be migrated forward at
-  apply time.
+  (new keys, removed keys, type changes). The number is stored with each
+  persisted snapshot so older payloads can be migrated forward at apply time.
 * :class:`SettingSpec` — metadata describing one tunable knob.
 * :data:`SETTINGS_SPEC` — the curated list of tunables shipped in v1.
 * :func:`defaults` — `{key: default_value}` dict used to seed
@@ -60,7 +59,7 @@ class SettingSpec:
             snapshot. Convention: SCREAMING_SNAKE_CASE matching the original
             module-level constant where possible.
         default: Built-in default. Used at boot to seed the store and as
-            the value the synthetic ``tpl_default`` template returns.
+            the fallback when a snapshot omits this key.
         type: One of ``"float"``, ``"int"``, ``"bool"``, ``"str"``,
             ``"enum"``. Drives client-side rendering and server-side coercion.
         category: UI grouping label (``detection``, ``risk-tier``,

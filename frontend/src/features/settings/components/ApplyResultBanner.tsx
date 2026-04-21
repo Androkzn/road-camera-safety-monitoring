@@ -12,7 +12,6 @@ export interface ApplyResultPayloadView {
   diff: Record<string, { before: DraftValue; after: DraftValue }>;
   applied_now: string[];
   pending_restart: string[];
-  audit_id?: string | null;
 }
 
 interface ApplyResultBannerProps {
@@ -55,13 +54,6 @@ export function ApplyResultBanner({ result, onDismiss }: ApplyResultBannerProps)
               </span>
             ))}
             .
-          </>
-        )}
-        {result.audit_id && (
-          <>
-            {" "}
-            Impact session <code>{result.audit_id.slice(0, 18)}</code> started — watch the card on
-            the right.
           </>
         )}
       </div>

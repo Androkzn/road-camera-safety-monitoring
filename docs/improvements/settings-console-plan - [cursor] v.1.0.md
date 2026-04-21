@@ -388,7 +388,7 @@ This fits the repo's existing "LLM is enrichment, not critical path" rule and av
 ### 11. Testing and reliability gates
 - Unit tests for schema validation, range guards, and template revisioning.
 - Integration tests for apply/rollback atomicity and no-gate-regression behavior.
-- API tests for auth enforcement, audit writes, and contract shapes.
+- API tests for audit writes and contract shapes.
 - End-to-end smoke test: capture baseline -> apply template -> observe impact -> rollback.
 - Fault injection tests: invalid payload, storage write failure, drift endpoint unavailable.
 
@@ -460,21 +460,20 @@ Initial charts should focus on operational signal, not dashboard decoration:
 
 ## Delivery Phases
 ### Phase S0 (Prerequisite Hardening — must merge first)
-- Lock down `DELETE /api/watchdog/findings` and `POST /api/watchdog/findings/delete` behind `require_bearer_token` (or document accepted risk in writing).
 - Add concurrency safety around `state.recent_events` append/read (small lock or thread-safe deque) so the impact engine can sample without races.
 - Fix the stale `TopBar.tsx` file-header comment that claims it is mounted in `App.tsx`.
 
 ### Phase 0 (Contract + Safety Foundations)
 - **minimal knob inventory** (names, types, `hot_apply` / `warm_reload` / `restart_required` / `read_only`) — enough to freeze `EffectiveSettings` v1 field names
 - finalize settings schema and versioning policy, including **cross-field validators** and the **migration map** type
-- define auth tiers and API compatibility behavior; specify SSE **ticket-exchange** flow
+- define API compatibility behavior
 - implement dry-run validation endpoint (range + cross-field + migration-aware)
 - implement atomic apply + rollback core primitives with **subscriber isolation** and `If-Match` lost-update protection
 - pick storage (SQLite at `data/settings.db`) and ship the `migrations` table
 
 ### Phase 1
 - complete tunable backend knobs inventory and map into schema
-- create settings schemas, storage, and admin APIs
+- create settings schemas, storage, and APIs
 - add Settings route and page shell
 - show live video plus current effective settings
 
@@ -492,11 +491,10 @@ Initial charts should focus on operational signal, not dashboard decoration:
 ### Phase 4 (Hardening)
 - run full regression suite and long-run soak
 - finalize alerting for apply failures and low-comparability windows
-- produce runbook for operations and incident response (token bootstrap, restart-required workflow, privacy-mode flips, conflict resolution, retention cap behavior)
+- produce runbook for operations and incident response (restart-required workflow, privacy-mode flips, conflict resolution, retention cap behavior)
 - verify route-split bundle: `/`, `/dashboard`, `/monitoring` do not pull in the chart library
 
 ## Key Files To Change
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/security.py) (reuse `require_bearer_token` for new routes)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/server.py)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/config.py)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/core/detection.py)
@@ -504,6 +502,6 @@ Initial charts should focus on operational signal, not dashboard decoration:
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/backend/services/drift.py)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/App.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/App.tsx)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/layout/TopBar.tsx`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/components/layout/TopBar.tsx)
-- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts) (only if adding reviewed admin wrappers; prefer new `settingsApi` module)
+- [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/lib/api.ts) (prefer new `settingsApi` module)
 - [`/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/types.ts`](/Users/andreitekhtelev/Desktop/fleet-safety-demo/frontend/src/types.ts)
-- new backend settings module(s), new `SettingsPage` UI module(s), and **new** authenticated client module for settings HTTP calls
+- new backend settings module(s), new `SettingsPage` UI module(s), and new client module for settings HTTP calls

@@ -220,7 +220,6 @@ def mount(app: FastAPI) -> None:
         except SettingsValidationError as exc:
             return _validation_response(exc.errors)
 
-        audit_id: str | None = None
         # Stamp the cooldown clock only when state actually moved. A no-op
         # apply (empty diff, or diff that resolves to the current values)
         # produces no subscriber storm and shouldn't lock the operator out.
@@ -233,7 +232,6 @@ def mount(app: FastAPI) -> None:
             result="success",
             warnings=result.warnings,
             payload={"diff": body.diff, "applied_now": result.applied_now},
-            audit_id=audit_id,
         )
         audit.log(
             "settings.apply",
@@ -245,13 +243,10 @@ def mount(app: FastAPI) -> None:
                 "applied_now": result.applied_now,
                 "pending_restart": result.pending_restart,
                 "warnings": result.warnings,
-                "audit_id": audit_id,
                 "note": body.note,
             },
         )
-        payload = _result_payload(result)
-        payload["audit_id"] = audit_id
-        return payload
+        return _result_payload(result)
 
     @app.post("/api/settings/rollback")
     async def rollback(request: Request):
@@ -261,7 +256,6 @@ def mount(app: FastAPI) -> None:
         # shouldn't count toward the budget).
         _check_apply_cooldown(actor)
         result = STORE.rollback_to_last_good(actor=actor)
-        audit_id: str | None = None
         if result.applied_now or result.pending_restart:
             _record_apply_attempt(actor)
         settings_db.insert_apply_log(
@@ -271,15 +265,12 @@ def mount(app: FastAPI) -> None:
             result="rollback",
             warnings=result.warnings,
             payload={"applied_now": result.applied_now},
-            audit_id=audit_id,
         )
         audit.log(
             "settings.rollback",
             f"settings:{result.revision_hash_after}",
             actor=actor,
             outcome="success",
-            detail={"warnings": result.warnings, "audit_id": audit_id},
+            detail={"warnings": result.warnings},
         )
-        payload = _result_payload(result)
-        payload["audit_id"] = audit_id
-        return payload
+        return _result_payload(result)
