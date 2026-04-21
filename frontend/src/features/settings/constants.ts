@@ -183,10 +183,10 @@ export const TUNABLE_HELP: Record<string, TunableHelp> = {
   MAX_RECENT_EVENTS: {
     what: "Capacity of the in-memory ring buffer of recent events.",
     affects:
-      "How much history the dashboard, agents, and watchdog can see without going to disk.",
-    increase: "Longer event history available to the UI and diagnostics. More RAM (linearly).",
+      "How much history the dashboard, agents and impact engine can see without going to disk.",
+    increase: "Longer event history available to UI and impact comparisons. More RAM (linearly).",
     decrease:
-      "Smaller footprint. Less history for agents, watchdog, and the SSE replay-on-connect.",
+      "Smaller footprint. Less history for the impact engine, agents and the SSE replay-on-connect.",
   },
   TARGET_FPS: {
     what: "Perception-loop tick rate. Drives how often YOLO runs per stream second.",

@@ -165,6 +165,10 @@ async def lifespan(app: FastAPI):
         ["TARGET_FPS"], _on_target_fps_change, name="restart_slots_for_fps"
     )
 
+    if state.ops_sampler is None:
+        raise RuntimeError("ops sampler not configured before startup")
+    state.ops_sampler.start()
+
     start_digest_schedulers(state.loop)
     log.info("digest schedulers started")
 
@@ -310,6 +314,11 @@ async def lifespan(app: FastAPI):
                 slot.reader.stop()
             except Exception as exc:
                 log.warning("slot %s stop failed: %s", slot.source_id, exc)
+    try:
+        if state.ops_sampler is not None:
+            state.ops_sampler.stop()
+    except Exception as exc:
+        log.warning("ops_sampler stop failed: %s", exc)
     if edge_task is not None:
         edge_task.cancel()
     retention_task.cancel()
