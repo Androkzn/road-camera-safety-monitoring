@@ -1,16 +1,79 @@
-"""Edge-side event publisher.
+"""edge_publisher.py — reliable, signed upload of events from edge device to cloud.
 
-Async, append-only JSONL queue + batched HMAC-signed HTTPS delivery to a cloud
-receiver. Designed to be imported by server.py without forcing network config:
-if ROAD_CLOUD_ENDPOINT or ROAD_CLOUD_HMAC_SECRET is missing, the publisher
-silently disables itself (``enabled() -> False``) and ``enqueue`` is a no-op
-append for audit only. ``flush_once`` short-circuits.
+What it does:
+    Gives the backend two simple operations: "enqueue this event for
+    later upload" and "flush a batch to the cloud now". Events are first
+    appended to a local file (``data/outbound_queue.jsonl``) so nothing
+    is lost if the network is down, then later sent in batches of up to
+    20 over HTTPS. Each batch is signed with HMAC-SHA256 so the cloud
+    receiver can verify it came from this device and wasn't tampered
+    with in transit. If the endpoint or shared secret isn't configured
+    the publisher disables itself silently — the edge still runs, it
+    just keeps events local.
 
-Threat model: TLS provides confidentiality, HMAC-SHA256 over
-``f"{timestamp}.{body}"`` provides integrity + authenticity. A +/- 300 s
-timestamp window bounds replay; the cloud side also dedupes on event_id.
+Purpose:
+    A dashcam running in a truck has flaky connectivity. Writing events
+    to a local append-only file first ("write-ahead queue") means a
+    flapping LTE signal or a cloud outage never loses data. Batching
+    and signing are the minimum bar an insurance-grade ingest expects.
 
-This module does NO network I/O at import time. Everything is lazy / async.
+How it works:
+    The class ``EdgePublisher`` owns the queue file path, the HMAC
+    secret, and an ``asyncio.Lock`` (``self._lock``). ``async def`` is
+    Python's way of marking a function that can pause while waiting —
+    here, while waiting for the HTTP POST to finish — without blocking
+    other requests the HTTP server is handling. ``async with self._lock``
+    means "take this lock, do the work, release it on exit" and
+    guarantees only one coroutine writes to the queue file at a time.
+
+    Pipeline per event:
+      1. ``enqueue(event, public_thumbnail_path)`` appends one JSON line
+         to the queue. A private ``_thumbnail_path`` field is stored
+         locally so the flush step can later mint a short-lived signed
+         URL for the redacted thumbnail; that underscore-prefixed field
+         is stripped before the event leaves the device.
+      2. ``run_forever()`` is the background task — a ``while True``
+         loop that ``await asyncio.sleep(flush_interval_sec)``s then
+         calls ``flush_once()``. Running this under asyncio means it
+         shares the same event loop as the HTTP server instead of
+         needing its own thread.
+      3. ``flush_once()`` reads up to ``batch_size`` lines, builds the
+         JSON body, signs ``f"{timestamp}.{body}"`` with HMAC-SHA256,
+         POSTs via ``httpx.AsyncClient``, and on 2xx truncates the
+         queue to the remaining lines. On 5xx/408/429 it leaves the
+         batch queued and backs off exponentially (``_BackoffState``:
+         doubles up to 60s). On other 4xx it drops the batch to avoid
+         "poison pill" loops — such responses indicate a signing misconfig
+         that should page an operator.
+
+    Thumbnail delivery uses option (b) described in the code: the cloud
+    receives a URL that points back at this edge device's own
+    ``/thumbnails/{name}`` endpoint, plus a ``token`` query param that's
+    an HMAC over ``name.expiry`` with a 15-minute TTL. This keeps
+    images off third-party hosts and makes them fetchable lazily.
+
+Threat model:
+    TLS handles confidentiality. HMAC handles integrity/authenticity.
+    A ±300s timestamp window (enforced on the cloud side) bounds replay,
+    and the cloud also dedupes on ``event_id`` + ``nonce``.
+
+Configuration (environment variables):
+    ROAD_CLOUD_ENDPOINT      full HTTPS URL of the receiver (required)
+    ROAD_CLOUD_HMAC_SECRET   pre-shared signing key (required)
+    ROAD_EDGE_PUBLIC_URL     this device's public base URL (for thumb links)
+    ROAD_EDGE_NODE_ID        human-readable source identifier
+
+    Without the first two, ``enabled() == False`` and ``flush_once`` is
+    a no-op. ``enqueue`` still writes locally so nothing is lost.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` instantiates one ``EdgePublisher``
+      at startup, calls ``enqueue()`` whenever a risk event is finalised,
+      and schedules ``run_forever()`` as a background task. The retention
+      module trims this queue file with ``ROAD_RETENTION_OUTBOUND_DAYS``.
+    - UI: none — backend-only. The dashboard never shows queue depth today.
+      A future admin "cloud ingest health" tile could surface the
+      ``(sent, remaining)`` tuple from ``flush_once()``.
 """
 
 from __future__ import annotations

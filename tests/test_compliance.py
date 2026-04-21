@@ -1,4 +1,27 @@
-"""Tests for road_safety.compliance — audit logging and data retention."""
+"""test_compliance.py — tests for audit logging and data-retention rules.
+
+What it does:
+    Covers `road_safety.compliance.audit`: that `audit.log(...)` writes
+    one JSON record per line to audit.jsonl, that default actor/outcome
+    fields are filled in, and that optional fields (actor override, IP,
+    detail dict) round-trip correctly. Also home to tests for retention
+    sweeps over thumbnails / events / audit logs.
+
+Purpose:
+    Audit trails are a compliance requirement — silent bugs here could
+    mean missing records during an investigation. Tests pin the JSONL
+    shape so downstream tooling keeps working.
+
+How it works:
+    Each test uses the `_isolate_data_dir` fixture plus
+    `patch.object(audit, "_DATA_DIR", ...)` to redirect the module's
+    module-level constants at runtime, then calls `audit.log(...)` and
+    parses the resulting JSONL line with `json.loads`.
+
+Connects to:
+    - Backend: tests road_safety.compliance.audit and retention helpers.
+    - UI: none — test file.
+"""
 
 from __future__ import annotations
 

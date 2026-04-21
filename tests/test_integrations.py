@@ -1,4 +1,26 @@
-"""Tests for road_safety.integrations — Slack notifier and edge publisher."""
+"""test_integrations.py — tests for the Slack notifier and edge publisher.
+
+What it does:
+    Covers `road_safety.integrations.slack` (configured/unconfigured
+    detection, notify_event skipping without a webhook, public image
+    relay toggle) and exercises the edge-publisher HMAC signing path
+    with mocked HTTP clients.
+
+Purpose:
+    External integrations fail in ways that are easy to miss locally —
+    these tests lock the webhook contract and the HMAC signature shape so
+    production Slack alerts keep working after refactors.
+
+How it works:
+    - Uses `unittest.mock.patch.object` / `AsyncMock` to stub the webhook
+      URL constant and any httpx client so no real network calls happen.
+    - `@pytest.mark.asyncio` tells pytest-asyncio to drive the `async def`
+      test through an event loop.
+
+Connects to:
+    - Backend: tests road_safety.integrations.slack (and edge publisher).
+    - UI: none — test file.
+"""
 
 from __future__ import annotations
 

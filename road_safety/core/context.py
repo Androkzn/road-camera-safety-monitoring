@@ -1,32 +1,44 @@
-"""Scene-context classification for adaptive risk thresholds.
+"""context.py — classifies the scene so risk thresholds adapt to it.
 
-Why this module exists
-----------------------
-detection.py uses fixed risk thresholds (TTC_HIGH=1.5s, TTC_MED=3.0s,
-DIST_HIGH=3.0m, DIST_MED=8.0m). Those numbers are defensible for city streets
-at 25-35 mph, but they are *wrong* in two opposite directions:
+What it does:
+    Watches a rolling window of detections plus an optional ego-speed
+    signal and decides whether the camera is currently on a highway,
+    in an urban street, in a parking lot, or unknown. Based on that
+    label it returns adaptive numeric thresholds (TTC seconds and
+    distance metres) that `detection.py` uses instead of fixed "one
+    size fits all" numbers.
 
-  * Highway at 65 mph (~29 m/s): a 1.5s TTC leaves ~44m of stopping distance,
-    which is below a loaded truck's minimum stop. Research (NHTSA FCW,
-    MobilEye) puts the realistic highway FCW band at >=3s. A system that
-    fires "high" only at 1.5s TTC on a highway is effectively telling the
-    driver *after* the crash is unavoidable.
+Purpose:
+    A 1.5-second time-to-collision means something very different at
+    65 mph on a highway (crash unavoidable) vs. 3 mph in a parking lot
+    (normal clearance). Using fixed thresholds either under-alerts on
+    highways or drowns parking-lot driving in false positives. This
+    module solves that by picking thresholds that match the scene.
 
-  * Parking lot at 3 mph (~1.3 m/s): a 1.5s TTC corresponds to an object
-    within 2m — but at parking speeds that's a perfectly normal clearance
-    when maneuvering around cars. Firing "high" here drowns the driver in
-    false positives and teaches them to ignore the system.
+How it works:
+    `@dataclass` (a Python class decorator) auto-generates an
+    `__init__` for the `SceneContext` record type — label, confidence,
+    pedestrian rate, ego-speed proxy. A `deque` (double-ended queue) is
+    a fixed-size rolling buffer — cheap to append to and trim. The
+    classifier uses always-available, cheap signals: how many
+    pedestrians vs. vehicles have been seen in the last 60 seconds,
+    density patterns, and — if `core/egomotion.py` supplied a value —
+    the ego-speed proxy in m/s. No imports from `detection.py`
+    (additive and decoupled); it just needs objects with a `.cls`
+    attribute. The module-level defaults match `detection.py`'s
+    original fixed constants so "unknown" behaves like the old code.
 
-Same risk *semantic* ("the driver needs to react now"), different numerical
-thresholds. So we classify the scene (urban / highway / parking / unknown)
-from cheap, always-available signals — detection-density rolling windows
-and an optional ego-speed proxy — then hand back thresholds calibrated to
-that scene. Callers use adaptive_thresholds() in place of the module-level
-constants in detection.py.
-
-This module is intentionally additive: it does not import from or modify
-detection.py. It consumes any object with a `.cls` attribute (which
-Detection satisfies) so it stays decoupled and testable.
+Connects to:
+    - Backend: consumed by `road_safety/server.py`, which instantiates
+      `SceneContextClassifier`, feeds it every detection frame, and
+      reads `adaptive_thresholds()` before calling
+      `classify_risk(...)` from `core/detection.py`. Ego-speed input
+      comes from `core/egomotion.py`.
+    - UI: the scene label and pedestrian rate are exposed via the
+      `/api/live/scene` endpoint -> `useScene` hook ->
+      `frontend/src/components/dashboard/PerceptionBanner.tsx`, which
+      shows the operator what context the system currently thinks it's
+      in.
 """
 
 from __future__ import annotations

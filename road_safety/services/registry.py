@@ -1,22 +1,43 @@
-"""Multi-vehicle road safety readiness layer.
+"""registry.py — in-memory fleet, vehicle, and driver bookkeeping.
 
-Adds vehicle identity, system-wide event aggregation, and cross-vehicle
-pattern detection. This module sits between the single-stream processing
-(server.py) and the API layer, providing the data model that a production
-multi-vehicle deployment needs.
+What it does:
+    Keeps a running tally of every vehicle the system has seen and how
+    many safety events each one has triggered. Maintains a rolling
+    "safety score" per vehicle (starts at 100, drops when events fire,
+    slowly recovers over time) plus per-driver leaderboards and a
+    road-wide summary.
 
-Design goals:
-  * Backwards-compatible -- a single-vehicle deployment still works; vehicle_id
-    defaults to the ROAD_VEHICLE_ID env var.
-  * System-wide queries -- aggregate events across vehicles, find hotspots.
-  * Driver scoring -- rolling safety score per driver based on events +
-    feedback.
-  * Pattern detection -- flag when multiple vehicles report events at the
-    same location/time window (intersection hotspot).
+Purpose:
+    The raw event stream doesn't answer fleet-level questions like
+    "which driver is riskiest this week?" or "how many events did
+    vehicle X generate?". This module aggregates events into that
+    higher-level view for the dashboard without needing a database.
 
-In a scaled deployment, the registry would live in a database. The current
-implementation uses an in-memory dict keyed by vehicle_id, populated from
-events as they arrive.
+How it works:
+    * ``@dataclass`` on ``VehicleState`` auto-generates ``__init__`` and
+      field storage from type annotations — treat it as a typed record.
+    * ``field(default_factory=lambda: {...})`` gives each new vehicle
+      its own fresh counters dict (not a shared one across all vehicles,
+      which would be a classic Python bug).
+    * All state lives in one module-level ``road_registry`` object,
+      which is a plain in-memory dict keyed by ``vehicle_id``. Restarting
+      the server resets it — in a scaled deployment this would move to a
+      database.
+    * ``record_event`` bumps counters and deducts from the safety score
+      based on risk weight; ``decay_scores`` slowly restores points over
+      time; ``road_summary`` and ``driver_leaderboard`` produce the
+      shapes the API returns.
+    * Defaults (``VEHICLE_ID``, ``ROAD_ID``, ``DRIVER_ID``) come from
+      environment variables via ``road_safety.config``.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` imports ``road_registry`` and
+      calls ``record_event``/``record_feedback`` from the detection
+      pipeline. Exposes ``/api/road/summary``,
+      ``/api/road/vehicle/{vehicle_id}``, and ``/api/road/drivers``.
+    - UI: none currently — the road/drivers endpoints are not yet wired
+      into ``frontend/src/lib/api.ts``; visible only via direct API
+      calls or future fleet pages.
 """
 
 from __future__ import annotations

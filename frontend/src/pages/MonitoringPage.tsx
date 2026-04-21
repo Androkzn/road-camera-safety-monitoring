@@ -1,3 +1,45 @@
+/**
+ * MonitoringPage.tsx — watchdog incident monitor page at "/monitoring".
+ *
+ * What it does:
+ *   Groups raw watchdog findings into deduplicated "incidents" (one card per
+ *   recurring problem), shows summary tiles (errors/warnings/info/total),
+ *   an "Immediate Actions" queue, and a filter-plus-select-and-delete feed.
+ *
+ * Purpose:
+ *   Gives an operator a curated, actionable view of system health issues
+ *   detected by the backend watchdog, instead of a raw flat log.
+ *
+ * How it works:
+ *   - useWatchdogCtx() reads shared state from the app-wide WatchdogProvider
+ *     (see hooks/WatchdogContext.tsx): status, findings, delete/clear funcs.
+ *   - useLiveStatus() polls /api/live/status for the source name.
+ *   - useEventStream() is used only to know if the SSE connection is live.
+ *   - useState: stores filter choice, select-mode toggle, selected-ids set,
+ *     and a deleting flag — changing any of these re-renders the page.
+ *   - useMemo: caches a computed value so it is not recalculated on every
+ *     render unless its inputs change. Used here to group findings into
+ *     incidents and to apply the severity filter.
+ *   - useCallback: caches a function across renders so child components
+ *     that depend on it don't re-render needlessly. Used for the select-
+ *     mode helpers and the delete handlers.
+ *   - Union types in this file: `SevFilter = "all" | "error" | "warning" |
+ *     "info"` means the value is one of those four exact strings.
+ *   - `Set<string>`: a generic — `<string>` is the "type parameter" filling
+ *     in the placeholder, so this is a set of string values.
+ *   - buildIncidents() walks each WatchdogFinding, groups by fingerprint,
+ *     keeps the earliest/latest timestamps, and sorts by severity/priority.
+ *
+ * Connects to:
+ *   - Backend: /api/watchdog, /api/watchdog/recent, /api/watchdog/findings*
+ *     (via WatchdogContext), plus /api/live/status and /stream/events — all
+ *     in road_safety/server.py.
+ *   - UI: mounted by frontend/src/App.tsx at "/monitoring". Renders TopBar
+ *     and the internal <FilterTile> helper; styles come from
+ *     ./MonitoringPage.module.css.
+ */
+// React hooks: useState = state, useMemo = cached computation, useCallback =
+// cached function reference (stable across renders).
 import { useCallback, useMemo, useState } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import { useLiveStatus } from "../hooks/useLiveStatus";
@@ -6,11 +48,17 @@ import { useWatchdogCtx } from "../hooks/WatchdogContext";
 import type { WatchdogFinding } from "../types";
 import styles from "./MonitoringPage.module.css";
 
+// Icon characters shown in the severity badge on each incident card header.
 const SEV_ICON: Record<string, string> = { error: "!!", warning: "!", info: "i" };
+// Numeric sort rank so "error" always lists above "warning" above "info".
 const SEV_ORDER: Record<string, number> = { error: 0, warning: 1, info: 2 };
 
+// The four possible filter states; drives which summary tile is highlighted
+// and which incidents appear in the list below.
 type SevFilter = "all" | "error" | "warning" | "info";
 
+// Shape of one grouped incident card. Many raw WatchdogFinding records collapse
+// into a single WatchdogIncident keyed by fingerprint (or category:title).
 type WatchdogIncident = {
   id: string;
   fingerprint: string;
@@ -25,14 +73,20 @@ type WatchdogIncident = {
   latest: WatchdogFinding;
 };
 
+// Unique key for one raw finding row — used by deleteFindings() to target the
+// exact server-side entries when the user deletes an incident group.
 function findingKey(f: WatchdogFinding): string {
   return `${f.snapshot_id}_${f.ts}`;
 }
 
+// Grouping key: prefer the server-sent fingerprint; otherwise build one from
+// category + title so similar findings still merge into one incident.
 function incidentId(f: WatchdogFinding): string {
   return f.fingerprint || `${f.category}:${f.title}`;
 }
 
+// Formats an ISO timestamp as "Apr 21, 3:42 PM" for the first/last-seen rows
+// inside each incident card. Falls back to the raw string if parsing fails.
 function formatTimestamp(ts: string): string {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
@@ -44,6 +98,8 @@ function formatTimestamp(ts: string): string {
   });
 }
 
+// Formats an ISO timestamp as "12s ago" / "5m ago" / "3h ago" / "2d ago".
+// Used by the "last seen" line and the Immediate Actions queue cards.
 function formatRelative(ts: string): string {
   const target = new Date(ts).getTime();
   if (Number.isNaN(target)) return ts;
@@ -54,20 +110,31 @@ function formatRelative(ts: string): string {
   return `${Math.round(diffSec / 86400)}d ago`;
 }
 
+// Picks the CSS class for an evidence chip based on its status — "breach" =
+// red, "trend" = amber, anything else = neutral. Used inside incident cards.
 function getEvidenceClass(status?: string): string {
   if (status === "breach") return styles.evidenceBreach ?? "";
   if (status === "trend") return styles.evidenceTrend ?? "";
   return styles.evidenceContext ?? "";
 }
 
+// Input: raw watchdog findings from the backend.
+// Output: deduplicated incidents, each aggregating every matching finding
+// (count, first/last seen, worst severity). Used inside the useMemo below to
+// feed the summary tiles, action queue, and incident list.
 function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {
+  // `Map<string, WatchdogIncident>`: a keyed store; the generic `<string, ...>`
+  // fills the type placeholders so TS knows the shape of keys/values.
   const groups = new Map<string, WatchdogIncident>();
 
+  // Walk every raw finding once; either start a new incident group or fold
+  // it into an existing one (updating counts, severity, timestamps).
   for (const finding of items) {
     const id = incidentId(finding);
     const key = findingKey(finding);
     const existing = groups.get(id);
 
+    // First time we see this incident id — seed a new group.
     if (!existing) {
       groups.set(id, {
         id,
@@ -85,15 +152,19 @@ function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {
       continue;
     }
 
+    // Repeat occurrence — bump count and remember the raw key for deletion.
     existing.count += 1;
     existing.rawKeys.push(key);
 
+    // Promote to the worst severity seen across the group (lower rank = worse).
     if ((SEV_ORDER[finding.severity] ?? 9) < (SEV_ORDER[existing.severity] ?? 9)) {
       existing.severity = finding.severity;
     }
+    // Keep the earliest ts as "first seen".
     if (new Date(finding.ts).getTime() < new Date(existing.firstSeen).getTime()) {
       existing.firstSeen = finding.ts;
     }
+    // Keep the newest ts as "last seen" and adopt its metadata as the latest.
     if (new Date(finding.ts).getTime() >= new Date(existing.lastSeen).getTime()) {
       existing.lastSeen = finding.ts;
       existing.latest = finding;
@@ -103,6 +174,8 @@ function buildIncidents(items: WatchdogFinding[]): WatchdogIncident[] {
     }
   }
 
+  // Sort: worst severity first; then highest priority score; then biggest
+  // count; then most-recently-seen. Drives the order of cards in the feed.
   return Array.from(groups.values()).sort((a, b) => {
     const sev = (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9);
     if (sev !== 0) return sev;

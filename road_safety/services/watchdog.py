@@ -1,15 +1,44 @@
-"""AI-powered background watchdog — monitors all subsystems for issues.
+"""watchdog.py — always-on self-monitor that flags system health issues.
 
-Runs a periodic loop (default 60s) that collects a health snapshot from
-every subsystem (perception, drift, LLM, stream, scene), applies rule-based
-checks, and optionally sends the snapshot to Claude for deeper analysis.
+What it does:
+    Every 60 seconds (by default) the watchdog grabs a "snapshot" of how
+    the whole system is doing — camera quality, model accuracy drift,
+    LLM error rates, stream frame-rate, etc. — then runs a set of plain
+    rule checks ("error rate above 20%?", "frames stuck?") and writes
+    every problem it finds as a "finding" to a log file. It can
+    optionally ask Claude to look at the same snapshot for anomalies the
+    rules missed.
 
-Findings are appended to ``data/watchdog.jsonl`` (same append-only JSONL
-pattern as audit). The ``/api/watchdog`` endpoint exposes summary stats;
-``/api/watchdog/recent`` returns the most recent findings for investigation.
+Purpose:
+    Operators should learn about problems from the dashboard, not from
+    users. The watchdog is the system's built-in smoke detector: it
+    writes human-readable findings with owner, impact, suggested steps,
+    and debug commands so on-call engineers know exactly where to look.
 
-If the LLM is unavailable the watchdog still produces findings from rule-based
-checks — monitoring never depends on LLM availability.
+How it works:
+    * Findings are stored in ``data/watchdog.jsonl`` — one JSON record
+      per line, append-only (easy to tail, hard to corrupt).
+    * ``@dataclass`` on ``WatchdogFinding`` is a Python shortcut that
+      auto-generates an ``__init__`` and field list from the type
+      annotations — it is just a typed struct.
+    * ``async def check_once`` runs one snapshot+analysis cycle;
+      ``run_loop`` keeps calling it forever with a sleep between runs.
+      ``async``/``await`` means the loop cooperates with the web server
+      on the same thread instead of blocking it.
+    * If the LLM is down, rule checks still run — monitoring never
+      depends on Claude being available.
+    * Findings with the same "fingerprint" are grouped so the dashboard
+      shows "this problem happened 12 times" instead of 12 separate rows.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` constructs a ``Watchdog`` with
+      a ``collect_fn`` that builds the snapshot, and exposes
+      ``/api/watchdog``, ``/api/watchdog/recent``, and
+      ``/api/watchdog/findings`` (DELETE/POST).
+    - UI: ``frontend/src/hooks/useWatchdog.ts`` and
+      ``frontend/src/hooks/WatchdogContext.tsx`` poll these endpoints;
+      ``frontend/src/components/watchdog/WatchdogDrawer.tsx`` and
+      ``WatchdogBadge.tsx`` render the findings in the TopBar drawer.
 """
 
 from __future__ import annotations

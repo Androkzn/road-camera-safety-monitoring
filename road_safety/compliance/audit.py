@@ -1,17 +1,47 @@
-"""Audit logging for compliance (GDPR Art. 30, SOC 2).
+"""audit.py — append-only access log for privacy/compliance reviewers.
 
-Records access to sensitive resources — unredacted thumbnails, feedback
-submissions, active-learning exports, chat interactions — so the
-organisation can demonstrate who accessed what personal data, when.
+What it does:
+    Records one line every time someone (human operator or the system
+    itself) touches sensitive data: an unredacted thumbnail that contains
+    faces or plates, a feedback submission, an active-learning export,
+    a chat query, a DSAR request, a retention sweep, or a drift alert.
+    Each line is a self-contained JSON object with a timestamp, actor,
+    action verb, resource id, and outcome (success / denied / error).
 
-Storage: append-only JSONL at ``data/audit.jsonl``. Each line is a
-self-contained record with actor, action, resource, timestamp, and
-outcome. The file is intended for periodic export to a SIEM / log
-aggregator in production; the ``/api/audit`` endpoint provides a
-read-only tail for the dashboard.
+Purpose:
+    Insurance and fleet customers need to demonstrate GDPR Article 30
+    ("records of processing activities") and SOC 2 access-logging
+    controls. Rather than integrate a full SIEM on the edge device, this
+    module writes a tamper-evident append-only file that operators can
+    export on demand and that the admin UI can tail live.
 
-Thread-safe: writes go through a threading lock because DSAR thumbnail
-access can happen on any HTTP worker thread.
+How it works:
+    Storage is a plain text file at ``data/audit.jsonl`` — "JSONL" means
+    one JSON object per line, so appending is atomic-ish and tails are
+    cheap. The env var ``ROAD_AUDIT_LOG=0`` disables writes entirely
+    (useful for tests). A ``threading.Lock`` wraps each write: Python's
+    ``with _lock:`` block is like a "one-at-a-time door" — only one
+    HTTP worker thread can be inside the write section at a time, which
+    prevents two requests from interleaving half-written lines. The
+    ``default=str`` argument on ``json.dumps`` handles the edge case
+    where someone passes a timestamp or Path object in ``detail=...``;
+    it tells Python "if you don't know how to serialise this, call
+    ``str()`` on it".
+
+    Three public functions:
+      * ``log(action, resource, ...)`` — append one record.
+      * ``tail(n)``                    — read the last N records.
+      * ``stats()``                    — count-by-action summary for UI.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` imports this module as
+      ``audit`` and calls ``audit.log(...)`` from the DSAR / unredacted
+      thumbnail / feedback / chat / export routes. The ``/api/audit``
+      and ``/api/audit/stats`` endpoints (also in ``server.py``) wrap
+      ``tail()`` and ``stats()`` for read access.
+    - UI: none directly wired today — the admin HealthStrip does not yet
+      render audit stats. The ``/api/audit`` endpoints exist for a future
+      admin page and for out-of-band SIEM export.
 """
 
 from __future__ import annotations

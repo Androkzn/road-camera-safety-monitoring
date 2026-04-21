@@ -1,4 +1,40 @@
-"""Live video stream capture: resolves a YouTube live URL, reads frames in a background thread."""
+"""stream.py — pulls video frames from a live URL in the background.
+
+What it does:
+    Two jobs. First, `resolve_hls(source)` turns a human-friendly
+    YouTube Live page URL into the direct streaming URL that OpenCV
+    can actually read (shelling out to the `yt-dlp` binary). Second,
+    `StreamReader` opens that URL, runs a background thread that
+    continuously decodes frames at a target FPS (default 2), and hands
+    the most recent frame to callers on demand.
+
+Purpose:
+    Isolates "how do we get pixels" from "what do we do with pixels".
+    The detection pipeline and the web server do not need to know
+    about codecs, `yt-dlp` format selectors, or thread lifetimes — they
+    just ask `StreamReader` for the latest frame.
+
+How it works:
+    `subprocess.check_output(...)` runs the bundled `yt-dlp` binary
+    (path comes from `config.py`) with a list of format selectors,
+    preferring <=720p to keep CPU load sane. OpenCV (`cv2.VideoCapture`)
+    decodes the resulting HLS / direct stream. `threading.Thread`
+    spawns a background worker loop — important because reading frames
+    is I/O-bound and would otherwise block the FastAPI event loop.
+    `Callable` is a type-hint label meaning "a function you can call".
+    Non-YouTube sources (RTSP, local files, MJPEG) are passed through
+    unmodified.
+
+Connects to:
+    - Backend: consumed by `road_safety/server.py`, which creates one
+      `StreamReader` at startup and feeds its frames to
+      `core/detection.py` (YOLO), `core/quality.py`,
+      `core/egomotion.py`, and `core/context.py`.
+    - UI: no direct wiring, but the still frames shown in
+      `frontend/src/components/admin/VideoFeed.tsx` and the thumbnails
+      on event cards ultimately originate from frames this module
+      captured.
+"""
 
 from __future__ import annotations
 

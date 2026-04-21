@@ -1,3 +1,45 @@
+/**
+ * DashboardPage.tsx — operator dashboard page at "/dashboard".
+ *
+ * What it does:
+ *   Shows the live safety feed: summary tiles (totals/high/medium/uptime),
+ *   banners for perception, scene, and drift state, a risk+type filter bar,
+ *   a live-updating list of event cards, a test-runner badge with drawer,
+ *   and a chat "Copilot" side panel.
+ *
+ * Purpose:
+ *   The main operator view for watching events stream in from the dashcam
+ *   pipeline and spotting changes in perception/scene/drift over time.
+ *
+ * How it works:
+ *   - Custom hooks drive the data:
+ *       useEventStream() → /stream/events SSE (events + perception + counts)
+ *       useLiveStatus()  → /api/live/status poll (source name, started_at)
+ *       useScene()       → /api/live/scene poll
+ *       useDrift()       → /api/drift poll
+ *       useTests()       → /api/tests/status poll with auto-open-on-fail
+ *   - useState: holds drawer open flag, risk filter, type filter, and the
+ *     live-ticking uptime in seconds. Changing state re-renders this page.
+ *   - useRef: holds a value that survives renders without causing a re-
+ *     render. `prevTestStatus` remembers the previous test status so we can
+ *     auto-open the drawer exactly when status transitions running→failed.
+ *   - useEffect: runs side-effects after render. One effect watches the
+ *     test status; another ticks a 1-second interval to refresh uptime and
+ *     cleans it up on unmount.
+ *   - useMemo: caches a computed value until its dependencies change. Used
+ *     to derive the unique set of event types for the filter dropdown and
+ *     to apply both filters to the events list.
+ *
+ * Connects to:
+ *   - Backend: /stream/events (SSE), /api/live/status, /api/live/scene,
+ *     /api/drift, /api/tests/status, /api/tests/run — all in
+ *     road_safety/server.py.
+ *   - UI: mounted by frontend/src/App.tsx at "/dashboard". Children from
+ *     components/dashboard (SummaryTiles, PerceptionBannerRow,
+ *     SceneBannerRow, DriftBannerRow, CopilotPanel), components/events
+ *     (EventCard), components/tests (TestBadge, TestDrawer), and
+ *     components/layout/TopBar.
+ */
 import { useState, useEffect, useRef, useMemo } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import {

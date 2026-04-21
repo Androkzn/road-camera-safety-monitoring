@@ -1,3 +1,37 @@
+/**
+ * CopilotPanel.tsx — chat interface for the safety Copilot (RAG assistant).
+ *
+ * What it does:
+ *   Renders a chat transcript, three "suggestion chips" that prefill the
+ *   text box, and a compose row with a multi-line textarea plus Ask button.
+ *   Pressing Enter sends, Shift+Enter inserts a newline. Auto-scrolls the
+ *   transcript to the bottom when new messages arrive.
+ *
+ * Purpose:
+ *   Gives the operator a natural-language way to query statutes and recent
+ *   events ("any high-risk pedestrian events in the last 2 minutes?").
+ *
+ * How it works:
+ *   - `useChat()` is a custom hook that owns `messages`, a `loading` flag,
+ *     and a `send(query)` function that posts to the backend and appends
+ *     both the user message and the reply to `messages`.
+ *   - `useRef` gives a stable reference to a DOM element. `chatRef` points
+ *     at the transcript div (for auto-scroll); `textareaRef` points at the
+ *     textarea (for reading / clearing its value without re-rendering).
+ *   - `useEffect(..., [messages])` runs after every render where `messages`
+ *     changed — here it scrolls the transcript to the bottom.
+ *   - `messages.map((msg) => <div key={msg.id}>…)` loops the transcript.
+ *     The `key` lets React efficiently update the list when new messages
+ *     append.
+ *   - Conditional rendering (`msg.isError ? styles.err : ""`) picks a CSS
+ *     class based on a flag.
+ *
+ * Connects to:
+ *   - Backend: via `useChat` hook → `POST /chat { query }` returns
+ *     `{ answer }` which is appended to the transcript.
+ *   - UI: rendered by `pages/DashboardPage.tsx` as the right-hand column
+ *     of the two-column main layout.
+ */
 import { useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
 import { useChat } from "../../hooks/useChat";
 import styles from "./CopilotPanel.module.css";

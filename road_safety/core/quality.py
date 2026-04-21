@@ -1,3 +1,47 @@
+"""quality.py — watches the camera feed for degraded perception conditions.
+
+What it does:
+    On every frame it measures three cheap image-quality signals —
+    average luminance (brightness), sharpness (via Laplacian variance,
+    low = blurry), and the fraction of saturated pixels (sign of
+    overexposure) — plus a slow rolling average of YOLO detection
+    confidence. It then classifies the pipeline into one of five
+    states: `nominal`, `degraded_low_light`, `degraded_blur`,
+    `degraded_low_confidence`, or `degraded_overexposed`. Each state
+    comes with a risk-adjustment dict that downstream code can use to
+    relax TTC / distance thresholds when the camera can't see well.
+
+Purpose:
+    Makes the system honest about its own perception. A blurry or
+    pitch-dark frame cannot safely be treated the same as a clean
+    daylight one — detections will be noisier and distances less
+    trustworthy. Exposing that as an explicit state lets the policy
+    layer dial down aggressive alerts (or skip the LLM vision
+    enrichment entirely) instead of producing false confidence.
+
+How it works:
+    `_ALPHA_FRAME` and `_ALPHA_CONF` drive exponentially-weighted
+    moving averages (EWMA) — each new sample counts a little, history
+    decays slowly. Frames are downscaled to max 480 px wide before
+    analysis to keep it cheap. Hysteresis (`_HYST = 1.20`) means you
+    must be 20% past a threshold to recover to `nominal`, preventing
+    jitter between states. `threading.Lock()` guards the running
+    averages so the detection thread and the API thread don't race on
+    them. `np` is NumPy (numerical arrays). `cv2` is OpenCV (image
+    math).
+
+Connects to:
+    - Backend: instantiated in `road_safety/server.py`, fed every
+      frame after detection, and its risk-adjustment dict is read by
+      the event-publishing code before emitting an event. Interacts
+      with `services/llm.py` via the `skip_vision_enrichment` flag
+      (skips expensive GPT-4V vision calls on degraded frames).
+    - UI: state and reason surface via `/api/live/perception` ->
+      `frontend/src/components/dashboard/PerceptionBanner.tsx`, which
+      shows the operator a coloured banner when the camera is
+      degraded.
+"""
+
 import threading
 import time
 import cv2

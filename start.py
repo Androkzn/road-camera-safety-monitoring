@@ -1,11 +1,43 @@
 #!/usr/bin/env python3
-"""One-command launcher: starts the Road Safety server, runs tests,
-waits for it to be healthy, then opens the admin dashboard in the browser.
+"""start.py — one-command developer launcher for the Road Safety stack.
 
-Usage:
-    python start.py                # start + test + open browser
-    python start.py --skip-tests   # start without running tests
-    python start.py --cloud        # also start cloud_receiver on port 8001
+What it does:
+    Builds the React frontend, optionally runs the pytest suite, spawns the
+    FastAPI backend (and optionally the cloud receiver) via uvicorn, polls
+    /api/live/status until the server answers, prints a colourised status
+    banner, and opens the admin dashboard in a browser. Ctrl+C cleanly
+    terminates all child processes.
+
+Purpose:
+    Replaces a multi-step "npm build, then uvicorn, then open browser"
+    checklist with a single `python start.py` command for local development.
+    Intended for devs, not for production deployment.
+
+How it works:
+    - CLI flags are parsed with `argparse`: --cloud, --no-browser,
+      --skip-tests, --port (defaults to $ROAD_PORT or 8000).
+    - `build_frontend()` shells out to `npm install` (only if node_modules
+      is missing) and `npm run build` inside frontend/.
+    - `run_tests()` invokes `pytest tests/ -x -q` as a subprocess. Failures
+      are reported but do not block startup.
+    - `subprocess.Popen(...)` starts `uvicorn road_safety.server:app` on
+      the chosen port; with --cloud it also starts `cloud.receiver:app` on
+      $ROAD_CLOUD_PORT (default 8001).
+    - `wait_for_health(url, timeout)` polls the health URL with
+      `urllib.request.urlopen` and a `with` context manager (the `with`
+      block auto-closes the HTTP connection) until the server responds or
+      the timeout elapses. The returned JSON feeds `print_status()`.
+    - `signal.signal(SIGINT/SIGTERM, cleanup)` registers a `cleanup()`
+      handler so Ctrl+C terminates every child Popen and exits cleanly.
+    - `from __future__ import annotations` just tells Python to treat all
+      type hints as strings (a forward-compat hint for older runtimes);
+      `list[subprocess.Popen]` etc. are type hints only.
+
+Connects to:
+    - Backend: launches road_safety/server.py (main FastAPI app) and
+      optionally cloud/receiver.py (separate ingest service).
+    - UI: opens http://<host>:<port>/ in the system browser once the
+      backend answers, so the user lands on the built React admin UI.
 """
 
 from __future__ import annotations

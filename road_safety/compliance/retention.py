@@ -1,18 +1,83 @@
-"""Data retention policy — automatic expiry of old events, thumbnails, and feedback.
+"""retention.py — the "auto-delete after N days" janitor for personal data.
 
-GDPR Art. 5(1)(e) requires that personal data be kept only as long as
-necessary. Dashcam video thumbnails contain faces and plates (even redacted
-copies carry metadata risk). This module enforces configurable retention
-windows and runs as a periodic background task.
+What it does:
+    Walks through four data locations on a schedule (roughly once per
+    hour) and deletes anything older than a configurable cutoff:
+      1. Thumbnail JPG/PNG files — the still images captured for each
+         event, which contain faces and licence plates.
+      2. Feedback history (``data/feedback.jsonl``) — the operator
+         thumbs-up / thumbs-down verdicts tied to an event_id.
+      3. Active-learning "pending" samples — see below.
+      4. Outbound cloud-upload queue (``data/outbound_queue.jsonl``) —
+         see below.
+    Anything newer than the cutoff is left untouched. Nothing is ever
+    moved to a trash folder; deletion is permanent, which is the whole
+    point (GDPR "right to be forgotten" and storage minimisation).
 
-Retention windows (env-configurable):
-  ROAD_RETENTION_THUMBNAILS_DAYS  — delete thumbnails older than N days (default 30)
-  ROAD_RETENTION_FEEDBACK_DAYS    — trim feedback.jsonl entries older than N days (default 90)
-  ROAD_RETENTION_AL_PENDING_DAYS  — delete stale active-learning samples (default 60)
-  ROAD_RETENTION_OUTBOUND_DAYS    — trim outbound_queue.jsonl (default 7)
-  ROAD_RETENTION_INTERVAL_SEC     — how often the sweep runs (default 3600 = hourly)
+Purpose:
+    GDPR Article 5(1)(e) says personal data must be kept "no longer than
+    is necessary". A dashcam captures faces and plates constantly — if
+    the system never cleaned up, the edge device's disk would fill and
+    the fleet operator would be in breach of its own privacy notice.
+    This module is the enforcement mechanism. It also keeps the edge
+    device's disk from filling up, which would crash the capture pipeline.
 
-Design: never raises, never blocks the main loop, logs what it removes.
+How it works:
+    The module defines five small "sweep" functions and one loop that
+    calls them all. Each sweep is independent and returns the count of
+    items it removed, so the summary that gets written to the app log
+    looks like ``{'thumbnails_removed': 12, 'feedback_trimmed': 4, ...}``.
+
+    Vocabulary the user may not know:
+      * "Active-learning samples" are event payloads that the model
+        flagged as low-confidence or contested by operator feedback and
+        that a future training job will want to look at again. They live
+        at ``data/active_learning/pending/``. If they're never exported,
+        they shouldn't accumulate forever — hence the default 60-day cap.
+      * ``outbound_queue.jsonl`` is the local buffer of events that the
+        edge device wants to send to the cloud (see
+        ``integrations/edge_publisher.py``). If the cloud is unreachable
+        for a long time, rows pile up here. The 7-day default trim
+        prevents an outage from turning into a full-disk incident.
+      * "Periodic background task" means an ``async def`` function that
+        Python's ``asyncio`` event loop runs alongside the HTTP server.
+        ``asyncio.sleep(interval_sec)`` pauses the task without blocking
+        any other request — when the sleep is over, ``run_sweep()`` runs
+        once, and the loop repeats forever. ``except asyncio.CancelledError:
+        raise`` means: when the server shuts down, let the cancellation
+        propagate so the task exits cleanly.
+
+    The file trimming helper ``_trim_jsonl`` is conservative: it reads
+    every line, tries to parse JSON, and only drops a line if it finds
+    a recognisable ISO-8601 timestamp (``operator_ts``, ``wall_time``,
+    or ``sampled_at``) that is older than the cutoff. Unparseable lines
+    and lines without a timestamp are kept — the module errs on "don't
+    delete something I can't prove is old".
+
+Retention windows (override via environment variables at process start):
+    ROAD_RETENTION_THUMBNAILS_DAYS  default 30  — thumbnail image files
+    ROAD_RETENTION_FEEDBACK_DAYS    default 90  — feedback.jsonl rows
+    ROAD_RETENTION_AL_PENDING_DAYS  default 60  — active-learning pending
+    ROAD_RETENTION_OUTBOUND_DAYS    default 7   — outbound_queue.jsonl rows
+    ROAD_RETENTION_INTERVAL_SEC     default 3600 — how often the sweep runs
+
+Safety notes:
+    Every sweep wraps its filesystem calls in ``try/except OSError`` and
+    returns a zero/empty result on failure, so a single unreadable file
+    cannot crash the loop. The outer loop also swallows generic
+    exceptions and logs them. The goal is "never take the edge device
+    down because the janitor hit a permission error".
+
+Connects to:
+    - Backend: imported by ``road_safety/server.py``, which both starts
+      ``retention_loop()`` as a background task during app startup and
+      exposes ``POST /api/retention/sweep`` to let an admin trigger an
+      immediate run. The ``audit`` module records each sweep under the
+      action name ``"retention_sweep"``.
+    - UI: none directly today — no component in ``frontend/src`` hits
+      ``/api/retention/*``. The sweep runs silently. A future admin
+      surface could surface ``run_sweep()``'s return dict as a "last
+      cleanup" tile on the compliance panel.
 """
 
 from __future__ import annotations

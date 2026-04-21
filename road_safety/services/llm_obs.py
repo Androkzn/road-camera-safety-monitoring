@@ -1,21 +1,44 @@
-"""LLM observability — token spend, latency, and quality tracking.
+"""llm_obs.py — observability for every LLM call (cost, latency, errors).
 
-Every LLM call (narration, enrichment, chat) goes through ``record()`` which
-captures input/output tokens, wall-clock latency, model, and call-type so the
-operator can answer:
+What it does:
+    Holds the single ``observer`` object that ``llm.py`` calls after
+    every Claude / Azure request. For each call it records the type
+    (narration / enrichment / chat), model, input+output tokens, wall
+    time, success/error, and any "skip" reason (e.g. rate limit
+    protection). Aggregates these into stats on demand: total spend,
+    P50/P95 latency, error rate, breakdown by call type and model.
 
-  * How much are we spending? (token budget burn rate)
-  * Which call types dominate cost? (narration vs enrichment vs chat)
-  * Are we hitting rate limits? (skip/error rate)
-  * What's the P95 latency? (SLA compliance)
+Purpose:
+    Answers the four questions every LLM-using team asks — "how much
+    are we spending?", "which path dominates cost?", "are we hitting
+    rate limits?", "is the P95 latency within SLA?". Also supplies the
+    watchdog with the metrics it rule-checks against.
 
-Storage: append-only in-memory ring buffer (capped at MAX_RECORDS). The
-``/api/llm/stats`` endpoint exposes aggregated stats; ``/api/llm/recent``
-exposes raw recent records for debugging.
+How it works:
+    * ``@dataclass`` on ``LLMRecord`` generates a typed record with an
+      auto ``__init__``; the ``@property estimated_cost_usd`` computes
+      cost from per-1K-token rates defined in the ``COST_PER_1K_INPUT``
+      and ``COST_PER_1K_OUTPUT`` tables.
+    * Storage is a capped list (``MAX_RECORDS = 2000``) — when full,
+      oldest records are dropped. This keeps memory bounded without
+      needing a database.
+    * A ``threading.Lock`` protects the list because frames are
+      processed on a background thread while chat runs on the async
+      event loop; both can call ``record()`` at the same time.
+    * ``stats(window_sec=...)`` aggregates within a time window for the
+      dashboard; ``recent(n)`` returns raw records for debugging.
 
-Thread-safety: the ring buffer is guarded by a threading lock because
-server.py's frame callback runs in a background thread and may trigger
-narrate_event concurrently with chat calls on the asyncio loop.
+Connects to:
+    - Backend: ``road_safety.services.llm`` and ``agents`` call
+      ``observer.record(...)`` after every LLM request.
+      ``road_safety/server.py`` exposes ``/api/llm/stats`` and
+      ``/api/llm/recent`` which proxy ``observer.stats()`` and
+      ``observer.recent()``. The watchdog consumes the stats to detect
+      LLM error-rate / latency / zero-token problems.
+    - UI: powers LLM-health panels in the admin and monitoring pages
+      reached via ``frontend/src/lib/api.ts`` fetches against
+      ``/api/llm/*`` (rendered within ``frontend/src/pages/MonitoringPage.tsx``
+      and ``DashboardPage.tsx`` widgets that show cost/latency).
 """
 
 from __future__ import annotations

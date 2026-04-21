@@ -1,3 +1,52 @@
+"""llm.py — single entry point for every Claude / Azure OpenAI call.
+
+What it does:
+    Wraps three LLM workflows: (1) ``narrate_event`` turns a detected
+    event into a one-sentence operator-facing description, (2)
+    ``enrich_event`` reads an annotated thumbnail with Claude vision to
+    extract plate + vehicle attributes, and (3) ``chat`` answers operator
+    questions grounded in the recent event log and the policy corpus.
+    All three share one provider-failover path (``_complete``): if
+    Anthropic fails, Azure is tried, and vice versa.
+
+Purpose:
+    Centralises prompts, rate limiting, provider selection, PII handling,
+    and observability so the rest of the codebase never talks to an LLM
+    SDK directly. Any tuning (models, token budgets, prompt hardening)
+    happens here only.
+
+How it works:
+    * ``async def`` + ``await`` mean these functions cooperate with the
+      web server instead of blocking it while the LLM responds.
+    * ``_TokenBucket`` is a client-side rate limiter — we deduct "tokens"
+      before calling Claude so we don't hit the Anthropic rate limit and
+      get 429s. Narration and enrichment share one bucket.
+    * A simple circuit breaker (``_CB_STATE``) halves vision cost (one
+      sample instead of two) after repeated failures and opens the
+      circuit entirely for 60 s after 3 failures.
+    * ``_complete`` picks the primary backend (Azure or Anthropic based
+      on env vars ``AZURE_OPENAI_*`` / ``ANTHROPIC_API_KEY``); on error
+      it falls back to the other provider automatically.
+    * Privacy-by-construction: ``_hash_and_strip_plate`` replaces raw
+      ``plate_text``/``plate_state`` with a salted ``plate_hash`` before
+      returning — downstream code can never accidentally leak a plate.
+    * OWASP LLM01 prompt-injection defence: system prompts declare image
+      content as untrusted, and ``_validate`` scrubs injection patterns
+      from notes.
+    * Models: ``claude-haiku-4-5-20251001`` for narration + enrichment,
+      ``claude-sonnet-4-6`` for chat.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` imports ``chat``, ``narrate_event``,
+      ``enrich_event``, ``llm_configured``; the watchdog imports
+      ``_complete`` for AI analysis; agents.py reuses ``_ANTHROPIC_KEY``.
+      Calls ``road_safety.services.llm_obs.observer`` for metrics and
+      ``road_safety.services.redact.hash_plate`` for PII hashing.
+    - UI: ``frontend/src/lib/api.ts`` ``/chat`` powers the operator chat
+      panel; ``/api/llm/stats`` and ``/api/llm/recent`` feed LLM-usage
+      panels in the admin/monitoring pages (via ``llm_obs.py``).
+"""
+
 import asyncio
 import base64
 import json

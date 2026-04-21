@@ -1,3 +1,39 @@
+/**
+ * PerceptionBanner.tsx — three narrow info banners shown in order on the
+ * Dashboard: Perception, Scene, and Drift.
+ *
+ * What it does:
+ *   Exports three row components (`PerceptionBannerRow`, `SceneBannerRow`,
+ *   `DriftBannerRow`). Each row shows a label, a primary state, a short
+ *   reason string, and a trailing metrics line joined by middle dots.
+ *   The Perception row turns red when the state is not "nominal"; the
+ *   Drift row turns red when an alert is triggered and is clickable to
+ *   trigger a refresh.
+ *
+ * Purpose:
+ *   Keeps the operator aware of model/environment health (blur, luminance,
+ *   confidence), the traffic scene context (speed, pedestrian rate, TTC
+ *   thresholds), and precision drift over user feedback.
+ *
+ * How it works:
+ *   - Each component takes a single prop: a data object (or `null` when
+ *     the backend has not responded yet). Optional chaining (`perception?.
+ *     luminance`) returns undefined instead of throwing on null.
+ *   - A local `metrics` string array is populated with short chunks ("lum
+ *     127", "sharp 42", etc.) and then joined with " · " for display. This
+ *     is a tidy way to conditionally include fields.
+ *   - `DriftBannerRow` accepts an `onRefresh` callback so clicking the row
+ *     tells the parent to re-fetch the drift report.
+ *   - Union types like `PerceptionState | null` mean the value is either
+ *     that shape or null — TS makes us handle both.
+ *
+ * Connects to:
+ *   - Backend: perception comes from SSE (`/api/live/events/stream`) or
+ *     polled `/api/live/status`; scene from `GET /api/live/scene`; drift
+ *     from `GET /api/drift` (refresh via onRefresh).
+ *   - UI: rendered by `pages/DashboardPage.tsx` beneath `<SummaryTiles>`
+ *     and above the event filter bar.
+ */
 import type { PerceptionState, SceneContext, DriftReport } from "../../types";
 import styles from "./PerceptionBanner.module.css";
 

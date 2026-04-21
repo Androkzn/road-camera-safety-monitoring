@@ -1,9 +1,35 @@
-"""Structured logging configuration.
+"""logging.py — central setup for application log output.
 
-Call ``setup()`` once at startup to configure the root logger with
-JSON-formatted output suitable for production log aggregators
-(ELK, Datadog, CloudWatch).  Falls back to human-readable format
-when ``ROAD_LOG_FORMAT=text`` is set.
+What it does:
+    Configures how every `log.info(...)` / `log.error(...)` call across the
+    backend gets printed. By default it emits one JSON object per line so
+    log-aggregation tools (Datadog, ELK, CloudWatch) can parse it; switch
+    to plain human-readable text by setting the env var
+    `ROAD_LOG_FORMAT=text`. Log verbosity is controlled by
+    `ROAD_LOG_LEVEL` (default `INFO`).
+
+Purpose:
+    Gives the whole app one consistent log format so production issues
+    can be filtered, searched, and alerted on without each module
+    inventing its own formatting.
+
+How it works:
+    `setup()` is called once at startup (from `server.py`). It builds a
+    Python `logging.StreamHandler` that writes to stdout, attaches either
+    the custom `_JSONFormatter` class or a text formatter, and replaces
+    any pre-existing handlers on the root logger. A `class` in Python is
+    a blueprint — `_JSONFormatter` inherits from the standard library's
+    `logging.Formatter` and overrides its `format()` method to produce
+    JSON instead of the default string. Chatty third-party loggers
+    (uvicorn access logs, ultralytics YOLO) are cranked down to WARNING
+    so they don't drown the signal. `get_logger(name)` is a thin wrapper
+    other modules import to get a named logger.
+
+Connects to:
+    - Backend: `server.py` calls `setup_logging()` at import time; every
+      other module calls `get_logger(__name__)` to emit structured logs.
+    - UI: none — backend-only (logs go to the server's stdout / log file,
+      not the browser).
 """
 
 from __future__ import annotations

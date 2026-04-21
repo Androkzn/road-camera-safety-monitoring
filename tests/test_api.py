@@ -1,4 +1,27 @@
-"""Tests for road_safety.api — feedback routes (unit-level, no live server)."""
+"""test_api.py — tests for the FastAPI route modules under road_safety.api.
+
+What it does:
+    Mounts individual route modules (starting with feedback) onto a fresh
+    FastAPI app, exercises them through `TestClient`, and verifies
+    behaviour: empty GETs, POSTing TP/FP verdicts, persistence to the
+    isolated feedback.jsonl, and round-tripping via a follow-up GET.
+
+Purpose:
+    Unit-level coverage of the HTTP layer without spinning up the full
+    server. Keeps the UI contract (`POST /api/feedback {event_id, verdict}`
+    -> `{ok: true}`) pinned so frontend hooks stay functional.
+
+How it works:
+    - The `feedback_app` fixture patches module-level paths inside
+      `road_safety.api.feedback` to point at the temp `_isolate_data_dir`
+      so no real files are touched.
+    - `TestClient(app)` from starlette runs the ASGI app in-process — no
+      uvicorn needed.
+
+Connects to:
+    - Backend: tests road_safety.api.feedback (and siblings as added).
+    - UI: none — test file.
+"""
 
 from __future__ import annotations
 

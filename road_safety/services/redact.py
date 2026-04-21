@@ -1,22 +1,49 @@
-"""Pre-egress PII redaction.
+"""redact.py — blurs faces and license plates before thumbnails leave the host.
 
-Every thumbnail that leaves the host (Slack, optional image relay, outbound
-webhook, LLM vision call to anyone other than the internal ALPR pass) must go
-through redact_for_egress() first. License plates are PII under GDPR Art. 4
-and enumerated PI under CCPA; faces are biometric PII under most regimes.
+What it does:
+    Every detected event produces two thumbnail files. The internal one
+    (``{event_id}.jpg``) is full fidelity and never leaves local disk.
+    The public one (``{event_id}_public.jpg``) has faces and license
+    plates blurred and is the only version sent anywhere else — Slack,
+    outbound webhooks, non-internal LLM calls. Also produces a salted
+    one-way hash for plate text so we can spot repeat offenders without
+    storing the plate string.
 
-Design:
-  - Two thumbnails per event: {event_id}.jpg (internal, unredacted, local disk
-    only — for DSAR retrieval by operators holding an X-DSAR-Token) and
-    {event_id}_public.jpg (redacted, safe for egress).
-  - Plate boxes are derived from a coarse geometric heuristic over detected
-    vehicles — the lower-middle strip of the bbox, since we don't have a
-    dedicated plate detector. This over-blurs slightly, which is
-    the correct failure mode: false-redact > false-leak.
-  - Faces similarly: blur the upper third of every `person` bbox.
-  - Plate *text* (from the Anthropic ALPR pass) never leaves this process in
-    raw form — we emit a salted hash (hash_plate) for cross-event correlation
-    without retention of the plate string itself.
+Purpose:
+    Regulatory and ethical: license plates are PII under GDPR Art. 4 and
+    enumerated PI under CCPA; faces are biometric PII under most
+    regimes. Redaction must be a hard gate, not a best-effort step, so
+    this module is the single checkpoint every egress path funnels
+    through.
+
+How it works:
+    * Uses OpenCV's Gaussian blur over geometric regions. We don't have
+      a dedicated plate detector, so we blur the lower-middle strip of
+      each vehicle bbox (likely plate location) and the upper ~35% of
+      each person bbox (likely face). This over-blurs slightly — the
+      correct failure mode is "too much blur" over "leaked PII".
+    * ``redact_for_egress`` never mutates the original frame; it
+      ``.copy()`` first so the caller keeps the unredacted version.
+    * ``write_thumbnails`` draws bounding boxes only on the internal
+      copy — annotations can themselves contain PII text, so the public
+      copy is blurred first and boxes added last.
+    * ``hash_plate`` salts the plate (``PLATE_SALT`` env var) before
+      SHA-256 so hashes from different deployments don't correlate.
+    * Constants tune where to blur: ``FACE_BAND_TOP/BOTTOM``,
+      ``PLATE_BAND_TOP/BOTTOM``, ``PLATE_BAND_X_INSET``.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` calls ``write_thumbnails``
+      every time the detection pipeline emits an event, and
+      ``hash_plate`` / ``public_thumbnail_name`` when serving
+      ``/thumbnails/{name}``. ``road_safety.services.llm.enrich_event``
+      calls ``hash_plate`` so the enrichment dict never contains raw
+      plate text. ``tools/analyze.py`` (offline analysis CLI) imports
+      the same helpers.
+    - UI: indirectly — every thumbnail image loaded in
+      ``frontend/src/`` (event cards, drawers, admin previews) is
+      served from ``/thumbnails/...`` and has already passed through
+      this redactor.
 """
 
 from __future__ import annotations

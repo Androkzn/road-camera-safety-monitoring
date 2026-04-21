@@ -1,4 +1,31 @@
-"""Shared test fixtures for the Road Safety test suite."""
+"""conftest.py — shared pytest fixtures for the Road Safety test suite.
+
+What it does:
+    Declares reusable fixtures that every test_*.py file in this folder can
+    request by name: an isolated temp DATA_DIR, sample Detection objects,
+    a canonical sample_event dict, and a mocked YOLO model.
+
+Purpose:
+    Keeps tests fast, hermetic, and independent of the developer's local
+    data/ directory. No test ever writes to the real data folder or loads
+    real YOLO weights.
+
+How it works:
+    - `_isolate_data_dir` is marked `autouse=True` so pytest injects it
+      into every test whether or not the test asks for it. It creates a
+      fresh tmp_path, then uses `monkeypatch.setattr(...)` to redirect
+      `road_safety.config.DATA_DIR` / `THUMBS_DIR` / `CORPUS_DIR` at runtime.
+      Any code under test that reads those constants sees the temp folder.
+    - `sample_detection`, `sample_vehicle`, `sample_event` build canonical
+      inputs so tests can focus on behaviour rather than setup plumbing.
+    - `mock_yolo_model` returns a MagicMock shaped like the real YOLO
+      client so detection code can be exercised without model weights.
+
+Connects to:
+    - Backend: patches road_safety.config paths; constructs
+      road_safety.core.detection.Detection instances.
+    - UI: none — test file.
+"""
 
 from __future__ import annotations
 

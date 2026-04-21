@@ -1,4 +1,26 @@
-"""Tests for road_safety.services — vehicle registry, drift, LLM obs, redact, digest."""
+"""test_services.py — tests for the service-layer modules.
+
+What it does:
+    Covers `road_safety.services.registry` (safety-score accounting per
+    vehicle, score clamping, decay), and is also the home for tests
+    around drift monitoring, LLM observability, redaction of plate text,
+    and digest generation.
+
+Purpose:
+    The services layer owns derived state (scores, drift counters, etc.).
+    These tests pin the math and the "score never goes negative" guards
+    so a refactor cannot silently distort operator dashboards.
+
+How it works:
+    Tests are grouped into `TestRoadRegistry`, `TestDrift`, etc. — pytest
+    treats any method on a `Test*` class whose name starts with `test_` as
+    a test case. Fixtures like `_isolate_data_dir` from conftest.py keep
+    filesystem-touching tests hermetic.
+
+Connects to:
+    - Backend: tests road_safety.services.registry and related modules.
+    - UI: none — test file.
+"""
 
 from __future__ import annotations
 

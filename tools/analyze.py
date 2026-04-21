@@ -1,11 +1,43 @@
-"""
-Safety event extraction — batch mode.
+"""analyze.py — offline video analysis that mirrors the live detector.
 
-Reads a video file, samples frames, runs YOLO, emits structured safety events
-with thumbnails. Shares core detection logic with the live server (detection.py).
+What it does:
+    Takes a video file on disk, decodes it with OpenCV (cv2), samples frames
+    at SAMPLE_FPS (2 fps), runs YOLO detection + tracking on each sampled
+    frame, finds pairwise interactions (e.g. pedestrian proximity, close
+    following), classifies risk from time-to-collision and estimated
+    distance, writes thumbnails (internal + redacted public), and dumps
+    events.json plus a trip-level summary.json.
 
-Usage:
-    python analyze.py data/input.mp4
+Purpose:
+    Gives developers a reproducible, non-streaming way to run the exact
+    same detection pipeline the server uses against a recorded clip.
+    eval_detect.py calls this tool in suite mode to score a detector
+    against labelled ground truth.
+
+How it works:
+    - `cv2.VideoCapture(path)` opens the video; we read fps and total
+      frames so we know how often to sample (`step = fps / SAMPLE_FPS`).
+    - For each sampled frame: `detect_frame(model, frame)` returns
+      Detection objects, `track_history.update(det, ts)` remembers per-track
+      motion so `estimate_ttc_sec` and `estimate_distance_m` can score risk.
+    - `find_interactions(detections)` yields (event_type, a, b, distance)
+      tuples for object pairs that are meaningfully close. Each becomes a
+      raw event dict with a thumbnail written via `write_thumbnails(...)`.
+    - `merge_events()` dedupes events of the same type within a 2-second
+      window, keeping the tightest one (smallest `_distance`).
+    - `build_summary()` aggregates counts by type/risk and classifies the
+      trip as safe / moderate / risky based on how many high/medium events
+      fired.
+    - Type hints like `list[dict]` or `event_type: str` are just
+      documentation — Python does not enforce them at runtime.
+
+Connects to:
+    - Backend: imports from road_safety.core.detection (same module the
+      live server uses) and road_safety.services.redact. Reads from and
+      writes to paths under road_safety.config.DATA_DIR (events.json,
+      summary.json, thumbnails/). Does not talk to the running server.
+    - UI: none — CLI tool. The files it writes are later served by the
+      backend, but analyze.py itself has no UI entry point.
 """
 
 from __future__ import annotations

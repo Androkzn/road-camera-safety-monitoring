@@ -1,36 +1,63 @@
-"""FNOL (First Notice of Loss) payload shaping for insurer integrations.
+"""fnol.py — translate an internal event into an insurer-shaped claim record.
 
-Why this module exists
-----------------------
-Insurance is the dominant commercial driver behind fleet dashcam adoption.
-When a collision happens, the fleet's insurer expects a structured first-
-notice-of-loss record — not a video file in isolation, not a JSON blob of
-detection internals. The shape that reduces claim-handling time is well
-known across carriers (Travelers, Nationwide, Progressive commercial,
-specialty markets):
+What it does:
+    Takes the raw event dictionary the perception pipeline produces (full
+    of internal field names like ``risk_level``, ``ego_flow``, ``ttc_sec``)
+    and returns a cleaner dictionary whose field names match what an auto
+    insurer expects on a First Notice of Loss (FNOL) form: when, where,
+    which vehicle, which driver, severity, kinematics, evidence pointers.
+    Also exposes a gate ``is_fnol_candidate(event)`` that picks out which
+    events are severe enough to be worth surfacing in a claims workflow.
 
-    - when + where (ISO timestamp + GPS)
-    - who (policy holder → vehicle_id → driver_id)
-    - what (severity, TTC, classified event type, other road users involved)
-    - evidence pointer (clip URL, thumbnail URL, hashed plate of counterparty)
-    - kinematics (speed + g-force peaks if available)
-    - operator-verified flag (has a human reviewed this, or is it still AI-only?)
+Purpose:
+    Insurance is the biggest commercial reason fleets install dashcams.
+    After a near-miss or collision the insurer needs a record they can
+    drop straight into their claim-handling system — not the raw AI
+    payload, not a lone video file. This module is the translation layer
+    between "how our detectors think" and "what an underwriter reads".
+    We deliberately do NOT auto-transmit anything: carriers expect a
+    human to triage first, so the code only builds the payload; a
+    future operator action or batched export would send it.
 
-We do NOT send this payload anywhere automatically — that's a deliberate
-policy choice. Auto-transmitting every high-risk event to an insurer would
-leak raw detection noise into underwriting data and would violate most
-carriers' FNOL SLAs (which expect human triage first). Instead, this
-module produces the shaped record so an operator-driven "Submit to
-insurer" action or a batched end-of-day export can ship it cleanly.
+How it works:
+    ``FnolPayload`` is a Python "dataclass" — the ``@dataclass`` line
+    above the class (a "decorator", written with ``@``) tells Python
+    to auto-generate the boilerplate that turns a list of typed fields
+    into a lightweight, immutable-ish record object. Think of it as a
+    struct with named fields and a free ``to_dict()`` helper. The type
+    hints like ``float | None`` read as "a decimal number, or nothing" —
+    they document intent but don't enforce at runtime.
 
-Out of scope here:
-    - Actual HTTP transport to an insurer (carriers use heterogeneous APIs;
-      some still require email with an attached JSON).
-    - MP4 clip export (the `clip_url` field accepts a placeholder until a
-      rolling pre/post-roll buffer is wired up).
-    - Chain-of-custody signing (insurers increasingly expect signed
-      manifests; HMAC of this payload is already available via the
-      edge_publisher path and can be reused here).
+    ``build_fnol_payload(event, operator_verified=False)`` reads the
+    raw event dict with ``event.get("key", default)`` (safe lookup that
+    returns ``None`` or the default instead of raising when a field is
+    missing) and maps it into the FnolPayload fields. It honestly
+    reports the speed source ("gps" when telematics is wired up,
+    "optical_flow_proxy" when the value comes from the ego-motion
+    estimator, "unknown" otherwise) because underwriters weight records
+    by data provenance. Licence plates are carried across only as
+    salted SHA-256 hashes — the raw plate never enters the payload.
+
+    ``is_fnol_candidate(event)`` returns ``True`` only for high-risk
+    events with a sub-second time-to-collision or a closest-approach
+    distance under 2 metres — the kinematic signature of an actual
+    near-miss. Medium/low events go to coaching, not claim files.
+
+Out of scope (intentionally):
+    - HTTP transport to an insurer (carriers' APIs are heterogeneous;
+      some still want email with a JSON attachment).
+    - MP4 clip export (``clip_url`` is a placeholder until a pre/post-roll
+      video buffer is wired up).
+    - Chain-of-custody signing — the HMAC path used by edge_publisher.py
+      can be reused here when needed.
+
+Connects to:
+    - Backend: library-only today — nothing in ``server.py`` imports this
+      module yet. Intended callers are a future "Submit to insurer" route
+      and/or an end-of-day batch export.
+    - UI: none — no frontend component references FNOL today. A future
+      EventCard action ("File claim packet") or an admin export page
+      would be the natural surface.
 """
 
 from __future__ import annotations

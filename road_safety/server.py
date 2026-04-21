@@ -1,8 +1,53 @@
-"""Live safety review API.
+"""server.py — the main FastAPI web server for the dashcam safety system.
 
-Pulls a live stream, runs YOLO at 2 fps in a background thread, emits typed safety
-events over Server-Sent Events with an LLM-generated one-line narration, and exposes
-a RAG-backed copilot endpoint over a tiny statute/policy corpus.
+What it does:
+    Boots a web server that (1) pulls a live video stream in a
+    background thread, (2) runs YOLO object detection on each frame at
+    ~2 fps, (3) turns "something risky just happened" into typed safety
+    events with an LLM-written one-line narration, and (4) exposes all
+    of that to the React frontend over HTTP plus a Server-Sent-Events
+    push channel. Also serves the built React app itself.
+
+Purpose:
+    The single entry point that ties every subsystem together — stream
+    capture, detection, ego-motion, scene context, quality monitoring,
+    privacy audit, drift detection, watchdog, LLM services, and
+    frontend static files. Start this file and the whole product runs.
+
+How it works:
+    `FastAPI` is the web framework. Decorators like `@app.get("/api/...")`
+    mean: when a browser hits this URL, call the function right below.
+    `async def` + `await` are Python's async keywords — they let the
+    server handle many requests concurrently without threads. Frame
+    grabbing and YOLO inference run on a plain background `threading`
+    thread because they're CPU-bound. `asynccontextmanager` wires a
+    startup/shutdown lifecycle (spawn workers on boot, join them on
+    shutdown). Live events are pushed to browsers over the
+    `/stream/events` endpoint using Server-Sent Events (a long-lived
+    HTTP response that keeps writing new lines). Sensitive endpoints
+    (audit, admin, DSAR) are protected by `require_bearer_token` from
+    `road_safety/security.py`. Thumbnail URLs can be HMAC-signed when
+    `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1` so leaked URLs expire.
+
+Connects to:
+    - Backend: imports from `road_safety.config`, `core/detection.py`,
+      `core/stream.py`, `core/quality.py`, `core/context.py`,
+      `core/egomotion.py`, `services/*` (llm, agents, drift, digest,
+      watchdog, registry, redact), `compliance/*`, and
+      `integrations/*` (slack, edge_publisher).
+    - UI: this file IS the API that every frontend page calls. Key
+      endpoints consumed by `frontend/src/lib/api.ts`:
+        * `/api/live/status` -> `useLiveStatus` hook / dashboard
+        * `/api/live/events` and `/stream/events` -> `useEventStream`
+          hook -> `EventCard.tsx`
+        * `/api/live/scene` -> `useScene` hook -> `PerceptionBanner.tsx`
+        * `/api/live/perception` -> `PerceptionBanner.tsx`
+        * `/api/drift` -> `useDrift` hook
+        * `/api/admin/health` -> `HealthStrip.tsx` on `AdminPage.tsx`
+        * `/api/watchdog*` -> `WatchdogDrawer` via `useWatchdog`
+        * `/chat` -> `useChat` hook -> `CopilotPanel.tsx`
+        * `/` + `/thumbnails/{name}` -> serves the React bundle and
+          incident thumbnails displayed in the UI.
 """
 
 from __future__ import annotations

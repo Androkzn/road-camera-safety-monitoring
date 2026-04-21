@@ -1,7 +1,44 @@
-"""Background test runner — executes pytest and streams structured results.
+"""test_runner.py — runs pytest in the background and exposes live results.
 
-Runs the test suite in a background thread during server startup.  Exposes
-live progress via a simple in-memory state object that the API layer polls.
+What it does:
+    Launches the project's pytest suite in a background thread so the
+    dashboard can show which tests passed, which failed, and how long
+    the whole run took — without freezing the web server. Parses pytest's
+    JSON report into a per-test list (file, name, outcome, duration,
+    failure message) plus aggregate counts.
+
+Purpose:
+    Lets operators see test health directly in the UI (a red "tests
+    failing" badge, a drawer with the failing test names) instead of
+    having to shell into the host and run pytest manually.
+
+How it works:
+    * Runs pytest as a subprocess (``subprocess.run``) so it can't
+      accidentally affect the running server process. The venv's
+      ``python`` is preferred when it exists; otherwise system python.
+    * A background ``threading.Thread`` is used (not asyncio) because
+      pytest blocks and spins up its own subprocess; a thread keeps the
+      event loop free.
+    * ``@dataclass`` auto-generates typed record classes ``TestResult``
+      and ``TestRunState``. A ``threading.Lock`` guards ``TestRunState``
+      because the runner writes to it from one thread while the API
+      reads from another.
+    * ``as_dict()`` returns a JSON-serialisable snapshot for the API.
+    * First does a ``--collect-only`` pass to populate ``total`` early
+      (so the UI progress bar is accurate); then runs the real suite
+      with ``--json-report``. If ``pytest-json-report`` isn't installed
+      it falls back to parsing plain pytest stdout (``_run_pytest_basic``).
+    * 120-second timeout guards against hangs.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` imports ``run_state`` and
+      ``start_test_run``; exposes ``/api/tests/status`` (GET) and
+      ``/api/tests/run`` (POST).
+    - UI: ``frontend/src/lib/api.ts`` ``getTestStatus`` / ``runTests``;
+      ``frontend/src/hooks/useTests.ts`` polls the status;
+      ``frontend/src/components/tests/TestBadge.tsx`` and
+      ``TestDrawer.tsx`` render the counts and failing tests in the
+      TopBar.
 """
 
 from __future__ import annotations

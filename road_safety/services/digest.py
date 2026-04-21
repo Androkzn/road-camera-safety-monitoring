@@ -1,16 +1,36 @@
-"""Background schedulers for tiered Slack alerting.
+"""digest.py — timed Slack notification flushers.
 
-Two long-lived asyncio tasks:
-  * digest_scheduler  — hourly (default), flushes the medium buffer
-  * daily_scheduler   — every 24h (default), flushes the low buffer
+What it does:
+    Runs two always-on background timers. One ticks every hour and sends
+    a Slack "digest" message summarising medium-risk events. The other
+    ticks once every 24 hours and sends a Slack "daily summary" for
+    low-risk events. High-risk alerts are sent immediately elsewhere —
+    this file only handles the two buffered tiers.
 
-Intervals are configurable via environment:
-    DIGEST_INTERVAL_SEC  (default 3600)  — medium-tier flush cadence
-    DAILY_INTERVAL_SEC   (default 86400) — low-tier flush cadence
+Purpose:
+    Prevents Slack noise. Low and medium events are too frequent to post
+    one-by-one, so they are batched here and released on a fixed cadence,
+    giving operators a quiet channel instead of a firehose.
 
-Intentionally minimal: no cron, no sqlite, no config file. If a flush raises,
-we log and keep looping — transient Slack/network errors must not kill the
-scheduler.
+How it works:
+    * ``async def`` means a function can pause and let other tasks run in
+      the same thread — the web server interleaves them so the timer
+      doesn't block API requests.
+    * ``await asyncio.sleep(N)`` pauses the timer for N seconds without
+      freezing anything else.
+    * ``start_schedulers(loop)`` creates the two tasks once and is
+      idempotent — calling it twice returns the existing handles instead
+      of spawning duplicates. Errors inside each loop are caught and
+      logged so a bad Slack call never kills the timer.
+    * Intervals read from env at import time:
+        ``DIGEST_INTERVAL_SEC`` (default 3600 = 1 hour)
+        ``DAILY_INTERVAL_SEC``  (default 86400 = 24 hours)
+
+Connects to:
+    - Backend: started from ``road_safety/server.py`` at app startup;
+      calls ``road_safety.integrations.slack.flush_medium_digest`` and
+      ``flush_low_daily``.
+    - UI: none — backend-only. Output lands in Slack, not the dashboard.
 """
 
 from __future__ import annotations

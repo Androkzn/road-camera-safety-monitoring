@@ -1,28 +1,52 @@
-"""Detection and event logic — used by both batch (tools/analyze.py) and the
-live server (road_safety/server.py).
+"""detection.py — the perception brain: turns camera frames into safety events.
 
-Identity-persistent tracking via ByteTrack so downstream code reasons about
-the *same* object across frames. This enables:
+What it does:
+    Runs a YOLO object detector on each frame, tracks every detected
+    car / truck / bus / motorcycle / person across frames with a
+    persistent `track_id`, and decides when two tracked objects are
+    interacting dangerously (e.g. a car closing on a pedestrian). For
+    each risky pair it computes physical risk quantities — time-to-
+    collision (TTC, in seconds) and inter-object distance (in metres)
+    — and classifies them into `high` / `medium` / `low` risk.
 
-  1. Per-pair episode dedup — a single conflict between track_id=7 and
-     track_id=12 emits once, not N times at the source FPS.
-  2. Kinematic risk — TTC from bbox-scale growth and pair-wise closing rate;
-     monocular distance from the pinhole / ground-plane prior. Risk is a
-     physical quantity (seconds / metres), not a pixel count.
+Purpose:
+    This is where raw camera pixels become the typed safety events the
+    rest of the system (UI, audit log, LLM narration, drift monitor)
+    reasons about. Same module is used by the live server and by the
+    offline batch analyzer in `tools/analyze.py`, so ground-truth and
+    live results stay consistent.
 
-Conflict-detection methodology aligns with published SSAM / SAFE-UP / PET
-research. TTC is published only after multi-gate validation:
-  - pair-wise closing-rate TTC preferred over single-object scale-expansion
-  - inter-object 3D distance (depth difference + lateral offset), not
-    image-plane bbox proximity, gates vehicle-vehicle interactions
-  - convergence-angle filter rejects parallel / same-direction traffic
-  - sustained-growth requirement (monotonic, jitter-floor pixel delta,
-    non-trivial track motion) before any TTC value is returned
-  - per-pair confidence floor for vehicle-vehicle pairs
+How it works:
+    Uses Ultralytics YOLOv8 via the `YOLO(...)` class, with ByteTrack
+    for identity-persistent tracking so track_id=7 today and track_id=7
+    two seconds later refer to the same car. `@dataclass` (a Python
+    decorator on a class) auto-generates an `__init__` for simple
+    record types like `Detection` and `TrackHistory`. Risk math uses
+    the pinhole-camera / ground-plane prior from `config.py`
+    (`CAMERA_FOCAL_PX`, `CAMERA_HEIGHT_M`) to convert bbox pixel sizes
+    into real-world metres. Conflict detection follows published SSAM /
+    SAFE-UP / PET research: TTC is only emitted after multi-gate
+    validation — pair-wise closing rate preferred over scale-growth,
+    3D inter-object distance (not image-plane pixel proximity) gates
+    vehicle-vehicle pairs, a convergence-angle filter rejects parallel
+    traffic, and sustained monotonic growth plus a per-pair confidence
+    floor avoid false positives. If ByteTrack can't assign IDs
+    (warmup, non-trackable inputs) the pipeline gracefully degrades to
+    per-frame detection with `track_id=None`. Per-class thresholds
+    keep distant pedestrians detectable (they're naturally smaller on
+    screen than vehicles).
 
-Graceful degradation: if the tracker returns no IDs (first frames, or
-non-trackable inputs), detections still flow through with track_id=None and
-downstream code degrades to per-frame behaviour.
+Connects to:
+    - Backend: the main consumer is `road_safety/server.py`, which
+      calls `load_model`, `detect_frame`, `find_interactions`,
+      `classify_risk`, `build_event_summary`, and the distance/TTC
+      helpers. Also imported by `tools/analyze.py` for batch runs, and
+      by `core/egomotion.py` (shared `TrackHistory` / `TrackSample`
+      types).
+    - UI: the events produced here flow through `server.py` out to
+      `frontend/src/components/events/EventCard.tsx` (via the
+      `useEventStream` hook, listening on `/stream/events`), and the
+      per-event thumbnails served from `/thumbnails/{name}`.
 """
 
 from __future__ import annotations

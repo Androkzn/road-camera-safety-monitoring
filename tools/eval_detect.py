@@ -1,35 +1,41 @@
-"""
-Road-safety evaluation harness.
+"""eval_detect.py — offline detection-quality evaluator for the Road Safety pipeline.
 
-Three modes:
-  1. Single-clip (backwards compatible):
-        python tools/eval_detect.py
-     Reads data/events.json + data/labels.json, prints/writes the legacy
-     {tp,fp,fn,precision,recall,f1} JSON report (shape preserved for
-     downstream consumers).
+What it does:
+    Compares detector output (data/events.json) against human-authored
+    ground truth (labels.json) and emits precision/recall/F1. Supports three
+    modes: single-clip (legacy shape), multi-clip "suite" driven by a
+    manifest, and "compare" which diffs two suite reports and flags any
+    metric that regressed by more than 3 percent.
 
-  2. Suite:
-        python tools/eval_detect.py --suite [--manifest data/test_suite/manifest.json]
-     Runs tools/analyze.py as a subprocess against each clip in the manifest,
-     evaluates against its labels, prints a markdown matrix, and writes a
-     full JSON report to data/test_suite/results.json.
+Purpose:
+    Gates model/config changes before they reach production. Developers run
+    this locally or in CI to prove a tweak did not silently break high-risk
+    recall or overall precision. Not called by the server; offline-only.
 
-  3. Compare two suite reports:
-        python tools/eval_detect.py --compare <baseline.json> <current.json>
-     Diffs per-clip and macro metrics; flags regressions > 3%.
+How it works:
+    - `_match()` pairs each event with at most one unclaimed label if the
+      event_type matches, optional risk_level matches, and the timestamp
+      delta is within a tolerance (default 1.5s). Returns (tp, fp, fn).
+    - `_prf()` turns those counts into precision/recall/F1.
+    - `evaluate_clip()` produces overall plus per-risk and per-event-type
+      breakdowns by calling `_match()` with filter predicates.
+    - Suite mode: reads a JSON manifest, runs `tools/analyze.py` as a
+      `subprocess.run(...)` against each video, reads the events.json it
+      wrote, scores it, and collects results into a `SuiteReport`.
+    - `@dataclass` on `ClipResult` / `SuiteReport` auto-generates __init__
+      and eq methods — think of them as typed record structs. `field(default_factory=list)`
+      gives each instance its own fresh list instead of sharing one.
+    - Compare mode flattens both reports into dotted-key metric dicts and
+      prints WARN/OK lines per regression/improvement. Exits nonzero if any
+      metric dropped more than REGRESSION_THRESHOLD (0.03).
+    - `HIGH_RISK_RECALL_FLOOR` and `OVERALL_PRECISION_FLOOR` drive the
+      markdown "flags" column so reviewers spot obvious production risks.
 
-Label schema (per entry):
-  {
-    "timestamp_sec": float,
-    "event_type":    str,
-    "risk_level":    "high" | "medium" | "low"   (optional — wildcard if omitted),
-    "tolerance_sec": float                         (optional — default 1.5)
-  }
-
-A detection is a TP if it matches an unclaimed label with:
-  * same event_type
-  * |timestamp delta| <= tolerance_sec (from label, else 1.5)
-  * risk_level equal (or label omits risk_level).
+Connects to:
+    - Backend: none — CLI tool. Shells out to tools/analyze.py which itself
+      imports from road_safety.core.detection. Reads/writes files under
+      data/ (events.json, labels.json, test_suite/results.json).
+    - UI: none — CLI tool. Output is stdout JSON / markdown for humans or CI.
 """
 
 from __future__ import annotations

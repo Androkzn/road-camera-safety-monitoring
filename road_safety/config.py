@@ -1,8 +1,40 @@
-"""Centralized configuration — all paths, env vars, and constants.
+"""config.py — one place for every setting, path, and environment knob.
 
-Every module imports from here instead of computing its own
-``Path(__file__).parent``. This is the single source of truth for
-directory layout and environment-driven settings.
+What it does:
+    Reads environment variables (from the shell and from a `.env` file
+    next to the project root) and exposes them as plain Python constants
+    that the rest of the backend imports. Also builds the canonical
+    folder paths (`data/`, `data/thumbnails/`, `frontend/dist/`, ...) so
+    no module has to figure out "where am I on disk?" on its own.
+
+Purpose:
+    Single source of truth for configuration. Want to change the camera
+    focal length, the YOLO model path, the admin API token, or the event
+    buffer size? Do it here (or via env) and every module sees the new
+    value. Prevents drift between modules using different defaults.
+
+How it works:
+    `os.getenv("NAME", "default")` reads env var NAME and falls back to
+    `"default"` if unset. `load_dotenv(...)` from the `python-dotenv`
+    library pre-loads a `.env` file into the process environment before
+    those lookups run, so local development works without exporting
+    shell vars. `Path(__file__).resolve().parent.parent` walks up from
+    this file to the repo root. Groupings include: directory layout,
+    YOLO model path, yt-dlp binary, stream FPS, episode cooldowns,
+    privacy tokens (`DSAR_TOKEN`, `ADMIN_TOKEN`, `PLATE_SALT`,
+    `AUDIT_ENABLED` for GDPR compliance), fleet identity
+    (`VEHICLE_ID`, `ROAD_ID`, `DRIVER_ID`), per-camera calibration
+    (focal length in pixels, mounting height in metres — wrong values
+    poison every downstream distance/speed reading), server host/port,
+    and watchdog interval.
+
+Connects to:
+    - Backend: imported by every backend module that needs a path or
+      setting — `server.py`, `core/detection.py`, `core/stream.py`,
+      `core/egomotion.py`, `services/*`, `compliance/*`.
+    - UI: none directly — backend-only, but the values here shape what
+      the frontend sees (e.g. `STATIC_DIR` is where FastAPI serves the
+      built React bundle from).
 """
 
 from __future__ import annotations

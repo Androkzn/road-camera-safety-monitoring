@@ -12,8 +12,11 @@ This doc covers:
 > state, serves the React UI from the same process as the perception
 > workers, and has no horizontal-scaling story. All of those are
 > intentional for a POC — the goal was to validate the perception
-> pipeline end-to-end, not to survive a production SLA. Section 5
-> explains what you'd change and why.
+> pipeline end-to-end, not to survive a production SLA.
+>
+> Section 5 describes the **real deployment** we'd build if this
+> product ran against **1,000+ fixed road cameras**. Section 6
+> sequences the work from today's POC to that target.
 
 ---
 
@@ -187,237 +190,346 @@ Section 5 lists what you'd change to get there.
 
 ---
 
-## 5. Production setup — what's missing and how to add it
+## 5. Real deployment at 1,000+ cameras
 
-A production deployment needs a different shape than the POC. Here's
-what's missing, ranked roughly by criticality, with concrete options
-and trade-offs for each.
+The POC tops out at ~10 cameras on a single box. A real deployment
+running **1,000+ fixed road cameras** is a different system — different
+boundaries, different failure modes, different cost structure. This
+section describes that system concretely: what each piece is, why it's
+there, what it costs, and what breaks.
 
-### 5.1 Authentication (show-stopper)
+### 5.0 What the workload actually looks like
 
-**Missing:** every API route is open. Anyone who can reach the URL can
-read events, change settings, export data, stream live video.
+Order-of-magnitude figures, used to size everything below:
 
-**Options:**
+| Metric | Value |
+|---|---|
+| Inference throughput | ~2,000 frames/sec (1,000 cams × 2 fps) |
+| Events/day (fleet-wide) | 50,000–100,000 conflict candidates |
+| High-risk events/day (LLM-enriched) | ~5,000 |
+| Thumbnail write volume | ~100 GB/day, ~3 TB over 30 days |
+| Concurrent live viewers | 10–100 operators |
+| Baseline camera churn | 5–10% of fleet offline at any instant |
+| Tenants (cities / agencies / districts) | 5–50 typical |
 
-| Option | Effort | Trade-off |
-|---|---|---|
-| **Cognito User Pool + ALB auth listener** | 1–2 days (config only, no code) | AWS-native, integrates with ALB out of the box, supports social / SAML / OIDC. Tied to AWS. |
-| **API Gateway authorizer** | 2–3 days | Works for JSON APIs; awkward for SSE and MJPEG long-lived connections. |
-| **Homegrown JWT + bcrypt users** | ~1 week | Portable, no AWS lock-in. But: you own password rotation, MFA, session management. Rarely worth it. |
-| **OAuth2 via Auth0 / Clerk / WorkOS** | 2–3 days | Cleanest UX for enterprise SSO. Adds a per-seat vendor cost. |
+These drive the architecture: the fleet does **not** fit on one box,
+events must fan out to multiple independent consumers, thumbnails must
+live in object storage, and something has to reassign work when a
+perception worker dies. Every assumption in the POC breaks.
 
-**Recommendation:** Cognito for AWS-hosted deployments. The ALB auth
-listener does the redirect dance without any Python code change — you
-just tell FastAPI to trust the `x-amzn-oidc-identity` header the ALB
-injects.
+### 5.1 Authentication and multi-tenant access
 
-### 5.2 Stateful storage (mandatory for HA and scaling)
+**Reality at scale:** 1,000 cameras usually means multiple operator
+teams (city A, city B, highway district, parking authority), each
+restricted to their own cameras. Plus admins, auditors, DSAR handlers,
+and an ops/SRE team with cross-tenant read access.
 
-**Missing:** SQLite in `data/settings.db`, thumbnails in
-`data/thumbnails/`, event logs in `data/*.jsonl`. Fargate containers
-have ephemeral filesystems — all of this evaporates on restart, and
-nothing is shareable between two tasks.
+**What you need:**
+- **Identity:** Cognito User Pools with SAML/OIDC federation to
+  enterprise SSO (Okta, Entra ID, Google Workspace). Self-managed
+  users don't scale past a few dozen seats.
+- **Authorization:** policy-based, not role-based. Every API call
+  resolves `(user, action, camera_id | tenant_id)` against a central
+  rule set. Store policies in DynamoDB for <10 ms evaluation.
+- **Audit:** every mutation writes to CloudWatch Logs plus an
+  append-only S3 archive (Object Lock for tamper-evidence). Required
+  by most municipal camera contracts.
 
-**Demo vs. production at a glance:**
+**Trap to avoid:** baking `tenant_id` into JWT claims only. Tenancy
+needs to be a queryable attribute on the session so an admin can
+impersonate for support without minting fake tokens.
 
-| State | POC (what this build does) | Production (what you'd do) |
-|---|---|---|
-| Settings | SQLite file on local disk | **RDS Postgres** (managed, multi-AZ capable) |
-| Thumbnails | Local disk, swept hourly via `ROAD_RETENTION_THUMBNAILS_DAYS=0` | **S3** (object store) + **CloudFront** (CDN) + **lifecycle policy** (auto-delete after N days) |
-| Event log | JSONL file on local disk | **CloudWatch Logs** (captured from stdout) |
-| Audit log | JSONL file on local disk | **CloudWatch Logs** + optional long-term archive to S3 |
+### 5.2 Camera registry (source of truth)
 
-The POC "sweep every hour" trick (Section 2 "Thumbnail retention")
-keeps the disk from filling up but is fundamentally the wrong model
-for production — it still hits a single ephemeral disk, still can't
-be shared across tasks, still vanishes on restart. The real fix is
-**object storage**, not aggressive cleanup.
+**Reality at scale:** you cannot manage 1,000 cameras in `.env`. You
+need a registry that answers:
 
-**Options per piece of state:**
+- What cameras exist?
+- What's each camera's URL, credentials, format (HLS / RTSP / YouTube)?
+- Which tenant / territory / geographic area does it belong to?
+- What's its current health state, last-seen timestamp, current worker?
+- What retention and redaction policy applies (per-jurisdiction)?
 
-**Settings DB:**
+**Shape:**
+- **DynamoDB** table, one row per camera (~5 KB). GSIs on
+  `tenant_id`, `territory_id`, `status`. Writes dominated by heartbeats
+  from workers; reads dominated by dashboards.
+- **Secrets Manager** stores RTSP passwords and per-camera API keys;
+  each DynamoDB row references them by ARN. Workers fetch on
+  camera-claim, cache in memory with 1h refresh — never on every frame.
+- **Admin UI** with CRUD, bulk CSV import, connection test, territory
+  assignment, retire/unretire. A week of frontend work that saves
+  months of operational pain: "add a camera" is a one-action operation,
+  not a deploy.
+
+### 5.3 Ingestion: GPU worker fleet with lease-based sharding
+
+**Reality at scale:** perception must scale horizontally, workers will
+die, and cameras must be reassigned automatically with no operator
+intervention.
+
+```
+    ┌─────────── EKS or ECS service ──────────────┐
+    │                                              │
+    │   worker-0    worker-1    worker-2   ...     │
+    │   (g5.xl)     (g5.xl)     (g5.xl)            │
+    │      │           │            │              │
+    │      └── claims ─┼── claims ──┘              │
+    │                  ▼                           │
+    │         DynamoDB lease table                 │
+    │ (camera_id → worker_id, expires_at TTL)      │
+    └───────────────────────────────────────────────┘
+             │
+             │ publishes events
+             ▼
+        Event bus (MSK / Kinesis)
+```
+
+**Worker sizing:** one `g5.xlarge` (1× NVIDIA A10G, 24 GB VRAM) runs
+YOLOv8s at ~300 fps aggregate → ~40 cameras at 2 fps with headroom. For
+1,000 cameras: **~30 workers**, autoscaled between 20 (off-peak) and 50
+(peak / failure recovery).
+Instance cost: 30 × g5.xlarge × $1.006/hr × 730 hr/month ≈ $22k/month
+on-demand, ~$11k/month with a 3-year reserved commitment.
+
+**Lease table:** one DynamoDB row per camera with `worker_id` and
+`expires_at` (TTL ~30s). Workers refresh leases every 10s and claim
+expired leases via conditional writes. If a worker dies, its leases
+expire and surviving workers pick them up within one TTL. This is the
+HA primitive — no external scheduler, no control-plane service to run.
+
+**Why leases, not a central scheduler?** A central scheduler is simpler
+at 10 cameras and much harder at 1,000: the coordinator becomes the
+single point of failure, and every scheduling decision is a network
+round-trip. Optimistic leasing gives the same guarantees with no
+control plane.
+
+**Alternative — fully-managed video pipelines:**
+
 | Option | Trade-off |
 |---|---|
-| **RDS Postgres** (single AZ `db.t4g.small`) | Default choice. Low cost, reliable. One Python driver change. |
-| **Aurora Serverless v2** | Scales to zero when idle; better for spiky workloads. Higher per-hour cost when active. |
-| **DynamoDB** | Managed, scales automatically, cheap at rest. But: no SQL — you'd rewrite the settings layer from tables to a key-value model. |
+| **Kinesis Video Streams + SageMaker** | Fully managed ingest. But: SageMaker endpoints are expensive at sustained 2,000 fps, and per-invocation pricing kills you. Tracking state between invocations is awkward. |
+| **Roll your own on EKS** (recommended) | More ops work upfront; ~3–5× cheaper and keeps tracking state in-process. The standard choice at this scale. |
 
-**Thumbnails:**
+### 5.4 Event bus and fan-out
+
+**Reality at scale:** every event needs to go to five places —
+persistent storage, LLM enrichment, Slack / PagerDuty routing, the
+operator SSE stream, and metrics. Doing that in-process inside the
+perception worker couples lifecycles and prevents independent scaling.
+
 | Option | Trade-off |
 |---|---|
-| **S3 + CloudFront + pre-signed URLs** | Obvious choice. Durable, cheap, CDN-fronted. See note below. |
-| **EFS mount** | Looks like a filesystem to Python (minimal code change) but ~10× more expensive than S3 and still single-region. |
-| **Aggressive retention only (what the POC does today)** | Zero new infra. But: still ephemeral, still per-task, still no CDN. Only useful for demos. |
+| **MSK (managed Kafka)** | 3-broker `kafka.m5.large` ≈ $400/month. Partition by `camera_id` for ordering. 7-day retention for consumer replay. Standard choice. |
+| **Kinesis Data Streams** | AWS-native, simpler ops. Per-shard limits bite past ~50k events/sec (fine here). Cheaper at low volume, more expensive at peak burst. |
+| **SNS → SQS fanout** | Simplest. No ordering or replay — fine for Slack, not for LLM enrichment where retries matter. |
 
-> **How production thumbnail storage actually works:**
->
-> 1. When an event fires, the redaction writer calls
->    `s3_client.put_object(Bucket=..., Key=f"thumbs/{event_id}.jpg", Body=jpeg_bytes)`
->    instead of `Path.write_bytes(...)`.
-> 2. The dashboard asks the API for a thumbnail URL; the API returns a
->    **pre-signed URL** valid for ~15 minutes (time-limited, scoped to
->    that one object).
-> 3. The browser loads the image through **CloudFront**, which caches
->    it at the edge. Second operator to view the same event = cache hit,
->    no round-trip to S3.
-> 4. Retention becomes an **S3 lifecycle rule**: "delete objects under
->    `thumbs/` prefix after 30 days" — enforced by S3 itself, zero
->    Python code.
->
-> **Cost math:** 100 cameras × 30 days ≈ 285 GB in S3. At
-> $0.023/GB/month that's **~$7/month**. CloudFront egress depends on
-> how often operators view events, but the cache hit rate is usually
-> >80% so bandwidth bills are minimal.
+**Recommendation:** MSK, partitioned on `camera_id` so all events for
+one camera arrive in order on one consumer. 7-day retention so
+consumers can be upgraded safely.
 
-**Event log:**
-| Option | Trade-off |
+**Consumer pools** (each independently autoscaled):
+
+- **Storage writer** → DynamoDB (hot tier) + Aurora Postgres (warm) +
+  S3 Parquet via Firehose (cold).
+- **LLM enricher** → Anthropic API; enriched results republished to
+  `events.enriched`. Per-tenant rate limits.
+- **Notification router** → Slack / PagerDuty by risk level +
+  territory.
+- **SSE bridge** → gateway tier subscribes, pushes to connected
+  operator tabs.
+
+### 5.5 Storage tiers
+
+**Reality at scale:** one database cannot serve both sub-50 ms
+dashboard queries *and* 7-year retention. Tier by access pattern.
+
+| Tier | Store | Retention | Purpose | Est. cost |
+|---|---|---|---|---|
+| **Hot events** | DynamoDB, partition by `camera_id` | 48 h | Dashboard, live queue, recent-history API | ~$300/mo |
+| **Warm events** | Aurora Postgres (+ read replica) | 90 d | Incident review, operator queries, reports | ~$600/mo |
+| **Cold events** | S3 Parquet (daily partitions) + Athena | 7 years | Legal, DSAR, compliance, ML training | ~$100/mo |
+| **Thumbnails** | S3 + CloudFront + lifecycle-delete at 30 d | 30 d | UI display, Slack previews, LLM inputs | ~$100/mo |
+| **Audit log** | CloudWatch Logs + S3 archive (Object Lock) | 7 years | Who-did-what forensics | ~$200/mo |
+
+**ETL glue:** a Firehose subscription on the event bus writes Parquet
+to S3 continuously; a nightly Lambda promotes hot → warm and ages
+warm → cold. No batch jobs, no cron drama.
+
+**Thumbnail flow** (same shape as the original POC write-up, now at
+scale):
+
+1. Perception worker calls `s3_client.put_object(...)` after redaction.
+2. API returns a CloudFront-signed URL (15-min TTL) to the dashboard.
+3. S3 lifecycle rule enforces the 30-day cap; no Python cron.
+
+### 5.6 Live video delivery
+
+**Reality at scale:** the POC's MJPEG-from-Python pattern collapses past
+a handful of concurrent viewers — each viewer consumes perception CPU.
+That's a resource leak from the UI tier straight into the inference
+tier.
+
+**Production shape:**
+
+- Perception workers **do not** serve live video. They publish
+  annotated frames to `latest/{camera_id}.jpg` (object key updated
+  2×/sec).
+- A separate **media tier** (AWS IVS or an nginx-RTMP fleet) transmuxes
+  upstream HLS and serves HLS chunks via CloudFront. Operators load a
+  standard HLS player — zero custom transport.
+- For low-latency overlays in incident-response UIs, a dedicated
+  WebRTC signaling service streams annotated frames from a small
+  worker pool. Reserved for the few operators who need sub-second
+  latency because it's expensive.
+
+**Cost anchor:** IVS is ~$1.20/hour of viewed stream + $0.05/hour of
+input. 100 concurrent viewers × 8 hrs/day ≈ $25k/month at typical
+usage. A self-hosted nginx-RTMP fleet runs ~$3k/month but adds real ops
+burden.
+
+### 5.7 Split UI from backend
+
+Same principle as small-scale production (S3 + CloudFront, CORS on the
+gateway tier). At 1,000 cameras the gateway itself is a meaningful
+pool — 5–10 Fargate tasks behind an ALB, autoscaled on **operator
+count**, not camera count. SSE connections are long-lived; size on
+`(operators × avg_open_tabs)` and budget for connection drain during
+deploys.
+
+### 5.8 Graceful startup and shutdown, per worker
+
+At 1,000 cameras the POC's "wait for all streams before becoming
+healthy" pattern would never pass — some cameras are always failing.
+The production contract:
+
+- **Health check = "is this worker claiming and refreshing its
+  leases?"** Not "are all its streams connected?".
+- Per-camera state is surfaced via the lease table and a worker-local
+  `/internal/cameras` endpoint for ops tooling.
+- On SIGTERM, the worker releases all leases (deletes lease rows),
+  drains in-flight frames, flushes events to the bus, then exits.
+  Other workers pick up the orphaned cameras within one lease TTL
+  (~30s).
+
+### 5.9 Observability at scale
+
+At 1,000 cameras, a per-camera dashboard is not a dashboard — it's a
+wall. You need aggregation and exceptions-only views:
+
+- **Fleet metrics** — aggregate fps, error rate, p50/p99 inference
+  latency, cameras-offline count, event rate by risk level. Managed
+  Prometheus (AMP) + Grafana Cloud.
+- **Per-tenant SLO dashboards** — each tenant sees only their own
+  cameras. Grafana with row-level access filters against `tenant_id`
+  label.
+- **Distributed tracing** — OpenTelemetry at 1% baseline sampling
+  across gateway → bus → consumers; 100% sampling on error paths.
+  Honeycomb or X-Ray.
+- **Alert routing** — camera-down-15-min is a tenant alert (Slack);
+  bus-lag-60s is an SRE alert (PagerDuty). Different severities,
+  different escalation paths.
+
+Budget: ~$1,500/month for Grafana Cloud + Honeycomb at this fleet
+size, or ~$800/month self-hosted on a small EKS add-on.
+
+### 5.10 Abuse protection and tenant isolation
+
+- **WAF** in front of the gateway — managed rule sets for bots, SQLi,
+  XSS. ~$10–30/month + per-request.
+- **Per-tenant rate limits** — API Gateway usage plans or slowapi
+  keyed by tenant. Prevents one tenant's runaway client from starving
+  others.
+- **Per-tenant LLM budget** — daily token budget in DynamoDB, checked
+  before each Anthropic call. Cuts off runaway spend when a tenant
+  mis-configures and tries to enrich every low-risk event.
+
+### 5.11 Cost model (indicative, $/month)
+
+| Line item | Estimate |
 |---|---|
-| **CloudWatch Logs** (from stdout) | Free with Fargate. Query via Logs Insights. Good for most operations. |
-| **OpenSearch** | Better for long-retention + complex queries. Adds real cost (~$100/month minimum). |
-| **S3 + Athena** | Cheapest for years-long retention. Slower queries. |
+| GPU perception fleet (30 × g5.xlarge, 3-yr RI) | $11,000 |
+| Gateway + consumer Fargate pools | $800 |
+| MSK (3 brokers) | $400 |
+| DynamoDB (leases + hot events + tenant config) | $500 |
+| Aurora Postgres (warm tier) | $600 |
+| S3 + CloudFront (thumbs + cold events) | $400 |
+| Secrets Manager | $100 |
+| Observability (Grafana Cloud + Honeycomb) | $1,500 |
+| Live video delivery (IVS, moderate viewership) | $5,000 |
+| LLM enrichment (high-risk only, ~5k events/day) | $2,500 |
+| WAF + ancillary | $500 |
+| **Total** | **~$23,000/month** |
 
-**Recommendation:** RDS Postgres + S3 + CloudWatch. Straightforward,
-cheap, and the code change is mostly swapping two modules.
+**Sensitivity:**
 
-### 5.3 Separate the React UI from the backend
+- Enrich **every** event with LLM (not just high-risk): **+$20k/mo**.
+- Live video to every operator tab all day: **+$20–25k/mo** (IVS).
+- Cross-region active/active: **+40–60%** across the board.
+- Switch GPU fleet to on-demand (no RI commitment): **+$11k/mo**.
 
-**Missing:** the UI ships from the same uvicorn process that runs
-perception. Every UI deploy restarts perception. Every perception
-restart drops active video streams for ~70 seconds.
+These are the big levers. Most other line items are rounding errors.
 
-**Options:**
+### 5.12 Failure modes that actually happen at this scale
 
-| Option | Effort | Trade-off |
-|---|---|---|
-| **S3 + CloudFront** | 1 day | Standard static-site deploy. CDN caching. Independent release cadence. Frontend deploys in ~30s instead of 5min. |
-| **Amplify Hosting** | Half a day | AWS's managed front-door for SPAs. Has PR previews out of the box. A bit more expensive and more vendor-tied. |
-| **Vercel / Netlify** | Half a day | Best UX for pure frontend. Bills per seat. Not AWS-native so data-transfer paths get weird. |
+Roughly in the order they'll page you:
 
-**Trade-off to understand:** splitting the UI requires adding **CORS**
-support to the backend (so the React app at `https://app.example.com`
-can call the API at `https://api.example.com`). That's ~10 lines of
-FastAPI middleware. You also need a build-time env var
-(`VITE_API_BASE_URL`) so the bundle knows where to call.
-
-**Recommendation:** S3 + CloudFront. Cheapest, most flexible, and it's
-the path that unlocks clean Cognito auth later.
-
-### 5.4 Graceful startup and shutdown
-
-**Missing:**
-
-- **Startup is all-or-nothing.** The lifespan hook waits for every
-  camera to connect (~70s for 6 YouTube feeds) before the app answers
-  `/api/admin/health`. During that window, ALB marks the task
-  unhealthy, rolling deploys drop traffic, autoscaling can't respond.
-- **Shutdown leaks child processes.** On SIGTERM, yt-dlp / ffmpeg
-  subprocesses survive, pipe-break messages flood, and the task
-  doesn't drain cleanly.
-
-**Options:**
-
-**For startup:**
-| Option | Trade-off |
-|---|---|
-| **Lazy camera init + per-camera readiness flag** | App becomes healthy in ~2s; cameras attach in background. `/api/live/sources` exposes per-camera state. Clean, correct. ~1 day of work. |
-| **Accept 70s startup + increase ALB start-period** | Zero code change. But rolling deploys still drop traffic, and autoscaling can't respond quickly. Not really a fix, just hiding the problem. |
-
-**For shutdown:**
-| Option | Trade-off |
-|---|---|
-| **Lifespan shutdown hook that kills subprocesses** | Handle SIGTERM → close stream readers → `proc.terminate()` each subprocess → `proc.wait(timeout=5)` → `kill()`. ~half a day. The right fix. |
-| **Container stop grace period extended to 60s** | Zero code change. Tasks take a minute to die. Deploys get slower. Partial workaround. |
-
-**Recommendation:** do both real fixes (lazy init + proper shutdown).
-Combined effort ~1.5 days. Big quality-of-life improvement for ops.
-
-### 5.5 Horizontal scaling
-
-**Missing:** the app is one process. Past ~10 cameras it starves; past
-one Fargate task you have no way to partition cameras across
-instances.
-
-**Options:**
-
-| Option | Effort | Trade-off |
-|---|---|---|
-| **Vertical scale (bigger Fargate task)** | Half a day | Go from 2 vCPU → 16 vCPU. Gets you to maybe 20 cameras. No HA. Eventually hits a ceiling. |
-| **Manual partitioning via env vars** | 1 day | `ROAD_STREAM_SOURCE_SHARD=0/3` splits cameras by hash. Works, but requires hand-editing env vars when camera count changes. |
-| **Split into gateway + worker tiers with leases** | 1–2 weeks | The real answer. Gateway handles UI / API / SSE (stateless, autoscales on user load). Workers claim cameras via DynamoDB lease table (autoscale on camera count). Redis pub/sub glues events. |
-| **GPU fleet for perception** | +1 week | g4dn.xlarge fits ~20–40 cameras per T4 GPU. g5.xlarge fits ~40–80 on an A10G. Only matters past ~25 cameras; below that CPU Fargate is fine. |
-
-**Trade-off to understand:** the worker/gateway split solves real
-problems (independent scaling, per-worker blast radius, rolling deploys
-that don't drop video) but adds real complexity (lease stale-detection,
-pub/sub delivery gaps, MJPEG transport that can't round-trip through
-Redis cheaply). Don't do it past a certain camera count — but don't do
-it before.
-
-**Recommendation:** stay on the monolith until camera count forces it.
-Rule of thumb: split when you hit 20+ cameras, or when a single
-perception-tier restart dropping video for 70s becomes operationally
-intolerable.
-
-### 5.6 Observability
-
-**Missing:** logs via stdout are the only telemetry. No metrics, no
-traces, no per-camera health.
-
-**Options:**
-
-| Option | Effort | Trade-off |
-|---|---|---|
-| **Prometheus `/metrics` endpoint via `prometheus-fastapi-instrumentator`** | Half a day | Industry standard. Auto-captures request counts, latency histograms, errors. Scrape via CloudWatch Agent. |
-| **OpenTelemetry + AWS X-Ray** | 2–3 days | Distributed traces. Worth it when you split into multiple tiers (Section 5.5). Overkill for a monolith. |
-| **CloudWatch Embedded Metric Format (EMF) in logs** | 1 day | Emit metrics as structured JSON lines; CloudWatch extracts them. No new endpoint needed. Locked to AWS. |
-
-**Recommendation:** Prometheus endpoint first — one library import and
-a mount. Add OpenTelemetry later if/when you split tiers.
-
-### 5.7 Abuse protection
-
-**Missing:** no rate limiting on API endpoints (there's a narrow
-per-IP limiter for clip rendering, but nothing else). No WAF.
-
-**Options:**
-
-| Option | Effort | Trade-off |
-|---|---|---|
-| **AWS WAF rules in front of ALB** | 1 day | Managed rule sets for bots, SQL injection, etc. Billed per rule per million requests. The right place for this. |
-| **FastAPI-level rate limit (slowapi)** | Half a day | Per-IP or per-key rate buckets in Python. Fine for finer-grained rules, but doesn't protect against floods that overwhelm the task. |
-| **CloudFront + `AWS-AWSManagedRulesCommonRuleSet`** | Half a day | Free tier for common attack patterns. Catches the worst stuff for zero effort. |
-
-**Recommendation:** CloudFront managed rules (free) + WAF rate-based
-rule (~$10/month). Add slowapi in Python only if you need
-per-authenticated-user budgets.
+1. **Cameras go offline constantly.** Public YouTube IDs change,
+   municipal RTSP endpoints rotate credentials, cell-modem cameras
+   flap. At 1,000 cameras, ~50 are always broken. Must be **normal**,
+   not alertable. Alert on fleet-wide offline-rate **anomaly**, not
+   individual cameras.
+2. **LLM rate-limit storms** during event spikes. Implement token
+   buckets, queue overflow, and graceful degradation — drop enrichment,
+   keep the raw event.
+3. **MSK consumer lag** on the enricher when the LLM is slow.
+   Autoscale the enricher pool on **consumer lag**, not CPU.
+4. **Lease-table hotspots** if partitioning is wrong. Always partition
+   the lease table on `camera_id` hash, never on timestamp or
+   `tenant_id`.
+5. **Thumbnail S3 503s** during event storms. Exponential backoff +
+   a local spill queue on worker ephemeral disk; drain on recovery.
+6. **Secrets Manager throttling** during rolling deploys of the
+   worker fleet. Cache per-camera secrets in worker memory with 1 h
+   refresh; never fetch in the hot path.
+7. **Cross-tenant data leakage via MJPEG URL guessing** — the POC's
+   `/admin/video_feed/{id}` has no tenant check. Adding that check is
+   small but mandatory before multi-tenant cutover.
 
 ---
 
-## 6. Recommended production path (priorities in order)
+## 6. Phased build plan: POC → 1,000 cameras
 
-If someone asked "do these in order, with minimal scope creep":
+POC → production at this scale is not one project. Sequence matters —
+some steps gate later ones. Indicative team: 2–3 engineers full-time.
 
-1. **Split UI to S3 + CloudFront** (Section 5.3) — ~1 day, unlocks
-   everything else.
-2. **Add Cognito auth** (Section 5.1) — mandatory before any external
-   exposure.
-3. **Move state to RDS + S3** (Section 5.2) — required before running
-   more than one task.
-4. **Fix startup and shutdown** (Section 5.4) — required for zero-
-   downtime deploys.
-5. **Add Prometheus metrics** (Section 5.6) — enables smart
-   autoscaling later.
-6. **Add WAF + CloudFront managed rules** (Section 5.7) — cheap
-   insurance.
-7. **Split perception workers only when camera count forces it**
-   (Section 5.5).
+| Phase | Scope | Duration |
+|---|---|---|
+| **0 — POC hardening** | Auth (5.1 MVP), UI split (5.7), basic observability (5.9). Single-box deploy, no scale yet. | 3–4 weeks |
+| **1 — Storage split + registry** | Camera registry (5.2), storage tiers (5.5), proper startup/shutdown (5.8). Still single-box perception. Supports ~20 cameras. | 4–6 weeks |
+| **2 — Perception fleet** | Worker service + lease table (5.3), event bus (5.4), claim/drain lifecycle. Supports 100+ cameras. | 6–8 weeks |
+| **3 — Live video split** | Media tier (5.6), scale gateway tier independently. Supports full operator load. | 3–4 weeks |
+| **4 — Multi-tenant + abuse protection** | Tenant-scoped auth (5.1 full), per-tenant rate + LLM budgets (5.10), per-tenant SLO dashboards (5.9). | 3–4 weeks |
+| **5 — Scale to 1,000 + multi-region** | Autoscaling tuning, cross-region replication for registry and cold storage, DR drill, chaos testing. | 4–6 weeks |
 
-Total effort for items 1–6: **~2 weeks** of focused work for one
-engineer. That's the path from POC to a credible small-scale
-production deployment (≤25 cameras, one region, one operator team).
+**Total calendar time:** ~6 months at 2–3 FTE. Plan for 8–10 months
+for a first-time team doing it cautiously.
 
-Item 7 is a larger rewrite that only pays off past 20–30 cameras.
+**Anti-patterns to avoid:**
+
+- **Skipping the camera registry** because `.env` feels simpler — past
+  50 cameras, the file can't be kept in sync and every deploy becomes
+  a camera-config change.
+- **One Postgres for hot + warm queries** — the p99 on warm queries
+  will eat hot-query headroom.
+- **Serving live video from perception workers** — resource leak
+  straight into the inference tier; the first thing that breaks at
+  30+ concurrent viewers.
+- **Enriching every event with LLM** — ~90% of events don't need it,
+  and at 1,000 cameras the enrichment bill dwarfs the infrastructure
+  bill if you don't gate it.
+- **Central scheduler instead of leases** — becomes the failure you
+  actually experience.
 
 ---
 

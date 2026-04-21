@@ -1,39 +1,56 @@
-"""Drift monitor + active-learning sampler for the road safety dashcam pipeline.
+"""drift.py — model-quality monitor and active-learning sample collector.
 
-Two responsibilities, intentionally colocated because they share the same
-"what went wrong?" signal:
+What it does:
+    Two jobs bundled together because they share the same "the model
+    might be getting worse" signal.
 
-  1. ``DriftMonitor`` — joins operator feedback (``data/feedback.jsonl``) with
-     emitted events (``data/events.json`` or an in-memory getter) and reports
-     rolling-window precision. It also slices by ``risk_level`` and
-     ``event_type`` so an operator can tell whether degradation is global or
-     localized (e.g. one event_type is suddenly noisy because a new camera
-     angle landed on the system).
+    1. ``DriftMonitor`` — reads operator feedback (thumbs up / thumbs
+       down on each alert) and the recent event log, then computes
+       rolling precision: "of the last N alerts the operator judged,
+       how many were actually real?". Slices that number by risk level
+       and event type so you can tell whether degradation is global or
+       confined to one category.
 
-  2. ``ActiveLearningSampler`` — pulls the *ambiguous* and *disputed* events
-     off the wire and packages them for re-labeling in Label Studio / CVAT.
-     Decision-boundary sampling (confidence in [0.35, 0.50]) gives the model
-     the examples it is most uncertain about; disputed sampling (verdict=fp)
-     captures the ones the model got *confidently wrong*. Both are the high
-     information-per-label buckets.
+    2. ``ActiveLearningSampler`` — spots events the model was unsure
+       about (confidence near the 0.5 decision boundary) and events the
+       operator marked as false positives, then saves a copy for
+       relabelling in Label Studio / CVAT. These are the highest-value
+       examples for retraining.
 
-Design calls worth calling out:
+Purpose:
+    Detection models silently drift as cameras move, lighting changes, or
+    new vehicle types appear. This module is how the system notices that
+    early — falling precision triggers an alert, and the relabel queue
+    feeds the next model update.
 
-  * Never raises. Monitors live in production — a missing feedback file, a
-    corrupt line, or a missing events.json must degrade to zeros, not crash
-    the dashboard endpoint.
+How it works:
+    * ``@dataclass`` on ``DriftReport`` and ``ActiveLearningSample``
+      generates typed records with an auto ``__init__``.
+    * ``field(default_factory=...)`` gives each instance its own fresh
+      list/dict instead of sharing one across instances.
+    * ``_read_jsonl`` tolerates corrupt lines — this runs behind a
+      dashboard endpoint, so ``compute()`` must never crash; on any
+      failure it returns an empty report.
+    * Precision buckets with fewer than 3 labels are reported as
+      "insufficient" rather than a misleading 1/1 = 100%.
+    * Trend compares the current window against the previous
+      non-overlapping window using a +/- 0.05 band.
+    * The sampler writes copies of the INTERNAL (unredacted) thumbnail
+      — labelling needs full fidelity and the export is an internal
+      artifact.
+    * Tunables: ``PRECISION_ALERT_THRESHOLD`` (0.70),
+      ``DECISION_BOUNDARY_LOW/HIGH`` (0.35–0.50),
+      ``MIN_BUCKET_LABELS`` (3), ``TREND_DELTA`` (0.05).
 
-  * Export tarballs copy the INTERNAL (unredacted) thumbnail, because
-    labeling needs full fidelity and the export is explicitly an
-    inside-the-org artifact. Public, face/plate-redacted thumbnails are
-    useless for training.
-
-  * Buckets with <3 labels report "insufficient" instead of a noisy
-    precision — 1/1 is not 100% precision, it is one data point.
-
-  * Trend compares the current window against the *prior* non-overlapping
-    window of the same size, using a +/- 0.05 band around stable. Anything
-    tighter is noise at typical operator-feedback volumes.
+Connects to:
+    - Backend: ``road_safety/server.py`` constructs a ``DriftMonitor``
+      and an ``ActiveLearningSampler``; exposes ``/api/drift`` and
+      ``/api/active_learning/export``. ``drift_warning_message`` is
+      used by Slack integration and by watchdog rule checks.
+    - UI: ``frontend/src/lib/api.ts`` calls ``/api/drift`` via
+      ``getDrift``; consumed by ``frontend/src/hooks/useDrift.ts`` and
+      rendered in ``frontend/src/pages/DashboardPage.tsx`` and
+      ``MonitoringPage.tsx``.
 """
 
 from __future__ import annotations

@@ -1,26 +1,51 @@
-"""AI agent orchestration — tool-calling agents for safety workflows.
+"""agents.py — tool-calling AI agents for coaching, investigation, reports.
 
-Three production agents, each with a focused tool set:
+What it does:
+    Defines three Claude-powered agents that can call back into the
+    system to gather information before answering:
+      1. Coaching agent — given an event_id, writes a structured coaching
+         note for the road-safety manager (what happened, why it matters,
+         recommended action, policy reference).
+      2. Investigation agent — correlates one event with similar recent
+         events, operator feedback, and drift status to produce a root
+         cause hypothesis.
+      3. Report agent — builds a daily/weekly safety summary by counting
+         events, consulting drift, and reviewing feedback.
 
-  1. CoachingAgent   — given a high/medium-risk event, generates a structured
-                       coaching note for the road safety manager (what happened, why
-                       it matters, what the driver should do differently).
-  2. InvestigationAgent — correlates a single event with historical data,
-                          road safety policy, and drift reports to build a root-cause
-                          narrative.
-  3. ReportAgent     — queries events, feedback, and drift data to produce a
-                       structured daily/weekly safety summary.
+Purpose:
+    These are the "Ask Claude to think about it" flows exposed to
+    operators. They go beyond single-prompt completions because the
+    agent needs to look up events, load policy files, read feedback, etc.
+    — that's what "tool calling" means.
 
-Architecture follows production best practices:
-  * Each agent has a single responsibility with a bounded tool set (<5 tools)
-    to avoid tool-overload hallucination.
-  * Structured JSON output with schema enforcement.
-  * Idempotent tool calls — re-running with the same input produces the same
-    output.
-  * Hard stop: agents cap iterations at MAX_STEPS to prevent runaway loops.
+How it works:
+    * Each agent has a small, focused tool set (3-5 tools) to avoid
+      tool-overload hallucination.
+    * ``AgentExecutor.run`` implements the tool loop: send prompt + tools
+      to Claude; if Claude returns a ``tool_use`` block, execute the
+      matching Python function, attach the result as a ``tool_result``,
+      and loop. Stops when Claude replies with plain text or after
+      ``MAX_STEPS = 5`` iterations (safety guard against runaway loops).
+    * ``async def`` / ``await`` let the agent pause for network calls
+      without blocking the web server.
+    * Output is a structured JSON object per agent (schema defined in
+      each ``*_SYSTEM`` prompt) so the UI can render it as fields, not
+      as free-form prose.
+    * Tools are plain Python functions (``tool_get_event``,
+      ``tool_get_recent_events``, ``tool_get_policy``,
+      ``tool_get_feedback``, ``tool_get_drift_report``,
+      ``tool_count_by_type``, ``tool_count_by_risk``); the executor
+      dispatches by name.
+    * Uses ``claude-haiku-4-5-20251001`` by default for speed + cost.
 
-LLM backend: reuses the existing llm.py completion path (with failover +
-observability already wired).
+Connects to:
+    - Backend: ``road_safety/server.py`` constructs an ``AgentExecutor``
+      wired to the event buffer, recent-events source, and drift monitor;
+      exposes ``/api/agents/coaching``, ``/api/agents/investigation``,
+      and ``/api/agents/report`` (all POST). Uses
+      ``road_safety.services.llm_obs.observer`` for metrics.
+    - UI: none currently wired in ``frontend/src/lib/api.ts``; these
+      endpoints are consumed manually or by future operator tooling.
 """
 
 from __future__ import annotations

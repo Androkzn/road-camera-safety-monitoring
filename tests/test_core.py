@@ -1,4 +1,28 @@
-"""Tests for road_safety.core — detection pipeline, context, quality."""
+"""test_core.py — tests for the core detection / context / quality modules.
+
+What it does:
+    Exercises pure functions in `road_safety.core.detection`:
+    `bbox_edge_distance`, `find_interactions`, `classify_risk`,
+    `estimate_distance_m`, `estimate_ttc_sec`, `build_event_summary`, and
+    the `TrackHistory` / `TrackSample` helpers. Also home to tests for
+    context building and quality / confidence scoring.
+
+Purpose:
+    Detection math is the heart of the system — a wrong bounding-box
+    distance or a broken TTC estimator silently changes every event. Unit
+    tests on these pure helpers catch regressions before they hit the
+    live pipeline.
+
+How it works:
+    Tests construct lightweight `Detection` dataclasses directly (no
+    frames, no YOLO), call one helper, and assert exact numeric results
+    using `pytest.approx` for floats. No mocking required because the
+    functions are pure.
+
+Connects to:
+    - Backend: tests road_safety.core.detection and sibling modules.
+    - UI: none — test file.
+"""
 
 from __future__ import annotations
 

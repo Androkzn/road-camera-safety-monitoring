@@ -1,24 +1,68 @@
-"""Slack notifier — Incoming Webhook with optional image relay.
+"""slack.py — tiered Slack notifications for road-safety events.
 
-Configuration:
-    SLACK_WEBHOOK_URL   full https://hooks.slack.com/... URL
-    SLACK_MIN_RISK      "high" | "medium" | "low"  (default "high")
+What it does:
+    Sends formatted messages to a customer's Slack workspace via an
+    Incoming Webhook URL. High-risk events fire an immediate, rich
+    "Block Kit" card with narration, kinematics, and optional image.
+    Medium-risk events are collected in memory and posted as one
+    hourly digest. Low-risk events are collected for a daily digest.
+    A quality gate blocks high-risk alerts that lack sustained
+    evidence so fleet managers aren't paged on single noisy frames.
 
-Image relay is now opt-in. By default high-risk alerts are text-only so the
-system does not publish screenshots to a third-party host. Deployments that
-want Slack-rendered images can explicitly enable a relay or replace
-``_upload_public_image`` with an S3 / Azure Blob + signed URL upload.
+Purpose:
+    Customers want Slack because that's where their operations team
+    already lives — they don't want yet another dashboard tab to watch.
+    Tiering exists because a fleet with dozens of trucks would otherwise
+    drown in notifications; only genuine near-misses deserve an instant
+    ping, everything else is context for periodic review.
 
-Tiered alerting:
-  high    -> notify_high()        fires immediately, rich Block Kit card,
-                                  subject to the high-risk quality gate
-  medium  -> buffer_medium()      batched, flushed hourly as a text digest
-  low     -> buffer_low()         batched, flushed daily as a text digest
+How it works:
+    Three tiers, three entry points:
+      * ``notify_high(event, thumb_path)`` — posts immediately.
+      * ``buffer_medium(event)`` / ``buffer_low(event)`` — append to
+        module-level lists ``_MEDIUM_BUFFER`` / ``_LOW_BUFFER``.
+      * ``flush_medium_digest()`` / ``flush_low_daily()`` — drain the
+        buffers and post one combined message. These are called on a
+        schedule by ``road_safety/services/digest.py``.
 
-The public ``notify_event(event, thumb_path)`` dispatcher routes by tier.
+    ``notify_event(event, thumb_path)`` is the public dispatcher used
+    by ``server.py``. For high-risk events it runs ``_passes_high_quality_gate``
+    first: the event must have at least ``SLACK_HIGH_MIN_DURATION_SEC``
+    of sustained episode, at least ``SLACK_HIGH_MIN_FRAMES`` high-risk
+    frames, and confidence at least ``SLACK_HIGH_MIN_CONFIDENCE``.
+    Events that fail are *downgraded* to the medium buffer rather than
+    silently dropped — nothing is lost.
 
-The medium/low buffers are in-memory; deployments expecting long Slack
-outages should persist them (SQLite or equivalent) with a memory cap.
+    ``async def`` on the posting functions means they can ``await``
+    an HTTP response (via ``httpx.AsyncClient``) without blocking the
+    main server loop. Image relay is opt-in via ``SLACK_ENABLE_IMAGE_RELAY``:
+    when off, high-risk cards are text-only so redacted thumbnails are
+    never published to a third-party host. Plate data on the egress
+    payload is always a salted SHA-256 hash, never the raw plate text.
+
+Configuration (environment variables):
+    SLACK_WEBHOOK_URL              required — https://hooks.slack.com/...
+    SLACK_MIN_RISK                 "high" | "medium" | "low"  (default "high")
+    SLACK_ENABLE_IMAGE_RELAY       "1" to publish thumbnails (default off)
+    SLACK_HIGH_MIN_DURATION_SEC    gate: episode duration (default 1.5)
+    SLACK_HIGH_MIN_FRAMES          gate: high-risk frames  (default 2)
+    SLACK_HIGH_MIN_CONFIDENCE      gate: detector confidence (default 0.55)
+
+Caveats:
+    Medium/low buffers are in-memory — they reset on process restart.
+    Deployments expecting long Slack outages should swap them for a
+    persistent store with a memory cap.
+
+Connects to:
+    - Backend: ``road_safety/server.py`` imports ``notify_event`` and
+      ``slack_configured``; ``road_safety/services/digest.py`` drives
+      the hourly/daily flush schedule; ``road_safety/api/feedback.py``
+      reads ``get_medium_buffer()`` so the operator coaching queue can
+      show the same events Slack would have digested.
+    - UI: indirectly — the web dashboard consumes
+      ``GET /api/coaching_queue`` (backed by ``get_medium_buffer()``)
+      to populate the operator-review list. Slack messages themselves
+      appear in the customer's Slack workspace, not the web UI.
 """
 
 from __future__ import annotations

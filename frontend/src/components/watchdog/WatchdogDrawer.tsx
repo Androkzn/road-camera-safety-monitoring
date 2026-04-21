@@ -1,3 +1,42 @@
+/**
+ * WatchdogDrawer.tsx — slide-out panel listing watchdog findings.
+ *
+ * What it does:
+ *   Opens as a right-side drawer with four summary tiles (Errors, Warnings,
+ *   Info, All) that double as severity filters, a meta line ("Checks: N |
+ *   Interval: 60s | Last check: 12s ago"), and a scrollable list of
+ *   findings grouped by category. Also supports a multi-select mode for
+ *   bulk delete, plus a "Clear All" action.
+ *
+ * Purpose:
+ *   Lets the operator inspect and dismiss pipeline self-diagnostic issues
+ *   (e.g., low FPS, model confidence drops) produced by the backend
+ *   watchdog.
+ *
+ * How it works:
+ *   - Props: `open`/`onClose` control visibility, `status` and `findings`
+ *     are the fetched data (each nullable), `onDeleteSelected(keys)` and
+ *     `onClearAll()` are async handlers provided by the parent.
+ *   - `useState` holds local UI state: current severity filter, whether
+ *     we're in multi-select mode, the `Set<string>` of selected row keys,
+ *     and a `deleting` spinner flag.
+ *   - `useCallback` wraps handlers so their identity stays stable across
+ *     renders — useful when passing them to children or `useEffect` deps.
+ *   - Findings are sorted by severity then timestamp, filtered by the
+ *     chosen severity, and grouped into a `byCategory` dictionary. Each
+ *     group renders via `.map()` (loops the list and renders one item
+ *     each) with a `findingKey(f)` stable key for React.
+ *   - `<FilterTile>` is a small inner component used four times.
+ *
+ * Connects to:
+ *   - Backend: data and actions come from the parent (usually via
+ *     `useWatchdog` or `WatchdogContext`) hitting `/api/watchdog`,
+ *     `/api/watchdog/recent`, `/api/watchdog/findings/delete`, and
+ *     `/api/watchdog/findings?clear_all=true`.
+ *   - UI: historically rendered from an AdminPage-style caller that passes
+ *     the watchdog hook data in. `pages/MonitoringPage.tsx` implements its
+ *     own richer layout rather than using this drawer directly.
+ */
 import { useState, useCallback } from "react";
 import type { WatchdogFinding, WatchdogStatus } from "../../types";
 import styles from "./WatchdogDrawer.module.css";

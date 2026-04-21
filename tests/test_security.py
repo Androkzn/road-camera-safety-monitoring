@@ -1,4 +1,28 @@
-"""Tests for request guards and public-thumbnail signed URLs."""
+"""test_security.py — tests for bearer-token guards and signed thumbnail URLs.
+
+What it does:
+    Exercises `road_safety.security.require_bearer_token` in isolation
+    (missing token, wrong token, correct token, env-var override) and the
+    signed-URL logic used to gate public thumbnails behind a short-lived
+    HMAC token.
+
+Purpose:
+    Security regressions are silent and severe — these tests pin the
+    behaviour of the guard so an accidental refactor cannot downgrade
+    access control.
+
+How it works:
+    - `_guard_app` builds a minimal FastAPI app with a single `/protected`
+      route that calls `require_bearer_token`.
+    - `_make_request` constructs a `fastapi.Request` from a raw ASGI scope
+      dict so guards can be unit-tested without spinning up a full server.
+    - Individual tests call the guard with various Authorization headers
+      and assert HTTPException(401/403) vs success.
+
+Connects to:
+    - Backend: tests `road_safety.security.require_bearer_token`.
+    - UI: none — test file.
+"""
 
 from __future__ import annotations
 

@@ -1,13 +1,62 @@
-"""Operator feedback API — thumbs-up / thumbs-down verdicts per event.
+"""feedback.py — HTTP routes for operator verdicts and the coaching queue.
 
-Mounted from server.py via ``feedback.mount(app)``. Writes are
-append-only JSON-lines to ``data/feedback.jsonl`` — downstream drift-monitoring
-jobs can tail that file.
+What it does:
+    Exposes three HTTP endpoints the web dashboard uses:
+      * ``POST /api/feedback`` — store a "correct" (tp) or "false alarm"
+        (fp) verdict for one event, optionally with a free-text note.
+      * ``GET  /api/feedback`` — return the last 100 verdicts, for
+        drift-monitoring tails and admin UIs.
+      * ``GET  /api/coaching_queue`` — return the current list of
+        medium-risk events waiting for operator review (what Slack
+        would have posted in the next hourly digest).
 
-Endpoints:
-  POST /api/feedback          — record a verdict
-  GET  /api/feedback          — last 100 lines parsed
-  GET  /api/coaching_queue    — pending medium-risk events for operator review
+Purpose:
+    Operator verdicts are the ground-truth signal that lets the system
+    measure detector accuracy over time ("drift") and pick which events
+    to route into active-learning retraining. Splitting these routes
+    into their own module keeps the growing ``server.py`` manageable
+    and makes the feedback contract easy to test in isolation.
+
+How it works:
+    FastAPI is the Python web framework. The ``mount(app, ...)``
+    function is called once at startup from ``server.py`` and registers
+    the three routes on the main ``FastAPI`` application. Inside
+    ``mount``, you'll see ``@app.post("/api/feedback")`` — that ``@`` is
+    a "decorator", Python's way of saying "wrap the function below with
+    this behaviour". Here it tells FastAPI "this coroutine handles POST
+    requests to /api/feedback".
+
+    The request body is validated by ``FeedbackBody``, a pydantic model.
+    ``verdict: Literal["tp", "fp"]`` means the field must be exactly
+    one of those two strings — anything else gets a 422 rejection
+    before our code runs. ``note`` is capped at 2000 characters.
+
+    Writes are plain synchronous file appends to ``data/feedback.jsonl``
+    (one JSON object per line). Feedback volume is low so blocking the
+    request briefly on the filesystem is acceptable. A caller-supplied
+    ``on_feedback`` async hook (used for drift recompute / active-learning
+    sampling) runs via ``asyncio.create_task`` — that means the hook is
+    scheduled on the event loop but NOT awaited, so the HTTP response
+    returns immediately and the hook runs in the background. ``_safe_hook``
+    swallows exceptions so a misbehaving hook can't break feedback writes.
+
+    The coaching queue prefers the live in-memory medium-risk buffer
+    from ``integrations/slack.py`` (what the next hourly digest would
+    contain); if that's empty — typically after a process restart — it
+    falls back to replaying medium-risk events from ``data/events.json``.
+
+Connects to:
+    - Backend: mounted by ``road_safety/server.py`` via
+      ``mount_feedback_routes(app, on_feedback=..., event_lookup=...)``.
+      The drift/active-learning hook passed in there is defined in
+      ``server.py`` and writes to the audit log + active-learning queue.
+      Reads ``slack.get_medium_buffer()`` for the coaching queue.
+    - UI: ``frontend/src/components/events/FeedbackButtons.tsx`` POSTs to
+      ``/api/feedback`` when the operator clicks the "Correct" / "False
+      alarm" buttons on an ``EventCard``; the call is dispatched through
+      ``frontend/src/lib/api.ts`` (``api.sendFeedback``). A coaching-queue
+      surface consumes ``/api/coaching_queue`` (no dedicated component
+      name yet — wired via the same ``api`` helper).
 """
 
 from __future__ import annotations

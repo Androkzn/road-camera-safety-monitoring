@@ -1,41 +1,50 @@
-"""Ego-motion compensation for a dashcam safety pipeline.
+"""egomotion.py — subtracts the camera's own motion from the picture.
 
-Why this matters
-----------------
-Pixels "moving" in a dashcam feed is ambiguous: a pedestrian whose bbox drifts
-30 px/sec across the frame may be sprinting into the lane, or may be perfectly
-still while the truck (and its camera) rolls forward. Without ego-motion
-compensation, every downstream kinematic signal — residual lateral velocity,
-approach/closure, lateral intrusion — conflates self-motion with target motion.
-That is the single largest source of false FCW / pedestrian-intrusion alerts
-in naive pipelines.
+What it does:
+    Looks at how the whole scene appears to slide between consecutive
+    frames and estimates a single "ego" motion vector — basically "how
+    fast and in what direction is the camera itself moving?" That
+    vector is then subtracted from each tracked object's apparent
+    motion, so "this pedestrian is drifting sideways in frame" can be
+    separated from "the camera is panning past a stationary
+    pedestrian". Also exposes a coarse speed_proxy (m/s).
 
-Approach
---------
-We estimate a per-frame background flow vector using dense Farneback optical
-flow on a heavily downsampled grayscale pair (320x180) — cheap enough to run
-inline at 2 fps. Before taking the median, we mask out every tracked object's
-bbox so foreground motion doesn't contaminate the ego estimate; what's left
-is (mostly) rigid scene flow, which for a forward-moving camera is dominated
-by ego-motion. The median is robust to residual outliers (leaves, reflections,
-wipers).
+Purpose:
+    Without this correction, a perfectly still pedestrian seen from a
+    moving truck looks like they're sprinting across the road.
+    Ego-motion compensation is the single biggest false-positive
+    reducer in naive forward-collision-warning and pedestrian-
+    intrusion systems. It also feeds scene classification — highway
+    vs. parking lot is largely a speed question.
 
-Per-object motion is then the bbox-center velocity MINUS the ego vector,
-yielding a residual that is (approximately) what the object is doing in the
-world frame. Combined with bbox-scale growth we can separate "approaching"
-from "receding while camera chases", and detect lateral intrusions toward
-the frame center that aren't just the camera panning.
+How it works:
+    Uses OpenCV's dense Farneback optical flow (`cv2.calcOpticalFlowFarneback`)
+    on a downsampled grayscale pair (320x180) — cheap enough for 2 fps
+    inline. Before taking the median flow vector, every tracked
+    object's bbox is masked out so foreground motion doesn't pollute
+    the ego estimate; what's left is mostly rigid background, which
+    for a forward-moving camera is dominated by ego-motion. The median
+    is used (instead of the mean) because it shrugs off outliers from
+    leaves, reflections, or wipers. Per-object residual motion =
+    bbox-center velocity MINUS ego vector. A `confidence` value (0-1)
+    is surfaced; callers should skip ego-aware logic when it drops
+    below 0.2 (heavy rain, pure rotation, blank sky all starve the
+    background of texture). `speed_proxy_mps` relies on the same
+    `CAMERA_FOCAL_PX` / `CAMERA_HEIGHT_M` values as the distance
+    estimator — getting those wrong biases both.
+    `@dataclass` auto-generates simple record types.
 
-Caveats
--------
-- Pure rotation / wipers / heavy rain will starve the background of texture;
-  we surface a `confidence` metric and the caller (server.py) should skip
-  ego-aware logic when it drops below 0.2.
-- The speed_proxy_mps value is a coarse sanity gauge, not a calibrated reading:
-  a real system calibrates focal length + camera height per vehicle.
-- Farneback is isotropic dense flow — it doesn't model the camera's motion
-  model. A proper SfM / essential-matrix solve would do better but is overkill
-  for 2 fps episode-level reasoning.
+Connects to:
+    - Backend: consumed by `road_safety/server.py`, which creates one
+      `EgoMotionEstimator`, feeds it every frame after detection, and
+      passes its `speed_proxy_mps` into `core/context.py` so scene
+      classification knows "we're moving fast". Shares `TrackHistory`
+      / `TrackSample` types with `core/detection.py`. Reads the same
+      camera calibration constants from `road_safety/config.py`.
+    - UI: ego-speed is surfaced via the `/api/live/scene` and
+      `/api/live/perception` endpoints and displayed in
+      `frontend/src/components/dashboard/PerceptionBanner.tsx` and
+      `frontend/src/components/admin/HealthStrip.tsx`.
 """
 
 from __future__ import annotations

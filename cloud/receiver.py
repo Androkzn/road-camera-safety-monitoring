@@ -1,19 +1,49 @@
-"""Cloud receiver.
+"""receiver.py — cloud-side ingest service for events relayed from edge nodes.
 
-This is **deliberately a separate FastAPI app** from the edge server. The edge
-node and the cloud receiver run on different hosts with different trust
-boundaries, scaling profiles, and secrets. The split enforces the security
-boundary in code rather than convention.
+What it does:
+    A tiny FastAPI application exposing four endpoints:
+      POST /ingest/events  accepts HMAC-signed event batches from edge devices
+      GET  /events         lists recent events (bearer-token protected)
+      GET  /stats          aggregate counts by risk level / event type
+      GET  /healthz        liveness probe
+    Incoming events are verified, deduped by event_id, and persisted to a
+    local SQLite database at data/cloud.db.
 
-Run it standalone:
+Purpose:
+    Deliberately kept as a SEPARATE process from the main edge server
+    (road_safety/server.py). The edge box runs near the camera with
+    different secrets, trust boundary, and scaling profile than the cloud
+    box. Splitting them into two FastAPI apps enforces that boundary in
+    code rather than in comments.
 
-    uvicorn cloud.receiver:app --port 8001
+How it works:
+    - `_require_secret()` is called from the lifespan hook at startup and
+      raises RuntimeError if `ROAD_CLOUD_HMAC_SECRET` is missing. Refusing
+      to start is safer than accepting unsigned webhooks.
+    - `_verify_signature()` checks the `X-Road-Timestamp` is within +/-5
+      minutes, then recomputes `sha256=HMAC(secret, f"{ts}." + body)` and
+      compares via `hmac.compare_digest` (constant-time, blocks timing
+      attacks). On mismatch it raises HTTPException(401).
+    - `_connect()` returns a SQLite connection whose rows behave like
+      dicts (`sqlite3.Row`). The `with _connect() as conn:` block is a
+      context manager — on exit it commits and closes automatically.
+    - `ingest_events` inserts each event with `INSERT OR IGNORE`, so a
+      retried batch with the same event_id counts as a duplicate rather
+      than an error; accepted/duplicates/rejected counts are returned.
+    - `list_events` / `stats` extract JSON fields from the stored payload
+      using SQLite's `json_extract(...)` so filtering by risk_level stays
+      a single indexed query.
+    - `@asynccontextmanager` + `lifespan=_lifespan` is FastAPI's startup/
+      shutdown hook; `@app.post(...)` / `@app.get(...)` are decorators
+      that bind a function to an HTTP route.
 
-It verifies HMAC-signed webhooks from ``EdgePublisher``, dedupes
-by ``event_id``, and persists to a local SQLite file at ``data/cloud.db``.
-
-The receiver fails loudly at startup if ``ROAD_CLOUD_HMAC_SECRET`` is missing:
-an unsigned-accepting ingest endpoint is worse than a disabled one.
+Connects to:
+    - Backend: runs as a standalone process
+      (`uvicorn cloud.receiver:app --port 8001`). Talks to the edge server
+      only indirectly — the edge's `EdgePublisher` posts here. Shares the
+      `require_bearer_token` helper from road_safety.security.
+    - UI: none — backend-only. No bundled frontend queries this service;
+      operators use curl or a dashboard configured against its hostname.
 """
 
 from __future__ import annotations

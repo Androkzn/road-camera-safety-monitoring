@@ -1,4 +1,24 @@
-"""Tests for road_safety.config — paths, env defaults, and constants."""
+"""test_config.py — sanity tests for road_safety.config.
+
+What it does:
+    Verifies that PROJECT_ROOT resolves to a real directory, that
+    pyproject.toml and the static/ dir exist where expected, that
+    MODEL_PATH ends with `.pt`, and that defaults like TARGET_FPS,
+    SSE_REPLAY_COUNT, PAIR_COOLDOWN_SEC are within sensible ranges.
+
+Purpose:
+    Config is imported early and everywhere — these cheap checks catch
+    typos or bad env-var defaults before they break the whole app on
+    startup.
+
+How it works:
+    Straight assertions against constants imported at the top of the
+    file. No fixtures, no mocks.
+
+Connects to:
+    - Backend: imports road_safety.config and road_safety.__version__.
+    - UI: none — test file.
+"""
 
 from pathlib import Path
 
