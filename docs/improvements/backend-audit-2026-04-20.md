@@ -476,106 +476,36 @@ results = model.track(frame, persist=True, tracker=TRACKER_CFG, verbose=False)[0
 
 **Recommended: A** if bulk actions are part of normal operator flow; **C** if they're rare (once-a-day). The decision depends on operator usage patterns the audit can't see. Flag to the team as a product question, not just an engineering one.
 
-**Prerequisites.** Must ship with auth from [BE-D12](#be-d12---control-endpoints-unauthenticated-be-12-critical) — a public bulk endpoint is worse than N public endpoints (same trust boundary, larger DoS surface per request).
-
 **Acceptance criteria.**
 - `POST /api/live/sources/bulk` with 6 ids + `action: "pause"` returns 200 with 6 per-slot results.
-- Auth required (401 without token).
 - FE "Pause all" on 6 sources fires ≤2 network requests end-to-end.
 
 **Rollout / rollback.** Feature flag `ROAD_BULK_SOURCE_CONTROL=1`. Rollback: FE falls back to per-source POSTs (D2.D ceiling) automatically if the bulk endpoint returns 404 — add this fallback to the FE adapter.
 
 ---
 
-### BE-D12 - Control endpoints unauthenticated (BE-12, **Critical**)
+### BE-D14 - Clip endpoint is a DoS vector (BE-14, High)
 
-**Observation.** Multiple endpoints that **mutate system state or operator configuration** carry explicit `AUTH: public` docstrings:
-- [server.py:3373](backend/server.py#L3373) `POST /api/validator/toggle` - "public (read-only toggle of a background observability job; does not affect live alerts)" - but it *does* mutate the validator worker's accept state.
-- [server.py:3680](backend/server.py#L3680) `POST /api/live/sources/{id}/start` - "public (operator network)".
-- [server.py:3801](backend/server.py#L3801) `POST /api/live/sources` - registers a new perception source from a user-pasted URL (also see BE-D15 for SSRF).
-- [server.py:3947](backend/server.py#L3947) `POST /api/tests/run` - triggers a full pytest run (CPU-heavy; easy to script-abuse).
-- Implied: the whole `/api/live/sources/{id}/{start,pause,stop,detection}` family.
-
-**Why it matters.** "Network-gated operator UI" is a **deployment assumption**, not a property of the code. Any misconfigured reverse proxy, VPN split-tunnel, LAN-exposed edge host, or curl-from-inside-the-office scenario turns these into unauthenticated remote control. The project already has `require_bearer_token()` in [backend/security.py](backend/security.py) used by `/api/audit`, `/api/llm/*`, `/api/road/*`, `/api/agents/*`, `/api/retention/*` - the infrastructure is in place; these endpoints just don't use it.
-
-**Options**
-
-| Option | Trade-offs |
-|---|---|
-| B - Introduce a separate "operator" tier token distinct from "admin" (e.g. `X-Operator-Token`) so read-only operators can start/pause streams without full admin rights | 2-3 days. More principled RBAC. Needs token provisioning story. |
-| C - Rely on network segmentation (reverse proxy ACL or VPN) | 0 code change. Externalizes the entire trust boundary. Acceptable only if deployment procedures guarantee it, and the guarantee is tested in CI/ops. |
-| D - Leave | Ships a system that requires a specific deployment shape to be safe, without code-level enforcement. |
-
-**Recommended: A immediately (pre-production blocker).** B is the right long-term design once operator/admin roles diverge; today both surfaces are used by the same operator UI, so the extra token tier isn't earning its keep. C alone is insufficient; it can layer on top of A but not replace it.
-
-**Acceptance criteria.**
-- Every endpoint whose docstring says `AUTH: public` but which mutates state declares `Depends(require_bearer_token)` or an equivalent decorator.
-- A static check (or test) enumerates FastAPI routes and fails CI if a non-`GET` route has no auth dependency and is not in a whitelist (e.g. `/api/feedback`, `/healthz`).
-- Integration test: an unauthenticated `POST /api/live/sources` returns 401/403, never 200.
-
-**Rollout / rollback — with hard cutover.**
-- **Release N:** Ship behind `—` env flag, **default-OFF**. Ops has exactly one release window (2 weeks) to set — in every deployment.
-- **Release N+1: default flips to ON.** Deployments without a token fail closed at boot. This is a **hard deadline, not a soft target** — security work must not accrete as permanent opt-in.
-- **Release N+2: flag removed entirely.** `require_bearer_token()` becomes unconditional; the env var is ignored.
-- Observability: log `auth_failure_by_route` counter during release N so ops can spot untokenized deployments before the flip.
-- Rollback during release N only: flip flag off, investigate which deployment path was missing the token, fix it before the N+1 flip. **Release N+1 is not rollback-eligible** — if a deployment breaks at the flip, the correct action is to fix the deployment, not relax the auth.
-
----
-
-### BE-D13 - Live media/detection streams unauthenticated (BE-13, **Critical**)
-
-**Observation.** [server.py:3592](backend/server.py#L3592) `GET /admin/video_feed` and [:3606](backend/server.py#L3606) `/admin/video_feed/{source_id}` return **MJPEG live camera streams** with `AUTH: public (network-gated operator UI)`. [:3619](backend/server.py#L3619) `GET /admin/frame/{source_id}` returns a single-shot JPEG. [:3899](backend/server.py#L3899) `GET /admin/detections` is an SSE stream of per-frame bounding boxes.
-
-**Why it matters.** These are the **live camera feeds**. If the perimeter is weak, anyone on the network observes the annotated video stream of every source the edge is processing. The detection SSE also leaks object positions / track IDs, which is useful reconnaissance on its own. Unlike the public safety-event SSE (`/stream/events`), these endpoints expose **continuous frame-level** data with no redaction.
-
-Paired failure: [server.py:818-874](backend/server.py#L818) already has thumbnail-token signing infrastructure (HMAC-signed timed URLs for public thumbnails). That primitive is the right fit for per-tile live feeds too, but is currently only used for safety-event thumbnails.
-
-**Options**
-
-| Option | Trade-offs |
-|---|---|
-| B - Emit short-lived HMAC-signed URLs (same primitive as public thumbnails) and require the signature at the endpoint. FE mints the URL via an authenticated JSON call, then uses it in `<img>`/`EventSource`. | 1 day. Clean solution for header-less browser APIs. Signature bound to source_id + expiry. Rotation on token change invalidates all outstanding URLs within TTL. |
-| C - Proxy MJPEG through an authenticated WebSocket or Server-Sent-Events wrapper on the FE | Medium. More moving parts. Not well-matched to the MJPEG browser primitive. |
-| D - Leave (network-gate in production) | External dependency on deployment shape. Same risk as BE-D12.C. |
-
-**Recommended: B.** Short-lived signed URLs are the idiomatic fix for auth on `<img>` and `EventSource`; the thumbnail-token infrastructure in `server.py:818-874` already demonstrates the pattern. **Pair with BE-D12.A** so the mint-URL endpoint itself is auth-gated.
-
-**Acceptance criteria.**
-- `/admin/video_feed*`, `/admin/frame/*`, `/admin/detections` reject requests without a valid signature (or bearer, whichever the final design chooses).
-- Signature TTL ≤ 5 minutes; FE auto-refreshes via the StreamImage / EventStream hook.
-- Log counter `media_auth_failure` wired.
-
-**Rollout / rollback — with hard cutover.**
-- **Release N:** Ship signed-URL mint endpoint + signature validation. Unsigned path (`/admin/video_feed*`, `/admin/frame/*`, `/admin/detections`) continues working alongside for **exactly one release** so FE can migrate.
-- **Release N+1:** Unsigned path returns 401. Signed path is the only way in. FE has been on signed URLs since Release N deployed.
-- **Release N+2:** Unsigned code paths removed from `server.py`.
-- **Hard deadline:** coexistence window is two weeks. Document the sunset date in the commit that ships Release N. No extensions without a written risk acceptance.
-- FE tracking item: [FE-DSec](frontend-audit-2026-04-20.md#dsec---cross-doc-dependency-on-be-auth-boundary) must land within the coexistence window.
-
----
-
-### BE-D14 - Clip endpoint is a public DoS vector (BE-14, High)
-
-**Observation.** [server.py:2974](backend/server.py#L2974) `GET /api/events/{event_id}/clip?before=3&after=3&annotated=1` is `AUTH: public`. On cache miss with `annotated=1`, [:3043](backend/server.py#L3043) calls `_render_annotated_event_clip()`, which runs a **full YOLO inference pass** over every frame in the ±N-second window before writing the MP4 to disk.
+**Observation.** [server.py:2974](backend/server.py#L2974) `GET /api/events/{event_id}/clip?before=3&after=3&annotated=1`. On cache miss with `annotated=1`, [:3043](backend/server.py#L3043) calls `_render_annotated_event_clip()`, which runs a **full YOLO inference pass** over every frame in the ±N-second window before writing the MP4 to disk.
 
 Parameters are loosely bounded: `before` and `after` are clamped to `[0, 30]` (line 3030), so a single request can render up to **60 seconds of YOLO-annotated video**. Cache key is `{event_id}_{before}_{after}_annotated.mp4` - so an attacker can vary `before=2.5` vs `before=2.6` vs `before=2.7` and **force cache misses indefinitely** against the same event, each one a full YOLO pass + ffmpeg encode.
 
-**Why it matters.** The system has a foot-gun pattern: public + unbounded-fanout cache key + expensive compute. A scripted attacker can pin the GPU at 100% and fill `data/clips/` with orthogonal cache entries until disk exhausts, which takes the whole edge node offline. Unlike BE-D12/D13 this is not purely a trust-boundary issue; even behind auth it would need rate-limiting.
+**Why it matters.** The endpoint has a foot-gun pattern: unbounded-fanout cache key + expensive compute. A scripted attacker can pin the GPU at 100% and fill `data/clips/` with orthogonal cache entries until disk exhausts, which takes the whole edge node offline. Even on a trusted network, this needs rate-limiting.
 
 **Options**
 
 | Option | Trade-offs |
 |---|---|
-| A - Require auth (see BE-D12) + quantize `before`/`after` to a small set of allowed values (e.g. `{1, 3, 5, 10}`) so the cache key space is bounded | 0.5 day. Kills the cache-miss amplification. Loses fine-grained clip windowing (was anyone using it?). |
-| B - Add a per-IP / per-token rate limit on `/api/events/*/clip` (e.g. 3 cache-miss renders per minute) | 1 day. Preserves flexibility. Needs a rate-limiter (new dep or hand-rolled token bucket - the LLM layer already has one). |
+| A - Quantize `before`/`after` to a small set of allowed values (e.g. `{1, 3, 5, 10}`) so the cache key space is bounded | 0.5 day. Kills the cache-miss amplification. Loses fine-grained clip windowing (was anyone using it?). |
+| B - Add a per-IP rate limit on `/api/events/*/clip` (e.g. 3 cache-miss renders per minute) | 1 day. Preserves flexibility. Needs a rate-limiter (new dep or hand-rolled token bucket - the LLM layer already has one). |
 | C - Pre-render clips on emit. `_emit_event` schedules a background render of the ±5s clip into cache; the endpoint only serves cached files and 404s on miss. | 2-3 days. Predictable resource profile. Wastes compute on events no one reviews. |
 | D - Feature-flag annotated clips off in production | 5 min. Loses the feature. |
 
-**Recommended: A + B together.** A bounds the cache key space; B caps work per caller. C is elegant but wastes compute on 95% of events. **Gate behind BE-D12 auth as a prerequisite** - even rate-limited, this endpoint should not be public.
+**Recommended: A + B together.** A bounds the cache key space; B caps work per caller. C is elegant but wastes compute on 95% of events.
 
 **Acceptance criteria.**
 - `before`/`after` accept only a whitelisted enum.
-- Token-bucket limit: 3 cache-miss annotated renders per minute per bearer token; unlimited on cache hit.
+- Token-bucket limit: 3 cache-miss annotated renders per minute per IP; unlimited on cache hit.
 - Integration test: a loop hammering different `before` values is throttled after N requests.
 
 **Rollout / rollback.** Feature flag `ROAD_CLIP_RATE_LIMIT=1`; rollback is flag-off.
@@ -588,18 +518,17 @@ Parameters are loosely bounded: `before` and `after` are clamped to `[0, 30]` (l
 
 That URL is then passed through [:1313](backend/server.py#L1313) into the stream reader. For `youtube.com` inputs, [stream.py:154](backend/core/stream.py#L154) `resolve_hls()` invokes **`yt-dlp`** as a subprocess to resolve the URL. For other inputs, OpenCV / ffmpeg opens the URL directly.
 
-**Why it matters.** Two classes of abuse on top of the BE-D12 control-boundary issue:
+**Why it matters.** Two classes of abuse:
 1. **SSRF.** An attacker pastes `http://169.254.169.254/latest/meta-data/iam/security-credentials/` (AWS cloud metadata) or `http://127.0.0.1:8500/v1/kv/` (local Consul, etc.). The edge host fetches it. Depending on the error path, response bodies may leak through slot status fields or logs.
-2. **Subprocess exposure.** `yt-dlp` is a large attack surface that processes attacker-supplied URLs. Historical `yt-dlp` CVEs exist around URL parsing and extractor logic.
+2. **Subprocess exposure.** `yt-dlp` is a large attack surface that processes supplied URLs. Historical `yt-dlp` CVEs exist around URL parsing and extractor logic.
 
 **Options**
 
 | Option | Trade-offs |
 |---|---|
-| A - Auth first (BE-D12), then add a URL validator: reject RFC1918 / loopback / link-local / cloud-metadata IPs; restrict hostnames to a configured allowlist or explicit non-private resolution via `socket.getaddrinfo` with rejection of private addresses | 1 day. Standard SSRF mitigation. Needs DNS re-resolution check to defeat DNS-rebinding. |
-| B - Auth + the validator in A + run `yt-dlp` in a sandbox (bubblewrap / container) with no network access beyond the resolved URL's host | 2-3 days. Defense in depth for the subprocess path. |
+| A - Add a URL validator: reject RFC1918 / loopback / link-local / cloud-metadata IPs; restrict hostnames to a configured allowlist or explicit non-private resolution via `socket.getaddrinfo` with rejection of private addresses | 1 day. Standard SSRF mitigation. Needs DNS re-resolution check to defeat DNS-rebinding. |
+| B - The validator in A + run `yt-dlp` in a sandbox (bubblewrap / container) with no network access beyond the resolved URL's host | 2-3 days. Defense in depth for the subprocess path. |
 | C - Remove the "paste a URL" feature entirely; only allow sources from a pre-configured list in env | 1h. Kills the feature. Appropriate if live-add is rarely used. |
-| D - Auth only (rely on it to prevent abuse) | Doesn't mitigate a compromised admin credential or an insider. |
 
 **Recommended: A + C-as-a-kill-switch.** A is the mitigating control. C is the emergency brake: if live-add is used <1×/week, the tradeoff favours removal. B is the right long-term answer if the feature is used often.
 
@@ -609,7 +538,7 @@ That URL is then passed through [:1313](backend/server.py#L1313) into the stream
 - `yt-dlp` invocation is timeout-bounded (≤30s) with a small memory budget.
 - Integration test: POST `http://169.254.169.254/` returns 400, not 500, not 200.
 
-**Rollout / rollback.** Bundle with BE-D12's `—=1` flag; rollback is flag-off. Option C is a separate feature flag `ROAD_ALLOW_DYNAMIC_SOURCES=0`.
+**Rollout / rollback.** Ship behind `ROAD_ENFORCE_SSRF=1` flag; rollback is flag-off. Option C is a separate feature flag `ROAD_ALLOW_DYNAMIC_SOURCES=0`.
 
 ---
 
@@ -636,7 +565,7 @@ That URL is then passed through [:1313](backend/server.py#L1313) into the stream
 Ordered by **correctness -> observability -> testability -> scale**, not by module.
 
 **Completed baseline block (already landed):**
-Sprint 0 security and verification work + Plan A core items (BE-D12/13/14/15, BE-D2.A/B, BE-D6 Ph1, BE-D7, BE-D8, BE-D4, BE-D5.A, BE-D1.B) are now in-tree (§1.1).
+Sprint 0 verification work + Plan A core items (BE-D14, BE-D15, BE-D2.A/B, BE-D6 Ph1, BE-D7, BE-D8, BE-D4, BE-D5.A, BE-D1.B) are now in-tree (§1.1).
 
 **Next 1-2 sprints (highest leverage remaining):**
 1. **BE-D3** — replace full-file watchdog/queue reads with incremental/tail-aware I/O.
@@ -710,8 +639,6 @@ One row per actionable decision. **Owner** = BE or FE. **Depends-on** = prerequi
 | ID | Current status |
 |---|---|
 | S0 | Done |
-| BE-D12 | Done |
-| BE-D13 | Done |
 | BE-D14 | Done |
 | BE-D15 | Done |
 | BE-D2.A/B | Done |
@@ -730,11 +657,9 @@ One row per actionable decision. **Owner** = BE or FE. **Depends-on** = prerequi
 | ID | Decision | Owner | Effort | Depends-on | Accept | Sprint |
 |---|---|---|---|---|---|---|
 | S0 | Sprint 0: test tooling + smoke script | BE | 3 days | - | §8 exit | 0 |
-| **BE-D12** | **Auth on mutating endpoints** | **BE** | **1 day** | **S0** | **§BE-D12** | **0** |
-| **BE-D15** | **SSRF validator on `/api/live/sources`** | **BE** | **1 day** | **BE-D12** | **§BE-D15** | **0** |
-| **BE-D14** | **Clip endpoint auth + rate limit + quantized params** | **BE** | **1 day** | **BE-D12** | **§BE-D14** | **0** |
-| **BE-D13** | **Signed URLs for media/detection streams** | **BE** | **1-2 days** | **BE-D12** | **§BE-D13** | **0** |
-| BE-D16 | Bulk source control endpoint (only if bulk actions are common) | BE | 1 day | BE-D12 | §BE-D16 | 1 |
+| **BE-D15** | **SSRF validator on `/api/live/sources`** | **BE** | **1 day** | **S0** | **§BE-D15** | **0** |
+| **BE-D14** | **Clip endpoint rate limit + quantized params** | **BE** | **1 day** | **S0** | **§BE-D14** | **0** |
+| BE-D16 | Bulk source control endpoint (only if bulk actions are common) | BE | 1 day | S0 | §BE-D16 | 1 |
 | BE-D1 | Primary-slot leakage | BE | 1 week | S0 | §BE-D1 | 1 |
 | BE-D7 | Privacy primitive → `compliance/` | BE | 30 min | S0 | §BE-D7 | 1 |
 | BE-D8 | `LiveState.snapshot()` + route migration | BE | 3 days | S0 | §BE-D8 | 1 |

@@ -125,6 +125,14 @@ YOLO_WARMUP = os.getenv("ROAD_YOLO_WARMUP", "1").lower() not in ("0", "false", "
 _VENV_YT_DLP = PROJECT_ROOT / ".venv" / "bin" / "yt-dlp"
 YT_DLP_PATH = str(_VENV_YT_DLP) if _VENV_YT_DLP.exists() else "yt-dlp"
 
+# ``ROAD_YT_COOKIES_FROM_BROWSER`` — optional browser name (chrome, safari,
+# firefox, edge, brave, chromium) yt-dlp pulls cookies from. YouTube may gate
+# live streams behind a "Sign in to confirm you're not a bot" check that only
+# clears with a cookie jar. Disabled by default because reading Chrome cookies
+# on macOS triggers a keychain password prompt; set the env var explicitly
+# when you need YouTube live streams to resolve.
+YT_COOKIES_FROM_BROWSER = os.getenv("ROAD_YT_COOKIES_FROM_BROWSER", "").strip()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Section: STREAM SETTINGS
 # ─────────────────────────────────────────────────────────────────────────────

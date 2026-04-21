@@ -14,9 +14,7 @@ Dual-thumbnail design (CORE INVARIANT)
 --------------------------------------
 Each event produces TWO thumbnail files on disk:
   - ``{event_id}.jpg``        - internal, UNREDACTED, local disk only. Used
-                                for the internal ALPR vision call and for
-                                DSAR retrieval by operators holding an
-                                ``X-DSAR-Token``.
+                                for the internal ALPR vision call.
   - ``{event_id}_public.jpg`` - redacted (faces and plates blurred). Safe
                                 for egress to Slack, the cloud receiver,
                                 SSE subscribers, and any outbound webhook.

@@ -57,7 +57,7 @@ import numpy as np  # Used to wrap raw ffmpeg bytes into an (H, W, 3) array.
 
 # ``# noqa: E402`` silences the "import not at top of file" lint rule — we're
 # importing *after* the ``__future__`` block, which is required to come first.
-from backend.config import YT_DLP_PATH as YT_DLP  # noqa: E402
+from backend.config import YT_COOKIES_FROM_BROWSER, YT_DLP_PATH as YT_DLP  # noqa: E402
 
 
 def _find_bin(name: str) -> str | None:
@@ -192,6 +192,8 @@ def resolve_hls(source: str) -> str:
         cmd = [YT_DLP, "-g", "-f", fmt]
         if node:
             cmd += ["--js-runtimes", "node"]
+        if YT_COOKIES_FROM_BROWSER:
+            cmd += ["--cookies-from-browser", YT_COOKIES_FROM_BROWSER]
         cmd.append(source)
         # ``try/except`` = Python's exception handling. We catch *any* failure
         # from this specific selector (timeout, non-zero exit, decode error)
@@ -570,6 +572,8 @@ class StreamReader:
         node = _find_bin("node")
         if node:
             ytdlp_cmd += ["--js-runtimes", "node"]
+        if YT_COOKIES_FROM_BROWSER:
+            ytdlp_cmd += ["--cookies-from-browser", YT_COOKIES_FROM_BROWSER]
         ytdlp_cmd.append(self.original_source)
 
         # ffmpeg flags explained:

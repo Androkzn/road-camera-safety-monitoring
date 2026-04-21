@@ -1,6 +1,6 @@
 # Integration improvements — FE↔BE↔cloud
 
-**Scope.** The seam between the React SPA, the FastAPI edge backend, and the optional HMAC-signed cloud receiver. Transports, auth tiers, contracts, observability of the integration plane.
+**Scope.** The seam between the React SPA, the FastAPI edge backend, and the optional HMAC-signed cloud receiver. Transports, contracts, observability of the integration plane.
 
 **Anchor files.** [server.py](../../backend/server.py) · [security.py](../../backend/security.py) · [edge_publisher.py](../../backend/integrations/edge_publisher.py) · [cloud/receiver.py](../../cloud/receiver.py) · [frontend/src/hooks/useSSE.ts](../../frontend/src/hooks/useSSE.ts) · [frontend/src/lib/api.ts](../../frontend/src/lib/api.ts) · [frontend/src/types.ts](../../frontend/src/types.ts).
 
@@ -10,56 +10,10 @@
 
 ## TL;DR
 
-1. **Fix B1 (unauthenticated watchdog DELETE) today.** Real defect.
-2. **Generate FE types from `/openapi.json`.** Stops silent contract drift cold; fastest credibility win in the codebase.
-3. **Last-Event-ID resumption on SSE.** The browser already sends the header; the server never emits `id:` lines, so reconnects lose data. ~50 LOC fix.
-4. **W3C Trace Context end-to-end** (FE → BE → perception thread → Anthropic). Without it you cannot answer "why did this event take 9 seconds".
-5. **JWT for admin auth + per-user audit attribution.** Static shared token cannot rotate, cannot revoke, cannot attribute. Acceptable for a demo, embarrassing for an audit.
-6. **slowapi rate limit on `/chat` and `/api/agents/*`.** Both are unauthenticated and call the LLM. One scraper burns the Anthropic budget in minutes.
-
----
-
-## P0 bugs found during review
-
-### B1 `[H]` Watchdog DELETE / POST-delete are unauthenticated
-
-[server.py:1609](../../backend/server.py#L1609) and [server.py:1618](../../backend/server.py#L1618):
-
-```python
-@app.delete("/api/watchdog/findings")
-def watchdog_delete_findings(clear_all: bool = False):
-    if clear_all:
-        removed = watchdog_delete(indices=None)
-        return {"deleted": removed}
-    ...
-
-@app.post("/api/watchdog/findings/delete")
-async def watchdog_delete_selected(request: Request):
-    body = await request.json()
-    keys: list[str] = body.get("keys", [])
-    ...
-```
-
-No `_require_admin` call. Compare with [server.py:1426](../../backend/server.py#L1426) (`/api/road/vehicle/{vehicle_id}`) which correctly gates with `_require_admin(request, "road vehicle detail")`.
-
-**Impact.** Any unauthenticated origin reachable on the listening port — including any browser tab on a localhost demo, or any host on the LAN in a fleet pilot — can wipe operator state with a single request. The CSRF analysis below assumes header-bearer auth; with no auth at all, even a `<form action="/api/watchdog/findings?clear_all=true" method="POST">` (after the small change to add a POST alias) would work cross-origin.
-
-**Fix.**
-```python
-@app.delete("/api/watchdog/findings")
-def watchdog_delete_findings(request: Request, clear_all: bool = False):
-    _require_admin(request, "watchdog findings clear")
-    ...
-
-@app.post("/api/watchdog/findings/delete")
-async def watchdog_delete_selected(request: Request):
-    _require_admin(request, "watchdog findings delete")
-    ...
-```
-
-**Effort.** 10 minutes. Add an integration test that asserts 401 without bearer.
-
-**Citation.** OWASP ASVS V4.2 Operations Authorization — https://owasp.org/www-project-application-security-verification-standard/.
+1. **Generate FE types from `/openapi.json`.** Stops silent contract drift cold; fastest credibility win in the codebase.
+2. **Last-Event-ID resumption on SSE.** The browser already sends the header; the server never emits `id:` lines, so reconnects lose data. ~50 LOC fix.
+3. **W3C Trace Context end-to-end** (FE → BE → perception thread → Anthropic). Without it you cannot answer "why did this event take 9 seconds".
+4. **slowapi rate limit on `/chat` and `/api/agents/*`.** Both call the LLM. One scraper burns the Anthropic budget in minutes.
 
 ---
 
@@ -207,68 +161,17 @@ Pact shines with multiple consumers of the same provider. Schemathesis + snapsho
 
 ---
 
-## 4 — Auth tier modernization
-
-### R4.1 `[H]` Move admin auth to short-lived JWT + refresh, asymmetric signing
-
-Today — is a static shared secret in env. [security.py:36](../../backend/security.py) uses `secrets.compare_digest` (timing-safe — good). Drawbacks: no audit attribution (every admin action is "the admin"), no rotation without a redeploy, no per-user revocation. The audit log loses all forensic value the moment two operators share the token (which they will).
-
-**Adoption.**
-1. `pip install pyjwt[crypto]`. Sign with EdDSA (RFC 8032), 15-min access tokens, 7-day single-use refresh.
-2. Claims: `sub`, `kid`, `aud=road-admin`, `tenant_id` (forward-compat with R15.1).
-3. Keep the static — as a "break-glass" service token behind a feature flag.
-4. Audit log writes the verified `sub` instead of "admin".
-5. Publish JWKS at `/.well-known/jwks.json` so rotation is a `kid` bump.
-
-**Trade-off.** Key management. Use a JWKS file + cron-rotated kid; defer to an external IdP (R4.2) for human users.
-
-**Citations.** RFC 7519 JWT — https://datatracker.ietf.org/doc/html/rfc7519 · RFC 8725 JWT BCP — https://datatracker.ietf.org/doc/html/rfc8725 · OWASP JWT cheat sheet — https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html.
-
-### R4.2 `[M]` OIDC for human admins
-
-Fleet ops need SSO. Push it to an external IdP rather than home-grow. WorkOS / Auth0 / Clerk give SAML/SCIM out of the box for enterprise customers; Authentik / Keycloak are self-hosted. The FastAPI side becomes a pure resource server validating the IdP's JWT (R4.1).
-
-**Citations.** WorkOS SSO — https://workos.com/docs/sso · Authentik — https://goauthentik.io/.
-
-### R4.3 `[M]` WebAuthn / passkeys for the admin UI
-
-Once OIDC is in place, layer WebAuthn at the IdP. For an ops UI accessed from fixed laptops, passkeys eliminate phishing. WebAuthn Level 3 is current.
-
-**Citations.** W3C WebAuthn 3 — https://www.w3.org/TR/webauthn-3/ · passkeys.dev — https://passkeys.dev/.
-
-### R4.4 `[L]` mTLS for edge → cloud — see R8.4
-
----
-
-## 5 — CSRF / cookie strategy
-
-### R5.1 `[H]` Document and enforce header-only auth as policy
-
-POC deployments should stay on a trusted network; add real authentication before any production exposure.
-
-**Citation.** OWASP CSRF cheat sheet — https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#use-of-custom-request-headers.
-
-### R5.2 `[M]` If R4.2 ever ships browser cookies
-
-`__Host-session=...; Path=/; Secure; HttpOnly; SameSite=Lax` + double-submit token for state-changing requests. Hidden `<meta name="csrf-token">` mirror.
-
-**Citations.** `__Host-` cookie prefix — https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies#cookie_prefixes · SameSite (RFC 6265bis) — https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis.
-
----
-
 ## 6 — Rate limiting & abuse
 
-### R6.1 `[H]` slowapi — per-token + per-IP buckets, tight `/chat` budget
+### R6.1 `[H]` slowapi — per-IP buckets, tight `/chat` budget
 
-[server.py:1088](../../backend/server.py#L1088) `/chat` is unauthenticated and hits the LLM. A scraper burns the Anthropic quota in minutes. [services/agents.py](../../backend/services/agents.py) endpoints have no per-endpoint limit beyond the token bucket inside `services/llm.py`.
+[server.py:1088](../../backend/server.py#L1088) `/chat` hits the LLM. A scraper burns the Anthropic quota in minutes. [services/agents.py](../../backend/services/agents.py) endpoints have no per-endpoint limit beyond the token bucket inside `services/llm.py`.
 
 ```python
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-limiter = Limiter(
-    key_func=lambda r: r.headers.get("Authorization") or get_remote_address(r),
-)
+limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_handler)
 
@@ -358,10 +261,6 @@ Single fleet-wide secret means one compromised edge box rotates the world. Deriv
 ### R8.4 `[M]` mTLS as the durable upgrade path
 
 When the cloud is your own service (not a webhook target), mTLS with per-vehicle client certs replaces HMAC, gets transport-layer identity, and integrates with service-mesh policy. RFC 8705 — https://datatracker.ietf.org/doc/html/rfc8705.
-
-### R8.5 `[L]` Tighten thumbnail token entropy
-
-[edge_publisher.py:47](../../backend/integrations/edge_publisher.py#L47): `mac.hexdigest()[:32]` truncates a 256-bit HMAC to 128 bits. NIST FIPS 198-1 allows truncation down to 128 bits, so this is **acceptable**, not a bug — but for a 60-second TTL link the cost of returning the full 64-char hex is zero. Drop the slice.
 
 ---
 
@@ -497,37 +396,9 @@ Single `grafana-cli dashboards import` step. Reviewers can render the dashboard 
 
 ## 14 — Privacy plumbing
 
-### R14.1 `[H]` Audit `sub` after JWT lands
-
-Once R4.1 ships, every privileged read logs the verified `sub` (not the static "admin"), the `kid`, the `event_id`, IP, user-agent. CCPA §1798.130 (records of disclosures) and BIPA §15(c) effectively require this for biometric-derived data; license plates plausibly qualify in some jurisdictions.
-
-**Citations.** CCPA — https://oag.ca.gov/privacy/ccpa · BIPA — https://www.ilga.gov/legislation/ilcs/ilcs3.asp?ActID=3004.
-
-### R14.2 `[H]` Lower thumbnail signing TTL and bind to `sub`
-
-[edge_publisher.py:42](../../backend/integrations/edge_publisher.py#L42) `_THUMB_TTL_SEC = 15 * 60` is long. Cut to 60 s and add `sub` into the signing input so a leaked link can't be replayed by a different identity:
-
-```python
-mac = hmac.new(secret, f"{name}.{expiry}.{sub}".encode(), hashlib.sha256)
-```
-
-### R14.3 `[M]` Formalize the DSAR endpoint
-
-Today `X-DSAR-Token` gates `/thumbnails`. GDPR Art. 15 (right of access) and Art. 17 (erasure) need a structured endpoint:
-
-- `GET /api/dsar/{subject_ref}` → JSON of all derived data tied to that subject.
-- `POST /api/dsar/{subject_ref}/erase` → cascading delete: cloud rows, thumbnails, [feedback.jsonl](../../data/), AL samples.
-- Emit a tombstone to the cloud receiver so federated copies erase too.
-
-**Citations.** GDPR Art. 30 — https://gdpr-info.eu/art-30-gdpr/ · GDPR Art. 17 — https://gdpr-info.eu/art-17-gdpr/.
-
 ---
 
 ## 15 — Multi-tenant readiness
-
-### R15.1 `[M]` `tenant_id` claim → propagated to every query
-
-After R4.1, every protected route resolves `request.state.tenant_id` from the verified JWT. Every cloud SQL query gets a `WHERE tenant_id = ?`. Per-tenant rate-limit bucket in slowapi (R6.1).
 
 ### R15.2 `[M]` Move `cloud.db` to Postgres at scale
 
@@ -547,10 +418,6 @@ Once Postgres lands, `(tenant_id, vehicle_id)` becomes the shard key. Citus / pg
 
 Today `audit.log("chat_query", query[:200])` is a flat append. Make it dual-emit: structured JSONL line **and** an OTel `Event` on the active span. This gives Article 30 records joinable with the trace from R7.
 
-### R16.2 `[H]` Right-to-erasure cascade test
-
-`tests/test_erasure_cascade.py` that (a) creates a synthetic event, (b) calls `/api/dsar/.../erase`, (c) asserts cloud row gone, thumbnail file gone, audit entry tombstoned, AL sample gone, edge outbox scrubbed if not yet flushed. The test is the spec.
-
 ### R16.3 `[M]` Retention semantics on responses
 
 Surface `Retention-Period: P30D` (Internet-Draft `draft-ietf-httpapi-data-retention-policy`) on responses that include personal data, so downstream caches honor the policy.
@@ -569,9 +436,7 @@ Surface `Retention-Period: P30D` (Internet-Draft `draft-ietf-httpapi-data-retent
 
 ## 90-day phased rollout
 
-### Weeks 1-2 — bug fixes + cheapest credibility wins
-- **B1** require_admin on watchdog mutations · 10 min
-- **R8.5** drop the `[:32]` slice on the thumb token · 5 min
+### Weeks 1-2 — cheapest credibility wins
 - **R6.1** slowapi on `/chat` and `/api/agents/*` · 4 h
 - **R12.2** Prometheus `/metrics` · 1 h
 
@@ -594,21 +459,13 @@ Surface `Retention-Period: P30D` (Internet-Draft `draft-ietf-httpapi-data-retent
 - **R7.2** manual context propagation into perception thread · 1 d
 - **R13.1** custom metrics · 1 d
 
-### Weeks 9-10 — auth modernization
-- **R4.1** JWT + refresh + JWKS · 3 d
-- **R14.1** audit `sub` migration · 0.5 d
-- **R14.2** thumb TTL + sub binding · 1 h
-- **R5.1** document the header-only auth policy in [CLAUDE.md](../../CLAUDE.md) · 15 min
-
-### Weeks 11-12 — compliance + edge↔cloud durability
+### Weeks 9-12 — compliance + edge↔cloud durability
 - **R8.1** nonce replay cache on receiver · 0.5 d
 - **R9.1** outbox seq + watermark · 2 d
-- **R14.3** DSAR endpoint · 1 d
-- **R16.2** erasure cascade test · 1 d
 - **R16.1** audit → OTel events · 0.5 d
 
 ### Defer past 90 days
-- R1.5 (MJPEG → fMP4), R4.2/R4.3 (OIDC + WebAuthn), R8.2 (RFC 9421), R8.3 (per-vehicle HKDF), R9.3 (SQLite-backed outbox), R11.1 (URL versioning), R15.x (multi-tenancy), R16.3 (retention header).
+- R1.5 (MJPEG → fMP4), R8.2 (RFC 9421), R8.3 (per-vehicle HKDF), R9.3 (SQLite-backed outbox), R11.1 (URL versioning), R15.x (multi-tenancy), R16.3 (retention header).
 
 ---
 
@@ -616,10 +473,9 @@ Surface `Retention-Period: P30D` (Internet-Draft `draft-ietf-httpapi-data-retent
 
 | File | Recommendations |
 |------|------------------|
-| [server.py](../../backend/server.py) | B1 (auth gap) · R1.1 (SSE id:) · R1.4 (X-Accel) · R6.1 (slowapi) · R7.1 (OTel) · R12.1 (readyz) · R16.1 (audit→OTel) |
-| [security.py](../../backend/security.py) | R4.1 (JWT) |
+| [server.py](../../backend/server.py) | R1.1 (SSE id:) · R1.4 (X-Accel) · R6.1 (slowapi) · R7.1 (OTel) · R12.1 (readyz) · R16.1 (audit→OTel) |
 | [services/llm.py](../../backend/services/llm.py) | R7.1 (OpenInference) · R6.1 (per-endpoint limits) |
-| [edge_publisher.py](../../backend/integrations/edge_publisher.py) | R8.1 (nonce) · R8.2 (RFC 9421) · R8.3 (HKDF) · R8.5 (token entropy) · R9.1 (outbox seq) · R14.2 (TTL+sub) |
+| [edge_publisher.py](../../backend/integrations/edge_publisher.py) | R8.1 (nonce) · R8.2 (RFC 9421) · R8.3 (HKDF) · R9.1 (outbox seq) |
 | [cloud/receiver.py](../../cloud/receiver.py) | R8.1 (replay cache) · R9.1 (watermark) · R12.1 (readyz) · R15.2 (Postgres) |
 | [useSSE.ts](../../frontend/src/hooks/useSSE.ts) | R1.2 (heartbeat) · R2.2 (Valibot) · R10.2 (visibility) · R10.3 (retry) |
 | [lib/api.ts](../../frontend/src/lib/api.ts) | R2.1 (openapi-fetch) |
@@ -627,5 +483,4 @@ Surface `Retention-Period: P30D` (Internet-Draft `draft-ietf-httpapi-data-retent
 | [vite.config.ts](../../frontend/vite.config.ts) | R7.1 (OTel browser SDK) |
 | (new) `tests/test_contract.py` | R3.1 (Schemathesis) |
 | (new) `tests/test_openapi_snapshot.py` | R3.2 |
-| (new) `tests/test_erasure_cascade.py` | R16.2 |
 | (new) `ops/grafana/*.json` | R13.2 |

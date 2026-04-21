@@ -23,7 +23,7 @@ This section records what has actually landed after the original audit snapshot.
 
 ### Completed
 
-- **D1.A (Settings split):** `useSettingsApply` + `TokenEmptyState` extracted; `SettingsPage` reduced to orchestration.
+- **D1.A (Settings split):** `useSettingsApply` extracted; `SettingsPage` reduced to orchestration.
 - **D2.A / D2.B / D2.C:** low-value polling slowed on Settings, manual settings polling moved to React Query, shared uptime ticker introduced.
 - **D2.D (FE-only path):** live-source mutations moved to Query invalidation pattern; bulk start/pause now fan out POSTs with a single post-settle invalidation.
 - **D3:** `WatchdogContext` value memoized.
@@ -125,8 +125,8 @@ Strengths:
 
 Gaps:
 
-- `useLiveSources` owns list fetching, busy-state tracking, optimistic updates, lifecycle mutations, and restart token logic in one file (`250 LOC`) (`frontend/src/features/admin/hooks/useLiveSources.ts`).
-- `SettingsPage` still orchestrates too many concerns (token gate, schema/effective, apply/rollback flow, impact rendering) in one component (`431 LOC`) (`frontend/src/features/settings/SettingsPage.tsx`).
+- `useLiveSources` owns list fetching, busy-state tracking, optimistic updates, lifecycle mutations, and restart logic in one file (`250 LOC`) (`frontend/src/features/admin/hooks/useLiveSources.ts`).
+- `SettingsPage` still orchestrates too many concerns (schema/effective, apply/rollback flow, impact rendering) in one component (`431 LOC`) (`frontend/src/features/settings/SettingsPage.tsx`).
 
 Recommendation:
 
@@ -138,7 +138,7 @@ Largest files currently:
 
 | File | LOC | Action |
 |---|---:|---|
-| `frontend/src/features/settings/SettingsPage.tsx` | 431 | Split into page shell + apply workflow hook + token/empty state components |
+| `frontend/src/features/settings/SettingsPage.tsx` | 431 | Split into page shell + apply workflow hook + presentational components |
 | `frontend/src/features/admin/components/MultiSourceGrid.tsx` | 341 | Extract `StreamTile` and bulk-control toolbar |
 | `frontend/src/shared/types/common.ts` | 340 | Split types by domain (`events`, `live`, `watchdog`, `settings`) |
 | `frontend/src/features/settings/components/Tunable.tsx` | 323 | Keep but break sub-controls if still growing |
@@ -216,7 +216,7 @@ Recommendations:
 
 - Treat custom interaction primitives as an explicit accessibility review category, not an afterthought.
 - Add keyboard/focus acceptance criteria for tabs and modal dialogs.
-- Require visible or programmatic labels on all form controls, especially auth/admin inputs.
+- Require visible or programmatic labels on all form controls.
 
 ### I) Mutation UX And Error Recovery
 
@@ -289,7 +289,7 @@ Each decision below follows the same shape: **Observation** (what the code shows
 
 | Option | Trade-offs |
 |---|---|
-| A - Extract `useSettingsApply()` hook + `TokenEmptyState.tsx` component | 1 day. Pure refactor; JSX unchanged. Page drops ~200 LOC. Apply lifecycle becomes unit-testable without React. |
+| A - Extract `useSettingsApply()` hook | 1 day. Pure refactor; JSX unchanged. Page drops ~200 LOC. Apply lifecycle becomes unit-testable without React. |
 | B - Decompose into `<SettingsShell>` + `<SettingsForm>` + `<SettingsActions>` with a local settings context | 2-3 days. More testable units. Introduces a settings-local context; risk of over-sharing state. Only worth it if settings gains more features. |
 | C - Leave as-is; add an ESLint `max-lines` rule | 0 effort. Documents the debt without repaying it. |
 
@@ -297,8 +297,7 @@ Each decision below follows the same shape: **Observation** (what the code shows
 
 **Acceptance criteria.**
 - `SettingsPage.tsx` ≤ 280 LOC.
-- `useSettingsApply` has ≥1 test per flow branch: happy path, privacy-confirm required, admin-auth failure, 409 conflict, 429 rate limit.
-- `TokenEmptyState.tsx` exists as a standalone component; no token-prompt JSX remains inline in `SettingsPage.tsx`.
+- `useSettingsApply` has ≥1 test per flow branch: happy path, privacy-confirm required, 409 conflict, 429 rate limit.
 
 **Rollout / rollback.** Pure-refactor PR - same JSX, same side effects. Revert is a single git revert. No flag needed.
 
@@ -330,7 +329,7 @@ Additional patterns:
 | B - Migrate `useSettings`/`useImpact` to React Query with `refetchInterval` + `refetchIntervalInBackground: false` + `refetchOnWindowFocus: true`. Delete `usePolling.ts`. | 2h. Reuses existing infra. Stops background-tab traffic. |
 | C - Add shared `useUptimeTicker()` + do B | +1h. One implementation of the ticker. Deletes four duplicated `setInterval`s. |
 | D - Refactor `useLiveSources` to `useMutation` + a single `qc.invalidateQueries` after the bulk action settles. FE-only. | 0.5 day. Reduces N refresh GETs to 1 invalidation, but per-source POSTs still happen (N→N+1 total, not N→2). |
-| D+ - Pair D with a new BE bulk endpoint `POST /api/live/sources/bulk` accepting `{ids: string[], action: "start"\|"pause"}` | +1 day BE (see BE-D16 in the backend audit). Reduces N+N → 2. **Must be paired with auth (BE-D12).** |
+| D+ - Pair D with a new BE bulk endpoint `POST /api/live/sources/bulk` accepting `{ids: string[], action: "start"\|"pause"}` | +1 day BE (see BE-D16 in the backend audit). Reduces N+N → 2. |
 | E - Add `/api/live/snapshot` superset endpoint on BE so the two polls collapse to one | Requires BE work; see [BE-D11](backend-audit-2026-04-20.md#be-d11---apilivestatus-and-apiadminhealth-overlap). Plan B territory. |
 
 **Recommended: A + B + C + D in Plan A; E in Plan B.** Low-importance UI should not pay server-side cost, and the ticker duplication is the clearest shared-hook case in the codebase. The Settings-mounts-both-polls finding is the single biggest "wasteful traffic" lever.
@@ -507,46 +506,6 @@ Consumers don't re-render when `counts` changes - only when `events` changes. Th
 
 ---
 
-### D10 - Admin-token "cross-tab sync" is broken
-
-
-**Two independent problems.**
-1. `window.dispatchEvent` fires **only in the current window**. Cross-tab synchronization requires either the `storage` event (which only fires for `localStorage`, not `sessionStorage`) or a `BroadcastChannel`.
-2. `sessionStorage` is **per-tab** - setting a token in tab A does not put the value in tab B's `sessionStorage` at all. The comment is wrong on two counts.
-
-**Why it matters.** Operators opening two tabs (one Settings, one Admin) must paste the token twice. Worse, the docstring *claims* it works, so contributors building on top of the hook assume a guarantee the runtime does not provide.
-
-**Options**
-
-| Option | Trade-offs |
-|---|---|
-| A - Fix the docstring. Accept per-tab token entry as the current behaviour. | 5 min. Honest. Operator still pastes twice. |
-| B - Use `localStorage` + listen to the `storage` event for real cross-tab sync | 30 min. Token persists across tabs *and* across browser restarts (security trade-off: longer exposure window for a compromised token). Consider pairing with an explicit expiry. |
-| D - Leave the buggy comment and code | Invites surprise. |
-
-**Recommended: C.** Preserves the "session-scoped token" property (which is a real security property - a closed tab doesn't leak credentials) and delivers the cross-tab sync the comment promises. B is acceptable if the ops team prefers persistence and has a separate rotation story.
-
-**Acceptance criteria.**
-- Clearing in either tab clears the other.
-- Closing all tabs and reopening starts with no token (preserves session scope if C is chosen).
-- Docstring matches behaviour.
-
-**Rollout / rollback.** Pure FE change; single PR; trivial revert.
-
----
-
-### DSec - Cross-doc dependency on BE auth boundary
-
-
-**FE-side implications once BE-D12/D13 land.**
-- `<img src="/admin/video_feed/...">` and `<EventSource("/admin/detections")>` cannot send an `Authorization` header. FE must migrate to the signed-URL flow (BE-D13.B): fetch a short-lived URL via an authenticated JSON call, then use it in `<img>` / `EventSource`.
-- [StreamImage.tsx](frontend/src/features/admin/components/StreamImage.tsx) needs a refresh loop that re-mints URLs before expiry.
-- `useEventStream` (after D6 hoist) needs the same mint-before-reconnect behaviour.
-
-**Recommendation.** Plan FE work as a **follow-on to BE-D13**, not in parallel. Track as a dependent item. FE changes are ~1 day once the BE-side signed-URL endpoint exists.
-
----
-
 ### D11 - Accessibility pass on custom interaction primitives
 
 **Observation.**
@@ -668,7 +627,7 @@ The decisions above are cross-cutting. For clarity, here's how they group per fe
 
 **Relevant decisions:** D1, D2, D4 (ErrorList), D7 (types).
 **In scope:**
-- **D1.A — Extract `useSettingsApply` + `TokenEmptyState`.** [SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx) drops from 431 → ~280 LOC. Apply/rollback/template-apply lifecycle becomes unit-testable without the page. 1 day.
+- **D1.A — Extract `useSettingsApply`.** [SettingsPage.tsx](frontend/src/features/settings/SettingsPage.tsx) drops from 431 → ~280 LOC. Apply/rollback/template-apply lifecycle becomes unit-testable without the page. 1 day.
 - **D2.A — Slow `useLiveStatus`/`useAdminHealth` polls on Settings.** Settings mounts both just to feed the TopBar uptime pill - slow them to 15s/10s on this page. 1 line change per hook. This is the single biggest "too many API calls for not important UI" fix.
 - **D2.B — Migrate [useSettings:99-104](frontend/src/features/settings/hooks/useSettings.ts#L99) and [useImpact:46-52](frontend/src/features/settings/hooks/useImpact.ts#L46) from hand-rolled `setInterval` to React Query** with `refetchIntervalInBackground: false`. Stops background-tab traffic. 2h.
 - **D7.C — Consume generated types from BE once BE-D6 lands;** drop the hand-mirrored slice of [shared/types/common.ts](frontend/src/shared/types/common.ts).
@@ -714,10 +673,9 @@ One row per actionable FE decision. **Depends-on** cites backend IDs where cross
 | D2.C | `useUptimeTicker` shared hook | 1 h | - | §D2 | 1 |
 | D4.A | `cx` util + `<ErrorList>` + adopt `RiskBadge` at inline sites | 0.5 day | - | §D4 | 1 |
 | D4.B | `<EventFilterBar>` composite + `<PageChrome>` wrapper | 0.5 day | - | §D4 | 1 |
-| D1.A | `useSettingsApply` + `TokenEmptyState` | 1 day | - | §D1 | 1 |
+| D1.A | `useSettingsApply` | 1 day | - | §D1 | 1 |
 | D2.D | `useLiveSources` → `useMutation` + single invalidation | 0.5 day | - | §D2 | 1 |
 | D9 | Drive-by cleanups (dead CustomEvent, exhaustive-deps audit) | drive-by | - | §D9 | 1 |
-| DSec | Migrate `<img>`/`EventSource` consumers to signed-URL flow | 1 day | [BE-D13](backend-audit-2026-04-20.md#be-d13---live-mediadetection-streams-unauthenticated-be-13-critical) | §DSec | 0/1 (follows BE-D13) |
 | D12 | Standardize mutation failure feedback for detection toggles | 30-60 min | - | §D12 | 1 |
 | D13 | Replace index-based keys in monitoring repeated collections | 15-30 min | - | §D13 | 1 |
 | D14 | Delete or refactor `useLastVisit` | 10-30 min | - | §D14 | 1 |
@@ -742,9 +700,9 @@ Status as of post-audit quality pass:
 
 | Bucket | Items |
 |---|---|
-| Done | D1.A, D2.A, D2.B, D2.C, D2.D (FE-only), D3, D4.A (full `cx`+`RiskBadge`+`ErrorList` adoption), D4.B, D5.A, D6, D8, D9 (dead TabBar + stale comments), D10, DV1, quality pass (magic numbers, `useChat` fix, `useClearEvents`, `useMonitoringIncidents`, shared formatters) |
+| Done | D1.A, D2.A, D2.B, D2.C, D2.D (FE-only), D3, D4.A (full `cx`+`RiskBadge`+`ErrorList` adoption), D4.B, D5.A, D6, D8, D9 (dead TabBar + stale comments), DV1, quality pass (magic numbers, `useChat` fix, `useClearEvents`, `useMonitoringIncidents`, shared formatters) |
 | Newly identified follow-ons | D11, D12, D13, D14 |
-| Waiting on backend | D2.D+, DSec, D7 Ph2+ |
+| Waiting on backend | D2.D+, D7 Ph2+ |
 | Conditional / later | D4.C, D1.B, D7.B fallback |
 
 ## 9. Notes
