@@ -845,3 +845,5 @@
 {"ts": "2026-04-21T15:52:43.686Z", "action": "access_public_thumbnail", "resource": "evt_1776786757309_0036_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-21T15:58:17.668Z", "action": "access_public_thumbnail", "resource": "evt_1776787091056_0037_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
 {"ts": "2026-04-21T16:10:18.798Z", "action": "access_public_thumbnail", "resource": "evt_1776787811919_0038_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T16:29:20.061Z", "action": "access_public_thumbnail", "resource": "evt_1776788953921_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
+{"ts": "2026-04-21T16:29:22.402Z", "action": "access_public_thumbnail", "resource": "evt_1776788953921_0001_public.jpg", "actor": "system", "outcome": "success", "ip": "127.0.0.1"}
