@@ -6,6 +6,13 @@
  *
  * `cache: "no-store"` is essential for a real-time ops console — without it
  * some browsers will hand back a stale response from their HTTP cache.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (utility — no UI of its own). Every feature's
+ *   api.ts module on AdminPage, DashboardPage, MonitoringPage,
+ *   SettingsPage and ValidationPage routes its HTTP calls through here.
+ * UI element: no element — typed fetch helpers and a structured HTTP
+ *   error class that backs every JSON request the UI makes.
  */
 
 /**

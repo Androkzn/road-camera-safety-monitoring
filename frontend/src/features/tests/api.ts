@@ -4,6 +4,12 @@
  * Two endpoints: `GET /api/tests/status` for the latest run, and
  * `POST /api/tests/run` to kick off a new run. The hook in
  * `hooks/useTests.ts` is the only caller.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: No direct UI — wraps the test endpoints used by the
+ *   TopBar tests badge and its drawer.
+ * Backend: GET /api/tests/status, POST /api/tests/run.
  */
 import { fetchJson } from "../../shared/lib/fetchClient";
 import type { TestStatus } from "../../shared/types/common";

@@ -1,6 +1,13 @@
 /**
  * format.ts — pure display-formatting helpers shared across features.
  * No React, no I/O — easy to unit-test in isolation.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (utility — no UI of its own). Times, percentages,
+ *   uptimes, event-type labels and thumbnail URLs are formatted via
+ *   these helpers across every page.
+ * UI element: no element — formatting helpers that produce the strings
+ *   shown inside cards, badges, headers and tooltips.
  */
 
 const pad2 = (n: number): string => String(n).padStart(2, "0");

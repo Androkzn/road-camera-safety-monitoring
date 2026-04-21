@@ -11,6 +11,13 @@
  *   - `retry: 1`                       — single retry on transient errors.
  *
  * Per-query options (refetchInterval, etc) live in each feature's hook.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (utility — no UI of its own). Mounted once via
+ *   QueryClientProvider in app/providers.tsx so every page's useQuery /
+ *   useMutation calls share one cache.
+ * UI element: no element — the shared TanStack Query cache that every
+ *   data-driven panel, list and badge ultimately reads from.
  */
 
 import { QueryClient } from "@tanstack/react-query";

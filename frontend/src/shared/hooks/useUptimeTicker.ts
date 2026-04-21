@@ -12,6 +12,12 @@
  * the platform can parse. When it is `null` / `undefined`, the hook
  * returns `0` and installs no interval — so call sites can safely use
  * it unconditionally even before their upstream data has loaded.
+ *
+ * --- UI mapping ---
+ * Used on: AdminPage, DashboardPage, MonitoringPage, SettingsPage —
+ *   anywhere a live "uptime" / "X seconds ago" label needs to tick.
+ * UI element: no element on its own — drives the live elapsed-seconds
+ *   counters in stream headers, impact cards and dashboard widgets.
  */
 import { useEffect, useState } from "react";
 

@@ -5,6 +5,12 @@
  * "is the perception loop alive" and the source name that the TopBar
  * displays. With React Query this query is automatically deduped across
  * pages and refetched on window focus.
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, MonitoringPage, SettingsPage (and indirectly
+ *   AdminPage via the TopBar live-status pill).
+ * UI element: no element on its own — feeds the green/red live-status
+ *   dot and source label rendered by the TopBar on every page.
  */
 import { useQuery } from "@tanstack/react-query";
 

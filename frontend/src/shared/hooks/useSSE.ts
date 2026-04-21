@@ -4,6 +4,13 @@
  * SSE doesn't fit into TanStack Query (it's a long-lived push channel,
  * not a pull). This hook owns the EventSource lifecycle: open on mount,
  * exponential-backoff reconnect on error, close on unmount.
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, MonitoringPage, AdminPage (via the app-wide
+ *   EventStreamProvider, which is the only direct consumer).
+ * UI element: the live-event ticker that powers incident feeds,
+ *   detection panels, and live tiles — this hook is the underlying
+ *   network plumbing, not a visible element on its own.
  */
 import { useEffect, useRef, useState } from "react";
 
