@@ -1,4 +1,4 @@
-.PHONY: install dev test test-be test-fe test-all lint typecheck typecheck-mypy generate-types run run-cloud start stop restart status logs docker-build docker-up docker-up-cloud docker-down clean
+.PHONY: install dev dev-hot dev-hot-lite dev-stop test test-be test-fe test-all lint typecheck typecheck-mypy generate-types run run-cloud start stop restart status logs docker-build docker-up docker-up-cloud docker-down clean
 
 # --- Background dev-server shortcuts ---
 # Terminal equivalents of the /start and /stop Claude Code slash commands.
@@ -48,6 +48,61 @@ run:
 
 run-cloud:
 	python start.py --cloud
+
+# Hot-reload dev mode: uvicorn --reload on $(PORT) + Vite on :3000.
+# Open http://localhost:3000 — Vite proxies /api, /stream, etc. to the backend.
+# Ctrl+C stops both processes together.
+#
+# Reload is scoped to backend/ *.py files only. Without this, every thumbnail
+# write to data/ triggers a restart, which kills streams mid-startup and
+# causes the Vite proxy to time out in a loop.
+#
+# Pre-flight frees :$(PORT) and :3000 and kills stray yt-dlp/ffmpeg workers
+# from a previous crashed run, so this target is idempotent.
+dev-hot:
+	@echo "pre-flight: freeing :$(PORT), :3000, killing stray stream workers..."
+	@lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@lsof -nP -iTCP:3000 -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@pkill -9 -f "yt-dlp" 2>/dev/null || true
+	@pkill -9 -f "ffmpeg.*pipe" 2>/dev/null || true
+	@sleep 0.3
+	@echo "launching: uvicorn :$(PORT) (reload scoped to backend/*.py) + vite :3000"
+	@trap 'echo; echo "shutting down..."; kill -TERM 0 2>/dev/null; sleep 0.5; kill -9 0 2>/dev/null; exit 0' INT TERM; \
+	.venv/bin/python -m uvicorn backend.server:app \
+	    --reload --reload-dir backend --reload-include '*.py' --port $(PORT) & BE=$$!; \
+	( cd frontend && npm run dev ) & FE=$$!; \
+	wait $$BE $$FE
+
+# Force-stop everything dev-hot / dev-hot-lite starts: frees :$(PORT) and
+# :3000, kills stray yt-dlp/ffmpeg workers. Use when Ctrl+C didn't fully
+# clean up (rare, but yt-dlp occasionally ignores SIGTERM during startup).
+dev-stop:
+	@echo "stopping dev servers and stream workers..."
+	@lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@lsof -nP -iTCP:3000 -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@pkill -9 -f "yt-dlp" 2>/dev/null || true
+	@pkill -9 -f "ffmpeg.*pipe" 2>/dev/null || true
+	@pkill -9 -f "uvicorn backend.server" 2>/dev/null || true
+	@pkill -9 -f "vite" 2>/dev/null || true
+	@echo "stopped."
+
+# Fast-startup dev mode: like dev-hot, but forces the bundled local MP4 clips
+# instead of YouTube streams. Startup is ~2 seconds vs ~70 seconds because
+# yt-dlp + ffmpeg don't have to negotiate live streams. Use this when you're
+# iterating on code and don't need real camera feeds.
+dev-hot-lite:
+	@echo "pre-flight: freeing :$(PORT), :3000, killing stray stream workers..."
+	@lsof -nP -iTCP:$(PORT) -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@lsof -nP -iTCP:3000 -sTCP:LISTEN -t 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@pkill -9 -f "yt-dlp" 2>/dev/null || true
+	@pkill -9 -f "ffmpeg.*pipe" 2>/dev/null || true
+	@sleep 0.3
+	@echo "launching: uvicorn :$(PORT) (reload, LOCAL MP4s) + vite :3000"
+	@trap 'echo; echo "shutting down..."; kill -TERM 0 2>/dev/null; sleep 0.5; kill -9 0 2>/dev/null; exit 0' INT TERM; \
+	ROAD_STREAM_SOURCES='' .venv/bin/python -m uvicorn backend.server:app \
+	    --reload --reload-dir backend --reload-include '*.py' --port $(PORT) & BE=$$!; \
+	( cd frontend && npm run dev ) & FE=$$!; \
+	wait $$BE $$FE
 
 start:
 	@if [ -f "$(PID_FILE)" ] && kill -0 "$$(cat $(PID_FILE))" 2>/dev/null; then \
