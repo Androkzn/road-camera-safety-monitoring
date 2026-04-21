@@ -15,6 +15,13 @@
  * with what the backend actually emits. If you need a frontend-only
  * helper type that isn't on the wire, put it in the consuming feature
  * folder (``features/<name>/types.ts``).
+ *
+ * --- UI mapping ---
+ * Used on: All pages (utility — no UI of its own). Imported anywhere a
+ *   feature touches a backend payload (events, health, drift, scene,
+ *   live status, watchdog, tests).
+ * UI element: no element — TypeScript type re-exports of the backend
+ *   wire contracts so every page renders the same shape.
  */
 
 // `export type` / `export interface` re-exports — TS erases these at

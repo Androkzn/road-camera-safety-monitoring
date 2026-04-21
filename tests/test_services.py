@@ -536,6 +536,7 @@ class TestWatchdog:
     def test_stats_group_repeated_incidents(self, tmp_path, monkeypatch):
         """Repeated fingerprints collapse into one incident row with a count."""
         from backend.services import watchdog
+        from backend.services.watchdog import storage as watchdog_storage
 
         path = tmp_path / "watchdog.jsonl"
         lines = [
@@ -559,7 +560,7 @@ class TestWatchdog:
             },
         ]
         path.write_text("".join(json.dumps(line) + "\n" for line in lines))
-        monkeypatch.setattr(watchdog, "_WATCHDOG_PATH", path)
+        monkeypatch.setattr(watchdog_storage, "_WATCHDOG_PATH", path)
 
         summary = watchdog.stats()
         assert summary["total_findings"] == 2

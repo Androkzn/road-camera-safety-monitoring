@@ -4,6 +4,14 @@ Serves event thumbnails on disk. Every access is audit-logged so a
 reviewer can reconstruct who viewed which redacted image. The POC has
 no authentication — production deployments must gate this behind a
 real auth layer before exposing publicly.
+
+UI connection
+-------------
+Page: DashboardPage + AdminPage + MonitoringPage + ValidationPage —
+       [file](frontend/src/shared/events/EventCard.tsx)
+UI element: the small redacted preview image on every event card across
+all pages, and the larger image inside the event-detail dialog.
+Backend route(s): GET /thumbnails/{name}.
 """
 
 from fastapi import APIRouter, HTTPException, Request

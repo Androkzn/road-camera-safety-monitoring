@@ -101,7 +101,17 @@ also available for one-shot snapshots and tests.
 
 ### Watchdog
 
-`services/watchdog.py` groups repeated errors into fingerprinted incidents with impact + likely cause + owner + evidence + debug commands. The design goal is an **incident queue**, not a log-tail wall of red; preserve this when extending it.
+`services/watchdog/` groups repeated errors into fingerprinted incidents with impact + likely cause + owner + evidence + debug commands. The design goal is an **incident queue**, not a log-tail wall of red; preserve this when extending it.
+
+The package splits four concerns so monitoring never depends on LLM availability:
+
+- `watchdog/model.py` — the `WatchdogFinding` dataclass, fingerprinting, defaults table, normalization, grouping, and `make_finding`. Shape-only, no I/O.
+- `watchdog/rules.py` — deterministic rule-based detectors (`rule_checks`). Always available; never imports the LLM.
+- `watchdog/ai.py` — strictly-additive Claude hypothesis layer (`ai_analyze`). Returns `[]` when the LLM stack is unreachable so the rule layer carries on alone.
+- `watchdog/storage.py` — append-only JSONL writer/reader for `data/watchdog.jsonl`.
+- `watchdog/api.py` — the `Watchdog` background loop + `stats()` aggregator surfaced to `/api/watchdog`.
+
+**Invariant**: on fingerprint OR title collision between a rule and an AI finding, the rule wins — that's what makes the queue stay trustworthy when the provider is flaky.
 
 ## Things to avoid
 

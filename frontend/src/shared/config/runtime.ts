@@ -3,6 +3,13 @@
  *
  * Centralising timing, stale windows and buffer limits avoids "magic number"
  * drift across features and makes future tuning one-file.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (utility — no UI of its own). Imported by polling
+ *   hooks, SSE backoff, the live-tile retry loop, and other timing knobs
+ *   on every page.
+ * UI element: no element — pure constants (poll intervals, stale times,
+ *   buffer limits, thresholds) consumed by hooks and components.
  */
 export const POLL_INTERVAL_MS = {
   liveStatus: 5_000,

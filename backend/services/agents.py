@@ -63,6 +63,17 @@ PYTHON IDIOMS USED IN THIS FILE (first-time reader notes)
     the app runtime that looks up events in the in-memory buffer. The
     executor holds the closure and calls it whenever a tool needs the buffer;
     this avoids a tight import coupling between agents.py and server.py.
+
+UI connection
+-------------
+Page: None — operator-only endpoints, not currently called by any React page.
+UI element: No direct UI — runs on demand. An operator hits the agent
+endpoints by hand (e.g. via curl) to generate a coaching note, an
+investigation write-up, or a session report. Output is JSON in the
+response body, not rendered in the web app.
+Consumed by: Backend routes ``POST /api/agents/coaching``,
+``POST /api/agents/investigation``, ``POST /api/agents/report`` exposed in
+``backend/api/routers/agents.py``. No frontend hook today.
 """
 
 from __future__ import annotations

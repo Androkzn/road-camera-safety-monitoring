@@ -6,6 +6,11 @@
  *
  * Stateless — SettingsPage owns the draft / effective / errors maps and
  * just hands them in here.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: the left-hand column listing all tunables, grouped by
+ *   category in collapsible sections.
  */
 
 import { humanize } from "../utils/formatting";

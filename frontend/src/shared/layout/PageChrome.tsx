@@ -23,6 +23,13 @@
  * every call site again. Today they are held but not rendered — the
  * underlying TopBar has no slot for them yet and we don't want to
  * widen TopBar in this patch.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (global layout). Wraps the body of AdminPage,
+ *   DashboardPage, MonitoringPage, SettingsPage and ValidationPage.
+ * UI element: the global page wrapper that renders the TopBar above
+ *   each page's content and auto-wires the Monitoring/Validation red
+ *   bubble counts from context.
  */
 import type { ReactNode } from "react";
 

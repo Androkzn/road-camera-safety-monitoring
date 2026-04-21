@@ -52,6 +52,20 @@ Python idioms used in this file (explained once, here)
 - Type hints like ``str | None`` (PEP 604): this value may be ``str`` or
   ``None``. ``dict[str, Any]`` is a dict; ``tuple[str, int, int]`` is a
   3-tuple.
+
+UI connection
+-------------
+Page: MonitoringPage and DashboardPage —
+  [MonitoringPage](frontend/src/features/monitoring/MonitoringPage.tsx),
+  [DashboardPage](frontend/src/features/dashboard/DashboardPage.tsx).
+UI element: No direct UI — runs in the background. Its outputs surface as
+the one-line incident narration on each incident card on MonitoringPage,
+the redacted vehicle/colour tags on the same cards, and the operator
+Copilot chat replies on the right side of DashboardPage.
+Consumed by: ``narrate_event`` and ``enrich_event`` are called from the
+emit pipeline, so their output is baked into the event objects served by
+``/api/events`` and the SSE stream. ``chat`` is exposed via ``POST /chat``
+and consumed by the ``useChat`` hook on DashboardPage.
 """
 
 import asyncio

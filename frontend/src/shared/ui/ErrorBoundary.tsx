@@ -11,6 +11,14 @@
  *   <ErrorBoundary fallback={<PageError />}>
  *     <SettingsPage />
  *   </ErrorBoundary>
+ *
+ * --- UI mapping ---
+ * Used on: All pages (global layout) — the router's RouteShell wraps
+ *   each route (AdminPage, DashboardPage, MonitoringPage, SettingsPage,
+ *   ValidationPage) in one of these.
+ * UI element: full-page fallback shown only when a child component
+ *   throws — title, error message text, and "Try again" / "Reload page"
+ *   buttons. Invisible when nothing has crashed.
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 

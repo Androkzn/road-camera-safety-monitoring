@@ -3,6 +3,13 @@
  *
  * Endpoints are polled via TanStack Query with
  * `refetchIntervalInBackground: false` so background tabs stay quiet.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: Provides the schema and current values that populate every
+ *   tunable row in the left column of the SettingsPage.
+ * Backend: GET /api/settings/schema, GET /api/settings/effective,
+ *   POST /api/settings/apply, POST /api/settings/validate.
  */
 import { useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";

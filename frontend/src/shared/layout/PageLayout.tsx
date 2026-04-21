@@ -2,6 +2,14 @@
  * PageLayout — thin shell helpers used by route-level Suspense and
  * ErrorBoundary fallbacks. Pages themselves still own their own
  * <TopBar/> markup so the existing component contracts don't break.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (global layout). PageShell / PageBody wrap route
+ *   content; RouteFallback shows during route lazy-load on every page
+ *   transition.
+ * UI element: outer page container plus the route loading fallback
+ *   (centred spinner with a "Loading…" label) shown while a page chunk
+ *   is being fetched.
  */
 import type { ReactNode } from "react";
 

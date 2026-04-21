@@ -30,6 +30,16 @@ Environment variables
 ---------------------
 None directly. Indirectly: ``DATA_DIR`` resolves from ``backend.config``
 which reads ``ROAD_DATA_DIR``.
+
+UI connection
+-------------
+Page: DashboardPage + AdminPage + MonitoringPage + ValidationPage —
+       [file](frontend/src/shared/events/FeedbackButtons.tsx)
+UI element: the thumbs-up / thumbs-down buttons at the bottom of every
+event card. The coaching-queue endpoint is not currently surfaced in the
+React frontend (operator-only).
+Backend route(s): POST /api/feedback, GET /api/feedback,
+GET /api/coaching_queue.
 """
 
 # ``from __future__ import annotations`` — evaluate type hints lazily so

@@ -24,6 +24,25 @@ Routes registered by :func:`mount`:
     - ``POST /api/settings/stream_ticket``
 * SSE (ticket-gated):
     - ``GET  /api/settings/impact/stream?ticket=…``
+
+UI connection
+-------------
+Page: SettingsPage — [file](frontend/src/features/settings/SettingsPage.tsx)
+UI element: powers the entire Settings Console page — the tunables column
+on the left (sliders / toggles), the Apply / Rollback buttons at the
+bottom, and the live impact card on the right that streams updates over
+SSE after each apply.
+Backend route(s): GET /api/settings/effective, GET /api/settings/schema,
+GET /api/settings/templates, GET /api/settings/templates/{template_id}/revisions,
+GET /api/settings/baseline, GET /api/settings/impact,
+GET /api/settings/impact/history, GET /api/settings/apply_log,
+GET /api/settings/observability, POST /api/settings/validate,
+POST /api/settings/apply, POST /api/settings/rollback,
+POST /api/settings/templates, PATCH /api/settings/templates/{template_id},
+DELETE /api/settings/templates/{template_id},
+POST /api/settings/templates/{template_id}/apply,
+POST /api/settings/baseline/capture, POST /api/settings/stream_ticket,
+GET /api/settings/impact/stream.
 """
 
 from __future__ import annotations

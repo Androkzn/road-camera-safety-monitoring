@@ -5,6 +5,13 @@
  * Usage:
  *   <Skeleton width="100%" height={20} />
  *   <Skeleton circle width={32} height={32} />
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Used as a pre-data
+ *   placeholder anywhere a card or list is loading on AdminPage,
+ *   DashboardPage, MonitoringPage, SettingsPage and ValidationPage.
+ * UI element: shimmering grey placeholder bar (or circle) that occupies
+ *   the eventual size of the content while it loads.
  */
 import type { CSSProperties } from "react";
 

@@ -3,6 +3,12 @@
  *
  * Composes on top of `useSettings` and `useImpact` and turns them into
  * a single page-shaped state object.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: Drives the Apply flow behind the Apply / Discard buttons in
+ *   the SettingsHeader and the resulting ApplyResultBanner.
+ * Backend: POST /api/settings/apply (with privacy/revision handling).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 

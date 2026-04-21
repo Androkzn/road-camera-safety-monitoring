@@ -3,6 +3,13 @@
  * adds `invalid` and size variants, and works for `type="text" | "password" |
  * "number" | "email" | …`. For sliders / checkboxes use raw <input> with
  * its own styles since the visual model is different.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (shared UI primitive). Most heavily used by
+ *   SettingsPage forms; also used in AdminPage source editors and any
+ *   in-page search/filter input.
+ * UI element: themed text input field with three size variants and an
+ *   "invalid" red-outline state for validation errors.
  */
 import { forwardRef, type InputHTMLAttributes } from "react";
 

@@ -3,6 +3,18 @@
 The "watchdog" groups repeated errors into fingerprinted incidents. The
 "shadow validator" is a background worker that cross-checks events
 against a secondary model. Both are controlled here.
+
+UI connection
+-------------
+Page: MonitoringPage — [file](frontend/src/features/watchdog/components/WatchdogDrawer.tsx)
+       (the watchdog badge + drawer is also mounted on every page header)
+       and ValidationPage — [file](frontend/src/features/validation/components/ValidatorControl.tsx).
+UI element: the watchdog badge in the page header (with the incident drawer
+that lists each finding and a delete button), plus the "shadow validator"
+on/off toggle card on the Validation page.
+Backend route(s): GET /api/watchdog, GET /api/watchdog/recent,
+DELETE /api/watchdog/findings, POST /api/watchdog/findings/delete,
+GET /api/validator/status, POST /api/validator/toggle.
 """
 
 from fastapi import APIRouter, HTTPException

@@ -5,6 +5,15 @@
  * unread-error count for the Monitoring link, and any children to slot
  * into the right side. Pages own the data sources and pass them in,
  * which keeps `shared/` decoupled from any feature.
+ *
+ * --- UI mapping ---
+ * Used on: All pages (global layout). Rendered (via PageChrome) at the
+ *   top of AdminPage, DashboardPage, MonitoringPage, SettingsPage and
+ *   ValidationPage.
+ * UI element: the top navigation bar shown on every page — brand logo,
+ *   nav links (Admin, Dashboard, Monitoring, Validation, Settings) with
+ *   red bubbles for unread errors / drift, and a live-status pill on
+ *   the right.
  */
 import { Link, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";

@@ -1,5 +1,11 @@
 /**
  * useImpact — polls `/api/settings/impact` for the active session.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: Feeds the impact card on the right column (predicted change
+ *   in alert volume, severity bars, ops deltas).
+ * Backend: GET /api/settings/impact.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";

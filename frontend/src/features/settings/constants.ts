@@ -1,6 +1,11 @@
 /**
  * Static maps used by the formatting helpers and the Tunable popovers.
  * Pure data — no React, no I/O.
+ *
+ * --- UI mapping ---
+ * Page: SettingsPage ([file](frontend/src/features/settings/SettingsPage.tsx))
+ * UI element: No direct UI — static label/unit/severity maps used by the
+ *   SettingsPage formatting helpers and tunable rows.
  */
 
 /** Per-token rewrite map for humanizing SCREAMING_SNAKE keys. */

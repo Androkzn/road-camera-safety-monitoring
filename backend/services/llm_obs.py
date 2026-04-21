@@ -47,6 +47,17 @@ Python idioms in this file (explained once)
   ``if key not in d: d[key] = {...}`` boilerplate.
 - ``statistics.median`` : 50th-percentile helper from the stdlib.
 - ``str | None`` : PEP 604 union type hint.
+
+UI connection
+-------------
+Page: SettingsPage — [file](frontend/src/features/settings/SettingsPage.tsx).
+UI element: No direct UI — runs in the background. Its numbers (LLM cost
+per minute, token rate, p95 latency, skip rate) feed the ops-deltas row of
+the impact card on SettingsPage, so an operator can see whether a settings
+change moved LLM spend or latency.
+Consumed by: Exposed via ``/api/llm/stats`` and ``/api/llm/recent``. The
+sampler in ``backend/services/ops_sampler.py`` reads from this observer
+and the impact card on SettingsPage renders the resulting deltas.
 """
 
 from __future__ import annotations
