@@ -65,6 +65,7 @@ class StreamReader:
         self.started_at: float | None = None
         self.frames_read = 0
         self.frames_processed = 0
+        self.reconnects = 0
 
     def start(self, on_frame: Callable[[float, object], None]) -> None:
         self.started_at = time.time()
@@ -94,41 +95,65 @@ class StreamReader:
             self._loop_opencv(on_frame)
 
     def _loop_opencv(self, on_frame: Callable[[float, object], None]) -> None:
-        cap = cv2.VideoCapture(self.source_url)
-        if not cap.isOpened():
-            print(f"[stream] failed to open: {self.source_url[:80]}...")
-            return
+        backoff = 2.0
+        backoff_cap = 30.0
 
-        native_fps = cap.get(cv2.CAP_PROP_FPS) or 25
-        step = max(int(native_fps / self.target_fps), 1)
-        print(f"[stream] opened  native_fps={native_fps:.1f}  step={step}  target_fps={self.target_fps}")
-
-        i = 0
-        consecutive_fail = 0
         while not self._stop.is_set():
-            ok, frame = cap.read()
-            if not ok:
-                consecutive_fail += 1
-                if consecutive_fail > 50:
-                    print("[stream] too many read failures — stopping")
+            cap = cv2.VideoCapture(self.source_url)
+            if not cap.isOpened():
+                print(f"[stream] failed to open: {self.source_url[:80]}...")
+                self.reconnects += 1
+                backoff = min(backoff * 2, backoff_cap)
+                if self._stop.wait(backoff):
                     break
-                time.sleep(0.1)
                 continue
-            consecutive_fail = 0
-            self.frames_read += 1
-            if i % step == 0:
-                try:
-                    on_frame(time.time(), frame)
-                    self.frames_processed += 1
-                except Exception as exc:
-                    print(f"[stream] on_frame error: {exc}")
-            i += 1
 
-        cap.release()
+            native_fps = cap.get(cv2.CAP_PROP_FPS) or 25
+            step = max(int(native_fps / self.target_fps), 1)
+            print(f"[stream] opened  native_fps={native_fps:.1f}  step={step}  target_fps={self.target_fps}")
+
+            i = 0
+            consecutive_fail = 0
+            produced_any = False
+            while not self._stop.is_set():
+                ok, frame = cap.read()
+                if not ok:
+                    consecutive_fail += 1
+                    if consecutive_fail > 50:
+                        print("[stream] too many read failures — reconnecting")
+                        break
+                    time.sleep(0.1)
+                    continue
+                consecutive_fail = 0
+                produced_any = True
+                self.frames_read += 1
+                if i % step == 0:
+                    try:
+                        on_frame(time.time(), frame)
+                        self.frames_processed += 1
+                    except Exception as exc:
+                        print(f"[stream] on_frame error: {exc}")
+                i += 1
+
+            cap.release()
+            if self._stop.is_set():
+                break
+
+            self.reconnects += 1
+            backoff = 2.0 if produced_any else min(backoff * 2, backoff_cap)
+            print(f"[stream] reconnecting in {backoff:.1f}s (attempt #{self.reconnects})")
+            if self._stop.wait(backoff):
+                break
+
         print("[stream] capture loop ended")
 
     def _loop_ytdlp_pipe(self, on_frame: Callable[[float, object], None], ffmpeg: str) -> None:
-        """Pipe yt-dlp output through ffmpeg to get raw BGR frames for OpenCV."""
+        """Pipe yt-dlp output through ffmpeg to get raw BGR frames for OpenCV.
+
+        Reconnects with exponential backoff when the pipe ends, so a 24/7
+        live source keeps feeding frames across yt-dlp segment URL rotation
+        and brief source gaps.
+        """
         width, height = 640, 360
         fps = max(int(self.target_fps), 1)
 
@@ -149,49 +174,64 @@ class StreamReader:
             "pipe:1",
         ]
 
-        print(f"[stream] starting yt-dlp | ffmpeg pipe  {width}x{height} @ {fps}fps")
-
-        ytdlp_proc = subprocess.Popen(
-            ytdlp_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        )
-        ffmpeg_proc = subprocess.Popen(
-            ffmpeg_cmd, stdin=ytdlp_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
-        ytdlp_proc.stdout.close()
-
-        self._procs = [ytdlp_proc, ffmpeg_proc]
-
         frame_size = width * height * 3
-        consecutive_fail = 0
+        backoff = 2.0
+        backoff_cap = 30.0
 
         while not self._stop.is_set():
-            raw = ffmpeg_proc.stdout.read(frame_size)
-            if len(raw) != frame_size:
-                consecutive_fail += 1
-                if consecutive_fail > 10:
-                    stderr_tail = ""
-                    try:
-                        stderr_tail = ffmpeg_proc.stderr.read().decode(errors="replace")[-500:]
-                    except Exception:
-                        pass
-                    print(f"[stream] pipe ended — {consecutive_fail} failures. stderr: {stderr_tail}")
-                    break
-                time.sleep(0.2)
-                continue
+            print(f"[stream] starting yt-dlp | ffmpeg pipe  {width}x{height} @ {fps}fps")
 
+            ytdlp_proc = subprocess.Popen(
+                ytdlp_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+            ffmpeg_proc = subprocess.Popen(
+                ffmpeg_cmd, stdin=ytdlp_proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            ytdlp_proc.stdout.close()
+
+            self._procs = [ytdlp_proc, ffmpeg_proc]
             consecutive_fail = 0
-            frame = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 3))
-            self.frames_read += 1
-            try:
-                on_frame(time.time(), frame)
-                self.frames_processed += 1
-            except Exception as exc:
-                print(f"[stream] on_frame error: {exc}")
+            produced_any = False
 
-        for p in self._procs:
-            try:
-                p.kill()
-            except Exception:
-                pass
-        self._procs = []
+            while not self._stop.is_set():
+                raw = ffmpeg_proc.stdout.read(frame_size)
+                if len(raw) != frame_size:
+                    consecutive_fail += 1
+                    if consecutive_fail > 10:
+                        stderr_tail = ""
+                        try:
+                            stderr_tail = ffmpeg_proc.stderr.read().decode(errors="replace")[-500:]
+                        except Exception:
+                            pass
+                        print(f"[stream] pipe ended — {consecutive_fail} failures. stderr: {stderr_tail}")
+                        break
+                    time.sleep(0.2)
+                    continue
+
+                consecutive_fail = 0
+                produced_any = True
+                frame = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 3))
+                self.frames_read += 1
+                try:
+                    on_frame(time.time(), frame)
+                    self.frames_processed += 1
+                except Exception as exc:
+                    print(f"[stream] on_frame error: {exc}")
+
+            for p in self._procs:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+            self._procs = []
+
+            if self._stop.is_set():
+                break
+
+            self.reconnects += 1
+            backoff = 2.0 if produced_any else min(backoff * 2, backoff_cap)
+            print(f"[stream] reconnecting in {backoff:.1f}s (attempt #{self.reconnects})")
+            if self._stop.wait(backoff):
+                break
+
         print("[stream] pipe capture loop ended")

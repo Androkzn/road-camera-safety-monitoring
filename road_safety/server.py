@@ -890,6 +890,7 @@ async def lifespan(app: FastAPI):
                 "pipeline": {
                     "frames_read": reader.frames_read if reader else 0,
                     "frames_processed": reader.frames_processed if reader else 0,
+                    "reconnects": reader.reconnects if reader else 0,
                     "event_count": len(state.recent_events),
                     "active_episodes": len(state.episodes),
                 },
@@ -1105,6 +1106,7 @@ def live_status():
         "event_count": len(state.recent_events),
         "frames_read": state.reader.frames_read if state.reader else 0,
         "frames_processed": state.reader.frames_processed if state.reader else 0,
+        "reconnects": state.reader.reconnects if state.reader else 0,
         "uptime_sec": round(state.reader.uptime_sec(), 1) if state.reader else 0.0,
         "started_at": state.reader.started_at if state.reader else None,
         "llm_configured": llm_configured(),
@@ -1378,6 +1380,7 @@ def admin_health():
         "pipeline": {
             "frames_read": reader.frames_read if reader else 0,
             "frames_processed": reader.frames_processed if reader else 0,
+            "reconnects": reader.reconnects if reader else 0,
             "event_count": len(state.recent_events),
             "active_episodes": len(state.episodes),
             "tracker": "bytetrack",
