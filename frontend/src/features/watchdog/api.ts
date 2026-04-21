@@ -3,6 +3,13 @@
  *
  * `AbortSignal` is part of the fetch API — passing it lets TanStack
  * cancel in-flight requests when the component unmounts or refetches.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: No direct UI — wraps the watchdog endpoints used by the
+ *   TopBar watchdog badge and the WatchdogDrawer.
+ * Backend: GET /api/watchdog, GET /api/watchdog/recent,
+ *   POST /api/watchdog/findings/delete, DELETE /api/watchdog/findings.
  */
 import { apiFetch } from "../../shared/lib/fetchClient";
 

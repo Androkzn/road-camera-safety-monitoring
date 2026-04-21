@@ -59,6 +59,18 @@ Python idioms used in this file
   exception fires when the input is malformed.
 * ``"…"`` at end of truncated string — explicit ellipsis in the UI.
 * ``from __future__ import annotations`` — defers type-hint evaluation.
+
+UI connection
+-------------
+Page: All pages — surfaces in the global TopBar shared by AdminPage,
+DashboardPage, MonitoringPage, SettingsPage, and ValidationPage.
+UI element: The small "Tests" status pill in the top bar (green/red dot
+plus pass/fail count) and the slide-out drawer that opens when the pill
+is clicked, listing per-file pytest results.
+Consumed by: Exposed via ``GET /api/tests/status`` and ``POST /api/tests/run``.
+The frontend ``useTests`` hook
+([file](frontend/src/features/tests/hooks/useTests.ts)) polls this and
+feeds the ``TestBadge`` and ``TestDrawer`` components.
 """
 
 from __future__ import annotations

@@ -5,6 +5,12 @@
  * Optimistic updates: the checkbox flips immediately on click, then the
  * mutator rewrites the cache with the server's response. If the request
  * fails we revert via query invalidation.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: Drives the validator state shown by the ValidatorControl
+ *   card (checkbox + counters) on the ValidationPage.
+ * Backend: GET /api/validator/status, POST /api/validator/toggle.
  */
 // TanStack Query primitives:
 //   useQuery         — declarative GET with caching + polling + dedupe.

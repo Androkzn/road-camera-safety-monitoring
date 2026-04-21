@@ -9,6 +9,12 @@
  * This is a "custom hook" — any function whose name starts with `use`
  * and which calls React hooks internally. Custom hooks let us package
  * reusable stateful logic and share it across components.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: Provides the drift count shown as the small red bubble on
+ *   the Validation nav link in the TopBar.
+ * Backend: reads from the watchdog context (no extra HTTP call).
  */
 import { useMemo } from "react";
 

@@ -31,6 +31,19 @@ Design
 The sample interval (default 5 s) is coarse on purpose: CPU sampled
 more aggressively would double-count the sampler's own work, and the
 impact engine aggregates over windows of 5+ minutes anyway.
+
+UI connection
+-------------
+Page: SettingsPage — [file](frontend/src/features/settings/SettingsPage.tsx).
+UI element: The "ops deltas" row inside the impact card on SettingsPage —
+the small numbers showing actual fps, CPU p95, memory, and LLM cost per
+minute before and after a settings change. This sampler is what makes
+those numbers exist.
+Consumed by: Read by the impact engine
+(``backend/services/impact.py``), surfaced through ``/api/settings/impact``,
+and rendered by the ``OpsDeltas`` component
+([file](frontend/src/features/settings/components/OpsDeltas.tsx)) on
+SettingsPage.
 """
 
 import logging

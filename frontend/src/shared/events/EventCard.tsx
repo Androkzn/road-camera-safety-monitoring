@@ -3,6 +3,14 @@
  * than AdminEventCard: shows enrichment row (vehicle color/type, plate
  * hash), and embeds FeedbackButtons so viewers can mark the detection
  * correct or wrong.
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, MonitoringPage (and any other shared event
+ *   feed that needs the richer card; AdminPage uses its own slimmer
+ *   variant).
+ * UI element: rich event card row with thumbnail, risk badge, event
+ *   type, time, TTC/distance tags, narration text, plate hash, and
+ *   embedded Correct / False alarm feedback buttons.
  */
 
 import { useState, useEffect } from "react";

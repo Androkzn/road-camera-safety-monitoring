@@ -6,6 +6,11 @@
  * and this component owns the per-row presentation. Uses the shared
  * EventsPanel.module.css stylesheet so DOM + classNames stay
  * byte-identical to the pre-split output.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: each row in the events list inside EventsPanel (time,
+ *   risk badge, objects, verdict pill).
  */
 import { cx } from "../../../shared/lib/cx";
 // `import type` imports only TypeScript type definitions — erased at

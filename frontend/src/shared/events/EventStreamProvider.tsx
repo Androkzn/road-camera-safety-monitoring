@@ -17,6 +17,14 @@
  *   Connected/status-only consumers (Monitoring page) now subscribe via
  *   `useEventStreamConnection()` so event-buffer pushes do not re-render
  *   pages that do not read `events` at all.
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, MonitoringPage, AdminPage, ValidationPage —
+ *   mounted once near the app root and consumed by every page that
+ *   shows live events.
+ * UI element: the live-event ticker that powers incident feeds,
+ *   detection panels, and live tiles — this provider owns the single
+ *   shared SSE buffer that every event surface reads from.
  */
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";

@@ -14,6 +14,11 @@
  * Per-row rendering lives in EventRow; verdict classification and
  * dispute-note parsing live in utils/verdict.ts. This file only owns
  * the list controls + dialog wiring.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: the panel listing events to validate, with one row per
+ *   event and a dialog when a row is opened.
  */
 // `useState` — stores component-local state that survives re-renders.
 // `useMemo` — memoizes a derived value; recomputes only on dep changes.

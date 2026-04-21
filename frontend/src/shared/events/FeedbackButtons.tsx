@@ -5,6 +5,11 @@
  *
  * Lives in `shared/events/` because both Dashboard and Admin event
  * surfaces reuse it.
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, AdminPage (and anywhere EventCard is shown).
+ * UI element: a "Correct" / "False alarm" button pair at the bottom of
+ *   each event card, with a "thanks" acknowledgement after submission.
  */
 
 import { useState, useCallback } from "react";

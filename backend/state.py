@@ -1,20 +1,21 @@
 """In-memory state for the live safety pipeline.
 
-Holds the three domain classes and the process-wide singleton that
-``server.py``, the perception thread, and every route handler share:
+Holds the process-wide ``LiveState`` singleton shared by ``server.py``,
+the perception thread, and every route handler:
 
-    * :class:`Episode`          — temporal de-duplication across frames.
-    * :class:`StreamSlot`       — per-source perception state.
-    * :class:`LiveStateSnapshot`— frozen view used by route handlers.
-    * :class:`LiveState`        — process-wide state container.
-    * ``state``                 — module-level singleton instance.
+    * :class:`LiveStateSnapshot` — frozen view used by route handlers.
+    * :class:`LiveState`         — process-wide state container.
+    * ``state``                  — module-level singleton instance.
+
+The per-source domain objects (:class:`~backend.domain.episode.Episode`,
+:class:`~backend.domain.stream_slot.StreamSlot`) moved to
+``backend/domain/`` in the state-split refactor; this module still
+re-exports them for backwards compatibility so existing
+``from backend.state import Episode, StreamSlot`` imports keep working.
 
 Camera-site identity (``RESOLVED_VEHICLE_ID`` / ``RESOLVED_ROAD_ID`` /
 ``RESOLVED_DRIVER_ID``) is resolved at import time so every emitted event
 can attribute to a real camera site even when env vars are unset.
-
-This module was extracted from ``server.py`` (step 1 of the refactor
-plan). Nothing here changed behaviourally; only the location.
 
 UI connection
 -------------
@@ -25,8 +26,6 @@ UI element: No direct UI — shared in-memory state container. The most recent v
 import asyncio
 import socket
 import threading
-import time
-from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -35,16 +34,33 @@ from backend.config import (
     DRIVER_ID,
     ROAD_ID,
     VEHICLE_ID,
-    camera_calibration_for,
 )
-from backend.core.context import SceneContextClassifier
-from backend.core.detection import TrackHistory
-from backend.core.egomotion import EgoMotionEstimator
-from backend.core.quality import QualityMonitor
-from backend.core.stream import StreamReader, classify_source
+from backend.core.stream import StreamReader
+from backend.domain import (
+    MIN_HIGH_RISK_EPISODE_SEC,
+    MIN_HIGH_RISK_FRAMES,
+    MIN_MEDIUM_RISK_FRAMES,
+    Episode,
+    StreamSlot,
+)
 from backend.integrations.edge_publisher import EdgePublisher
 from backend.services.agents import AgentExecutor
 from backend.services.drift import ActiveLearningSampler, DriftMonitor
+
+# Re-export the domain classes + sustained-risk constants so existing
+# ``from backend.state import Episode, StreamSlot, MIN_HIGH_RISK_FRAMES``
+# imports keep working. The canonical home is ``backend.domain``; new
+# code should import from there.
+__all__ = [
+    "Episode",
+    "LiveState",
+    "LiveStateSnapshot",
+    "MIN_HIGH_RISK_EPISODE_SEC",
+    "MIN_HIGH_RISK_FRAMES",
+    "MIN_MEDIUM_RISK_FRAMES",
+    "StreamSlot",
+    "state",
+]
 
 if TYPE_CHECKING:
     from backend.core.validator import ValidatorWorker

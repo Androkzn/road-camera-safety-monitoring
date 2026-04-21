@@ -6,6 +6,16 @@ Operator-named presets of full settings dicts. Built on
 load-bearing function here is :func:`apply_template`, which performs the
 spec-migration + re-validation dance documented in the plan §S3 — old
 templates must not silently bypass new validators.
+
+UI connection
+-------------
+Page: SettingsPage — [file](frontend/src/features/settings/SettingsPage.tsx).
+UI element: No direct UI in the current React build — the React frontend
+does not render a template picker today. The service still backs operator-
+side template management (named presets of the settings form) used through
+the backend API and admin tooling.
+Consumed by: Backend routes that mount this service; not surfaced in any
+frontend hook in the current build.
 """
 
 from __future__ import annotations

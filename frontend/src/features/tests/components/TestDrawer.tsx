@@ -3,6 +3,12 @@
  *
  * Summary tiles on top, progress bar in the middle, collapsible
  * per-file groups below. Kicks a rerun via the parent-provided callback.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: the drawer that slides out from the side showing the pytest
+ *   run output (summary tiles, progress bar, per-file collapsible groups).
+ * Backend: triggers POST /api/tests/run via the parent component.
  */
 
 import type { TestStatus, TestResult } from "../../../shared/types/common";

@@ -6,6 +6,12 @@
  *
  * No JSX, no React imports, no side effects — strict TS. Keeping these
  * as plain functions (not hooks) makes them trivially unit-testable.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: No direct UI — helper for verdict logic on ValidationPage
+ *   (used by EventsPanel and EventRow to label events Pending / Verified /
+ *   Disputed).
  */
 import type { SafetyEvent, WatchdogFinding } from "../../../shared/types/common";
 

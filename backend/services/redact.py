@@ -45,6 +45,21 @@ Python idioms in this file
 - ``cv2.imwrite`` : writes a BGR numpy array to disk as JPEG/PNG/etc.
 - ``frame.copy()`` : deep-copy of a numpy image array - needed because
   we must not mutate the caller's frame.
+
+UI connection
+-------------
+Page: AdminPage and MonitoringPage —
+  [AdminPage](frontend/src/features/admin/AdminPage.tsx),
+  [MonitoringPage](frontend/src/features/monitoring/MonitoringPage.tsx).
+UI element: No direct UI — runs in the background as a privacy helper.
+Its output is what makes faces and license plates appear blurred on every
+event thumbnail shown in the AdminPage live feed and on each incident card
+on MonitoringPage. There is no setting or button that toggles it; it runs
+on every event.
+Consumed by: Called from the perception emit pipeline
+(``backend/perception/emit.py``) before any thumbnail is written or sent.
+The blurred ``_public.jpg`` file is what the API serves under
+``/thumbnails/...``.
 """
 
 from __future__ import annotations

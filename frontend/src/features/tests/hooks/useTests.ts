@@ -4,6 +4,12 @@
  * The poll interval flips between fast (1.5s) while a run is in
  * progress and slow (10s) while idle. TanStack supports per-call
  * function-form `refetchInterval` so we don't need a second effect.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: Drives the TopBar tests badge (status + counts) and the
+ *   rerun action exposed by the TestDrawer.
+ * Backend: GET /api/tests/status (polled), POST /api/tests/run.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

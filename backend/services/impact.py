@@ -38,6 +38,18 @@ Python idioms used in this file (explained once)
   for JSON serialization.
 - ``getattr(obj, name)`` : dynamic attribute read used to iterate the
   same set of field names across baseline and after-window instances.
+
+UI connection
+-------------
+Page: SettingsPage — [file](frontend/src/features/settings/SettingsPage.tsx).
+UI element: The impact card on the right column of SettingsPage —
+specifically the "before vs after" deltas, severity bars, the
+high/medium/low/insufficient confidence pill, and the recommendation
+sentence. This module computes all of those numbers.
+Consumed by: Exposed via ``/api/settings/impact`` and consumed by the
+``useImpact`` hook
+([file](frontend/src/features/settings/hooks/useImpact.ts)) which feeds
+the ``ImpactCard`` component on SettingsPage.
 """
 
 from __future__ import annotations

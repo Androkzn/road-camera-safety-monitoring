@@ -3,6 +3,12 @@
  * dual-model validator. Dropped into MonitoringPage beside the other
  * summary cards. Talks to /api/validator/status + /api/validator/toggle
  * through the useValidator hook.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: the validator control card with the on/off checkbox plus
+ *   the small counters (jobs, episodes, findings).
+ * Backend: GET /api/validator/status, POST /api/validator/toggle.
  */
 import { useValidator } from "../hooks/useValidator";
 

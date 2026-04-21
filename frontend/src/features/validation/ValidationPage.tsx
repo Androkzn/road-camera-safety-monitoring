@@ -9,6 +9,11 @@
  *
  * This is a React functional component — a plain function that returns
  * JSX (React's HTML-like syntax). React calls it to render the page.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: the validation page shell where reviewers grade detections —
+ *   contains the ValidatorControl card and the EventsPanel list.
  */
 // `useMemo` is a React hook: caches a computed value across renders
 // and only recomputes when its dependency array changes. Prevents

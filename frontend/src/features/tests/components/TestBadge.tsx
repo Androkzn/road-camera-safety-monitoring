@@ -3,6 +3,11 @@
  *
  * Four visual states: idle / running / passed / failed. While running
  * shows a percentage; after a run shows pass/fail counts.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: the small badge in the top bar showing test status
+ *   (green/red); clicking it opens the TestDrawer.
  */
 // `ReactNode` is the TS type for "anything renderable in JSX": a string,
 // a number, an element, a fragment, an array of those, etc.

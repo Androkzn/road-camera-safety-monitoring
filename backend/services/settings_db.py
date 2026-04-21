@@ -16,6 +16,18 @@ The module exposes a small set of free functions plus a context-managed
 :func:`connect` so callers do not have to think about cursor lifecycle.
 SQLite is opened with ``check_same_thread=False`` because the FastAPI
 worker thread and the impact-engine background task both write.
+
+UI connection
+-------------
+Page: SettingsPage — [file](frontend/src/features/settings/SettingsPage.tsx).
+UI element: No direct UI — runs in the background as the storage layer.
+Its tables are what make the SettingsPage form remember the operator's
+last applied settings, the apply history, captured baselines, and the
+active impact-monitoring session that powers the impact card on the
+right column.
+Consumed by: Read indirectly through the settings API
+(``/api/settings``, ``/api/settings/impact``) used by the
+``useSettings`` and ``useImpact`` hooks on SettingsPage.
 """
 
 from __future__ import annotations

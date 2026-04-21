@@ -4,6 +4,13 @@
  * Provider/consumer pattern: mount <WatchdogProvider> once near the
  * app root, then any descendant calls useWatchdogCtx() to read the
  * cached data without triggering additional HTTP requests.
+ *
+ * --- UI mapping ---
+ * Page: Global (TopBar of every page).
+ * UI element: the React context that shares watchdog state (status +
+ *   findings) across the app — feeds the TopBar watchdog badge and the
+ *   WatchdogDrawer.
+ * Backend: GET /api/watchdog, GET /api/watchdog/recent (via watchdogApi).
  */
 // `createContext` + `useContext` are React's built-in dependency-injection
 // pair. `useCallback` memoizes a function reference across renders (useful

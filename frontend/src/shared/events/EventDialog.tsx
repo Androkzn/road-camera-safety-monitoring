@@ -5,6 +5,13 @@
  * The clip is served by `GET /api/events/{id}/clip`; if the event's source
  * is a live stream (no seekable backing file), the backend 404s and we
  * fall back to showing the event thumbnail.
+ *
+ * --- UI mapping ---
+ * Used on: DashboardPage, MonitoringPage, AdminPage — opens whenever an
+ *   operator clicks an event card or incident row.
+ * UI element: full-screen modal overlay with a looping ±3s video clip
+ *   (or thumbnail fallback) on the left and event details (risk badge,
+ *   narration, detected params, scene + ego motion) on the right.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
