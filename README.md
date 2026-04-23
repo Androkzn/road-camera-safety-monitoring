@@ -12,7 +12,7 @@ This is a **building block** for fleet safety platforms, not a complete commerci
 
 ## Main Features
 
-- **On-device perception** — YOLO tracking, multi-gate TTC, depth-aware proximity, and scene-adaptive thresholds keep false positives low without missing real conflicts.
+- **On-device perception** — YOLO tracking, multi-gate TTC, depth-aware proximity, scene-adaptive thresholds, and speed-adaptive sampling keep false positives low without missing real conflicts.
 - **Privacy by default** — dual thumbnails (internal + redacted), structural plate hashing at the LLM boundary, and automated retention sweeps.
 - **Resilient LLM layer** — Anthropic ↔ Azure failover, token-bucket rate budget, circuit breaker, self-consistency ALPR, and per-call cost/latency observability.
 - **Edge → cloud delivery** — HMAC-signed batched JSONL with exponential backoff; only typed events and redacted thumbnails cross the wire.
