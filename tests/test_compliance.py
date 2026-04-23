@@ -1,4 +1,9 @@
-"""Tests for road_safety.compliance — audit logging and data retention."""
+"""Tests for backend.compliance — audit logging and data retention.
+
+Audit log: append-only JSON-lines file; each line is one ``{ts, action,
+resource, actor, outcome, detail, ip}`` record. Retention sweep: deletes
+thumbnails older than a threshold to satisfy data-minimisation rules.
+"""
 
 from __future__ import annotations
 
@@ -14,8 +19,11 @@ import pytest
 # ═══════════════════════════════════════════════════════════════════
 
 class TestAuditLog:
+    """Verify the append-only audit logger behaves as intended."""
+
     def test_log_writes_record(self, _isolate_data_dir):
-        from road_safety.compliance import audit
+        """Calling ``audit.log`` appends exactly one JSON line with the expected fields."""
+        from backend.compliance import audit
         with patch.object(audit, "_DATA_DIR", _isolate_data_dir), \
              patch.object(audit, "_AUDIT_PATH", _isolate_data_dir / "audit.jsonl"), \
              patch.object(audit, "_ENABLED", True):
@@ -32,7 +40,8 @@ class TestAuditLog:
             assert "ts" in rec
 
     def test_log_with_optional_fields(self, _isolate_data_dir):
-        from road_safety.compliance import audit
+        """Optional fields (actor, outcome, detail, ip) round-trip correctly."""
+        from backend.compliance import audit
         with patch.object(audit, "_DATA_DIR", _isolate_data_dir), \
              patch.object(audit, "_AUDIT_PATH", _isolate_data_dir / "audit.jsonl"), \
              patch.object(audit, "_ENABLED", True):
@@ -49,7 +58,8 @@ class TestAuditLog:
             assert rec["ip"] == "1.2.3.4"
 
     def test_log_disabled(self, _isolate_data_dir):
-        from road_safety.compliance import audit
+        """When ``_ENABLED=False`` nothing is written — feature-flag respected."""
+        from backend.compliance import audit
         with patch.object(audit, "_DATA_DIR", _isolate_data_dir), \
              patch.object(audit, "_AUDIT_PATH", _isolate_data_dir / "audit.jsonl"), \
              patch.object(audit, "_ENABLED", False):
@@ -58,13 +68,15 @@ class TestAuditLog:
             assert not path.exists()
 
     def test_tail_empty(self, _isolate_data_dir):
-        from road_safety.compliance import audit
+        """``tail`` on a non-existent log returns an empty list (not an error)."""
+        from backend.compliance import audit
         with patch.object(audit, "_AUDIT_PATH", _isolate_data_dir / "audit.jsonl"):
             result = audit.tail()
             assert result == []
 
     def test_tail_returns_records(self, _isolate_data_dir):
-        from road_safety.compliance import audit
+        """After 5 writes, ``tail`` returns all 5 records by default."""
+        from backend.compliance import audit
         audit_path = _isolate_data_dir / "audit.jsonl"
         with patch.object(audit, "_DATA_DIR", _isolate_data_dir), \
              patch.object(audit, "_AUDIT_PATH", audit_path), \
@@ -75,7 +87,8 @@ class TestAuditLog:
             assert len(records) == 5
 
     def test_tail_respects_limit(self, _isolate_data_dir):
-        from road_safety.compliance import audit
+        """``tail(n=3)`` caps the returned count — used for bounded-size UI views."""
+        from backend.compliance import audit
         audit_path = _isolate_data_dir / "audit.jsonl"
         with patch.object(audit, "_DATA_DIR", _isolate_data_dir), \
              patch.object(audit, "_AUDIT_PATH", audit_path), \
@@ -86,7 +99,8 @@ class TestAuditLog:
             assert len(records) == 3
 
     def test_stats(self, _isolate_data_dir):
-        from road_safety.compliance import audit
+        """``stats`` aggregates counts by action and flags denied outcomes."""
+        from backend.compliance import audit
         audit_path = _isolate_data_dir / "audit.jsonl"
         with patch.object(audit, "_DATA_DIR", _isolate_data_dir), \
              patch.object(audit, "_AUDIT_PATH", audit_path), \
@@ -108,15 +122,19 @@ class TestAuditLog:
 # ═══════════════════════════════════════════════════════════════════
 
 class TestRetention:
+    """Periodic retention sweep: delete thumbnails older than the policy window."""
+
     def test_sweep_empty(self, _isolate_data_dir):
-        from road_safety.compliance.retention import run_sweep
-        with patch("road_safety.compliance.retention.DATA_DIR", _isolate_data_dir):
+        """Empty data dir: the sweep still returns a dict with the expected key."""
+        from backend.compliance.retention import run_sweep
+        with patch("backend.compliance.retention.DATA_DIR", _isolate_data_dir):
             result = run_sweep()
             assert isinstance(result, dict)
             assert "thumbnails_removed" in result
 
     def test_sweep_removes_old_thumbnails(self, _isolate_data_dir):
-        from road_safety.compliance.retention import run_sweep
+        """Thumbnail older than 30 days gets deleted by the sweep."""
+        from backend.compliance.retention import run_sweep
         import time
         thumbs = _isolate_data_dir / "thumbnails"
         thumbs.mkdir(exist_ok=True)
@@ -125,7 +143,7 @@ class TestRetention:
         import os
         old_time = time.time() - (31 * 86400)
         os.utime(old_file, (old_time, old_time))
-        with patch("road_safety.compliance.retention.DATA_DIR", _isolate_data_dir):
+        with patch("backend.compliance.retention.DATA_DIR", _isolate_data_dir):
             result = run_sweep()
             assert result["thumbnails_removed"] >= 1
             assert not old_file.exists()

@@ -1,0 +1,133 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Common commands
+
+- `python start.py` — one-command launcher: builds the React frontend, runs the pytest suite, starts `backend.server:app` via uvicorn on port 8000, waits for `/api/live/status`, then opens the admin UI in the browser.
+- `python start.py --skip-tests` — skip the test run (fastest iteration loop).
+- `python start.py --cloud` — also start the cloud receiver (`cloud.receiver:app`) on port 8001.
+- `python start.py --no-browser --port 8000` — headless start.
+- `make test` / `pytest tests/ -v` — full test suite.
+- `pytest tests/test_core.py::test_name -v` — run a single test.
+- `make lint` — cheap syntax check (`py_compile` on `backend/server.py`, `backend/config.py`, `start.py`).
+- `make typecheck` — project-wide `pyright` (basic mode).
+- `make typecheck-mypy` — strict `mypy` on the narrow contract scope (`backend/api/**`, `backend/services/llm.py`). See `[tool.mypy]` in `pyproject.toml` for the tiered config.
+- `make generate-types` — regenerate `frontend/src/shared/types/generated.ts` from the pydantic models in `backend/api/models.py`. `start.py` runs this before the Vite build automatically; use the target only when iterating on a model without a full launch.
+- `cd frontend && npm run build` — TypeScript + Vite production build into `frontend/dist/`. `start.py` does this automatically before launching the server.
+- `cd frontend && npm run dev` — Vite dev server (only needed when iterating on frontend separate from the Python server).
+- `docker compose up --build` / `make docker-up` — containerized run; `--profile cloud` or `make docker-up-cloud` adds the receiver.
+
+The server is served from the built `frontend/dist/` (see `STATIC_DIR` in `backend/config.py`), so backend-only changes do **not** require rebuilding the frontend. If `frontend/dist/` is missing, the static-files mount fails at boot — run `cd frontend && npm run build` first (or `python start.py`, which builds it for you).
+
+Python dependencies live in a local `.venv`; `start.py` prefers `.venv/bin/python` over the system interpreter. Install with `pip install -e ".[dev]"`.
+
+## Architecture
+
+This is a two-process system: an **edge node** (the main `backend.server`) that runs heavy perception on-device, and an optional **cloud receiver** (`cloud/receiver.py`, port 8001) that ingests HMAC-signed batched events into SQLite. Only typed JSON events + redacted thumbnails cross the wire — never raw frames or plate text. See `docs/architecture.md` for the full diagram and bandwidth math.
+
+### Conflict-detection pipeline (the hot path)
+
+Each frame flows through an independent stack of gates in `backend/core/` and `backend/perception/on_frame.py`. A real conflict satisfies all gates; noise fails early:
+
+1. `StreamReader` pulls frames (HLS, file, webcam, or YouTube via `yt-dlp`) at `TARGET_FPS` (default 2 fps).
+2. `detect_frame` (`core/detection.py`) runs YOLOv8 + ByteTrack.
+3. `TrackHistory` maintains per-track trailing windows for TTC math.
+4. `EgoMotionEstimator` (`core/egomotion.py`) computes optical-flow ego-speed proxy.
+5. `SceneContextClassifier` (`core/context.py`) tags urban/highway/parking and rescales thresholds.
+6. `find_interactions` → depth-gate → convergence-angle → ego-relative-motion → multi-gate TTC (`estimate_pair_ttc` / `estimate_ttc_sec`).
+7. `QualityMonitor` (`core/quality.py`) suppresses low-confidence events when the camera is degraded.
+8. `Episode` accumulates peak risk across frames; sustained-risk downgrade demotes peaks not supported over ≥2 frames / ≥1s.
+9. `emit_event()` (`backend/perception/emit.py`) redacts thumbnails, optionally narrates via LLM, broadcasts over SSE, tier-dispatches to Slack, and publishes to cloud.
+
+**Do not short-circuit these gates to "improve" detection** — each one exists to kill a specific class of false positive that was causing alert fatigue. If you change a gate, run the integration tests in `tests/test_core.py`.
+
+### Wire contract (single source of truth)
+
+Every cross-process payload shape — the SSE `SafetyEvent`, REST responses like `/api/live/status` and `/api/admin/health`, the admin detection stream, watchdog findings, test-runner output — is declared as a `pydantic.BaseModel` in [backend/api/models.py](backend/api/models.py). TypeScript equivalents are emitted to [frontend/src/shared/types/generated.ts](frontend/src/shared/types/generated.ts) by [scripts/generate_ts_types.py](scripts/generate_ts_types.py).
+
+- **To change a wire format**: edit the pydantic model. Do NOT hand-edit the generated `.ts` file — it will be clobbered on the next launch.
+- `start.py` regenerates before `npm run build`, so the FE compile catches a contract drift before it ships.
+- The hand-maintained re-export shim lives at `frontend/src/shared/types/common.ts` for backwards compatibility — every existing import of `shared/types/common` still works.
+- New model? Add it to `EXPORTED_MODELS` in `models.py` (alphabetical), then `make generate-types`.
+
+### Privacy invariant (non-obvious)
+
+`enrich_event()` in [backend/services/llm.py](backend/services/llm.py) hashes the plate and strips `plate_text`/`plate_state` from the returned dict **before** it reaches any in-memory event buffer. The emit path in [backend/perception/emit.py](backend/perception/emit.py) keeps a defence-in-depth `pop()`, but the primary invariant — **no raw plate text in any buffer** — is enforced at ingest, not at egress. Any new code path that touches vision-enrichment output must preserve this. Dual thumbnails (internal + public) are produced by `services/redact.py::write_thumbnails`; shared channels must only use the `_public` variant.
+
+### LLM layer is enrichment, not critical path
+
+Detection works with zero LLM calls. The LLM layer has multi-provider failover (Anthropic ↔ Azure OpenAI), a client-side token-bucket rate budget, a circuit breaker (3 failures → 60s open), self-consistency ALPR (two calls at different temps, null on disagreement), and cost/latency tracking in [services/llm_obs.py](backend/services/llm_obs.py). External ALPR is gated by `ROAD_ALPR_MODE` (default `off`). When adding LLM calls, route them through the existing `llm.py` helpers so they inherit all of this.
+
+### Package layout
+
+- `backend/core/` — perception: detection, stream, egomotion, quality, context.
+- `backend/domain/` — per-source domain objects: [`Episode`](backend/domain/episode.py) (temporal de-duplication across frames, sustained-risk downgrade) and [`StreamSlot`](backend/domain/stream_slot.py) (per-camera perception state + MJPEG buffer + stage-timing ring buffers). `backend/state.py` re-exports both for backwards compat.
+- `backend/services/` — LLM, redaction, drift, watchdog, agents, registry, digest, test_runner.
+- `backend/compliance/` — `audit.py` (audit log) and `retention.py` (hourly retention sweeps).
+- `backend/integrations/` — `edge_publisher.py` (HMAC batched delivery), `slack.py`, `fnol.py`.
+- `backend/api/routers/` — feature routers mounted by `backend/server.py`.
+- `backend/api/feedback.py` and `backend/api/settings.py` — feature mounts that need shared callbacks/state during registration.
+- `backend/config.py` — **single source of truth** for paths and env vars. Every module imports from here; never compute `Path(__file__).parent` in modules.
+- `backend/logging.py` — JSON-line logger setup (`setup()` called once from the FastAPI lifespan hook). Deliberately has no dependency on `config.py` so it can import early in bootstrap. `ROAD_LOG_FORMAT=text` switches to human-readable output for local dev.
+- `backend/security/` — network-level guards only: SSRF rejection (`ssrf.py`) and the per-IP clip-render rate limiter (`rate_limit.py`). This POC has no request authentication.
+- `tools/` — offline utilities: `analyze.py` (batch event extraction from a video file), `eval_detect.py` (detection precision/recall harness), `eval_enrich.py` (LLM enrichment scorer). See [tools/README.md](tools/README.md).
+- `cloud/receiver.py` — separate FastAPI app; verifies HMAC, dedupes by `event_id` (`INSERT OR IGNORE`), stores in `data/cloud.db`.
+- `frontend/` — React 19 + Vite + TypeScript + react-router. Pages: `AdminPage` (live detections), `DashboardPage` (fleet overview), `MonitoringPage` (incident-queue watchdog).
+
+### Access model (POC)
+
+This POC has no user accounts, no roles, and no request authentication. Every JSON route, SSE stream, and live media endpoint is fully open. Do not expose this build to the public internet.
+
+Access to sensitive state is still audit-logged through `backend/compliance/audit.py` so a reviewer can reconstruct activity, and the cloud receiver still verifies HMAC signatures on edge-to-cloud ingest (message authentication, not user authentication). Any future production deployment must introduce a real auth layer before going live.
+
+### Fleet identity
+
+Every event carries `vehicle_id`, `road_id`, `driver_id` sourced from env (`ROAD_VEHICLE_ID` / `ROAD_ID` / `ROAD_DRIVER_ID`). On startup without these, the server logs a warning and falls back to `unidentified_*_<hostname>` — events will not attribute to a real fleet. The driver safety-score model (`services/registry.py`) decays on a schedule controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (set `0` to disable).
+
+### Live video transport (admin grid)
+
+The multi-source admin grid ([MultiSourceGrid.tsx](frontend/src/features/admin/components/MultiSourceGrid.tsx))
+renders one live tile per perception source via `StreamImage`
+([StreamImage.tsx](frontend/src/features/admin/components/StreamImage.tsx)).
+Every tile polls a single endpoint:
+
+- **Polling** — `GET /admin/frame/{id}`, single JPEG re-fetched every
+  ~400 ms (`POLL_INTERVAL_MS.streamImageFrame` in
+  [runtime.ts](frontend/src/shared/config/runtime.ts)).
+
+Why polling and not MJPEG: the perception pipeline runs at `TARGET_FPS`
+(default 2 fps), so the edge produces a new frame every ~500 ms. A
+~400 ms poll cycle therefore delivers every frame the edge produces —
+push-based MJPEG would add complexity (multipart framing, persistent
+connections, viewer-count tracking, per-stream TCP slots against the
+HTTP/1.1 6-conn-per-host cap) for no perceptual gain.
+
+Idle tiles skip encode via `StreamSlot.has_viewers()`: any hit on
+`/admin/frame/{id}` within the last 2 s counts as "watched" and keeps
+the annotated-JPEG encode path hot; longer than that and the perception
+loop stops spending CPU on a frame nobody sees.
+
+### Watchdog
+
+`services/watchdog/` groups repeated errors into fingerprinted incidents with impact + likely cause + owner + evidence + debug commands. The design goal is an **incident queue**, not a log-tail wall of red; preserve this when extending it.
+
+The package splits four concerns so monitoring never depends on LLM availability:
+
+- `watchdog/model.py` — the `WatchdogFinding` dataclass, fingerprinting, defaults table, normalization, grouping, and `make_finding`. Shape-only, no I/O.
+- `watchdog/rules.py` — deterministic rule-based detectors (`rule_checks`). Always available; never imports the LLM.
+- `watchdog/ai.py` — strictly-additive Claude hypothesis layer (`ai_analyze`). Returns `[]` when the LLM stack is unreachable so the rule layer carries on alone.
+- `watchdog/storage.py` — append-only JSONL writer/reader for `data/watchdog.jsonl`.
+- `watchdog/api.py` — the `Watchdog` background loop + `stats()` aggregator surfaced to `/api/watchdog`.
+
+**Invariant**: on fingerprint OR title collision between a rule and an AI finding, the rule wins — that's what makes the queue stay trustworthy when the provider is flaky.
+
+## Things to avoid
+
+- **Don't compute paths manually** — import from `backend/config.py`.
+- **Don't leak raw plate text** — scrub at ingest in `enrich_event()`, not just at egress.
+- **Don't add LLM calls outside the `services/llm.py` wrappers** — you'll bypass failover, rate budget, circuit breaker, and cost tracking.
+- **Don't widen an agent's tool set past 5** — `services/agents.py` enforces this deliberately (tool-overload hallucination grows past ~5 tools).
+- **Don't remove conflict-detection gates to "catch more"** — each gate targets a specific false-positive class; loosen thresholds per-scene via `AdaptiveThresholds` instead.
+- **Don't hand-edit `frontend/src/shared/types/generated.ts`** — regenerate from `backend/api/models.py` via `make generate-types` (or just run `python start.py`). Hand edits are clobbered on the next launch.
+- **Don't add new wire-format dicts outside `backend/api/models.py`** — the whole cross-process contract lives there so the TS codegen stays honest.

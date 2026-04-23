@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 .DS_Store
 
+# Node / frontend dependencies (reinstalled via `npm install`)
+node_modules/
+
 # Secrets — never commit
 .env
 .env.*
@@ -30,11 +33,18 @@ data/eval.json
 data/thumbnails/
 data/feedback.jsonl
 data/outbound_queue.jsonl
+data/audit.jsonl
+data/watchdog.jsonl
 data/active_learning/pending/
 data/test_suite/results.json
+# Event clip extracts (±3s around each event) — generated at runtime for
+# the EventDialog video player; can be large and not worth versioning.
+data/clips/
+# Stray runtime output if the frontend is started from its own CWD
+frontend/data/
 .test-report.json
 
-# SQLite databases + WAL/SHM sidecars
+# SQLite databases + WAL/SHM sidecars (covers cloud.db, settings.db, etc.)
 data/*.db
 data/*.db-shm
 data/*.db-wal
@@ -43,6 +53,7 @@ data/*.db-wal
 data/*.mp4
 data/*.mov
 data/*.MOV
+resourses/
 
 # Logs
 *.log
@@ -62,8 +73,16 @@ coverage/
 .ruff_cache/
 .pyright/
 
+# `make start` / `make stop` runtime artifacts
+.road_safety.pid
+.road_safety.log
+
 # Editor / IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# Claude Code — personal overrides only; commit shared config (.claude/settings.json, rules/, skills/, hooks/)
+.claude/settings.local.json
+CLAUDE.local.md

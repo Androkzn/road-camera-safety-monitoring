@@ -12,8 +12,8 @@ This is a **building block** for fleet safety platforms, not a complete commerci
 
 ## Main Features
 
-- **On-device perception** — YOLO tracking, multi-gate TTC, depth-aware proximity, and scene-adaptive thresholds keep false positives low without missing real conflicts.
-- **Privacy by default** — dual thumbnails (internal + redacted), structural plate hashing at the LLM boundary, DSAR-gated access, and automated retention sweeps.
+- **On-device perception** — YOLO tracking, multi-gate TTC, depth-aware proximity, scene-adaptive thresholds, and speed-adaptive sampling keep false positives low without missing real conflicts.
+- **Privacy by default** — dual thumbnails (internal + redacted), structural plate hashing at the LLM boundary, and automated retention sweeps.
 - **Resilient LLM layer** — Anthropic ↔ Azure failover, token-bucket rate budget, circuit breaker, self-consistency ALPR, and per-call cost/latency observability.
 - **Edge → cloud delivery** — HMAC-signed batched JSONL with exponential backoff; only typed events and redacted thumbnails cross the wire.
 - **Drift monitoring** — rolling precision sliced by risk/type, feedback-coverage metric to guard against selection bias, and active-learning sampling near the decision boundary.
@@ -70,6 +70,7 @@ A single 1080p dashcam streaming continuously over 8 hours generates ~28 GB/day.
 |---|---|
 | **Edge-first architecture** | Detection, tracking, risk classification, and PII redaction run on-device. Cloud receives only structured events. |
 | **Lightweight model** | YOLOv8n (nano) — smallest YOLO variant, runs at 2 fps on laptop CPU. On dedicated edge hardware (Jetson Orin NX) it exceeds 100 fps with TensorRT. |
+| **Speed-adaptive sampling** | `adaptive_fps` policy scales perception FPS with the ego-speed proxy: 0.5× baseline when stationary (CPU wasted on a parked camera), 1× in normal driving, 2× on highway so TTC gates still get enough samples per second to catch a fast cut-in. Clamped to `[0.5× base, 2× base]` with a 1 fps floor. |
 | **HMAC-signed batched delivery** | Events queue locally in append-only JSONL. Batches of up to 20 are signed and POSTed together. Survives network outages with exponential backoff. |
 | **Selective LLM enrichment** | Vision enrichment is policy-gated (`ROAD_ALPR_MODE=third_party`) and additionally skipped when perception is degraded or for low-risk events. No wasted API calls on low-value frames. |
 
@@ -96,11 +97,11 @@ Road cameras capture faces, license plates, and location — all classified as p
 | Layer | What it does |
 |---|---|
 | **Dual thumbnails** | Every event produces internal (unredacted, local-only) and public (faces + plates blurred) versions. Shared event channels use only the public version; optional external enrichment is a separately governed processor path. |
-| **Optional signed public-thumbnail access** | If `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`, `_public` thumbnails require valid `exp`/`token` query params (HMAC-signed, short-lived) and access attempts are audit-logged. |
-| **Structural plate hashing at LLM boundary** | `enrich_event()` in `road_safety/services/llm.py` hashes the plate and strips `plate_text`/`plate_state` from the returned dict before it reaches any in-memory event buffer. `server.py` retains an egress `pop()` as defence in depth — but the primary invariant (no raw plate in any buffer) is enforced at ingest, not at egress. A caller that forgets to scrub at egress cannot leak because the raw plate was never there. |
-| **DSAR-gated access** | Unredacted thumbnails require an `X-DSAR-Token` header. Denied attempts are audit-logged. |
-| **Audit trail** | Every sensitive access is logged: timestamp, actor, action, resource, outcome, IP. GDPR Art. 30 / SOC 2 ready. |
+| **Structural plate hashing at LLM boundary** | `enrich_event()` in `backend/services/llm.py` hashes the plate and strips `plate_text`/`plate_state` from the returned dict before it reaches any in-memory event buffer. `backend/perception/emit.py` retains an egress `pop()` as defence in depth — but the primary invariant (no raw plate in any buffer) is enforced at ingest, not at egress. A caller that forgets to scrub at egress cannot leak because the raw plate was never there. |
+| **Audit trail** | Every sensitive access is logged: timestamp, action, resource, outcome, IP. GDPR Art. 30 / SOC 2 ready. |
 | **Automated retention** | Hourly sweeps delete data past configurable windows: thumbnails 30d, feedback 90d, active-learning 60d. GDPR Art. 5(1)(e) — data kept only as long as necessary. |
+
+> **POC access note:** this build has no user accounts, no roles, and no request authentication. Every UI route, JSON API, SSE stream, and thumbnail is open to anyone who can reach the server. Do not expose it to the public internet; a real auth layer must be added before any production use.
 
 *Jurisdictional note:* calibrated for EU/GDPR and CCPA. A driver-facing camera (DMS) extension would fall under **BIPA** in Illinois and require a consent-capture module before being production-safe. See [`docs/challenges.md`](docs/challenges.md) for the full jurisdictional breakdown.
 
@@ -154,11 +155,11 @@ A complete commercial fleet-safety product does more than this. Calling that out
 | Area | Why fleets care | Extension path |
 |---|---|---|
 | **In-cab Driver Monitoring (DMS)** — drowsiness, distraction, phone, seatbelt | Single biggest crash-prevention lever in vendor marketing; 80% distracted-driving reductions are attributed to DMS | Add a driver-facing camera path with face/gaze landmarks + phone-object overlap + **Driver Privacy Mode** (BIPA consent) |
-| **Insurance / FNOL** — MP4 clip evidence, carrier transport | Claim-handling cost is the commercial driver for most fleet camera purchases | `road_safety/integrations/fnol.py` shapes the payload. Still needed: rolling pre/post-roll MP4 buffer, carrier endpoint adapters |
+| **Insurance / FNOL** — MP4 clip evidence, carrier transport | Claim-handling cost is the commercial driver for most fleet camera purchases | `backend/integrations/fnol.py` shapes the payload. Still needed: rolling pre/post-roll MP4 buffer, carrier endpoint adapters |
 | **Telematics fusion** — GPS, IMU, CAN-bus, harsh-brake | Most commercial signals come from IMU + GPS, not vision. Ego-speed here is an optical-flow *proxy* | Ingest NMEA + accelerometer via USB GPS / OBD-II; set `speed_source="gps"` on events |
 | **ELD / DVIR / HOS** | FMCSA-mandated for trucking | Adapters for Motive/Samsara/Geotab ELD APIs |
 | **Driver coaching UX + consent lifecycle** | Real coaching is in-cab / on-phone, not a web dashboard | In-cab app, enrollment flow, off-duty mute |
-| **Multi-tenant RBAC** | Operators, safety managers, DPOs, drivers all need different data rights | JWT + per-tenant rate limits; today we have DSAR + admin tokens |
+| **Multi-tenant RBAC** | Operators, safety managers, DPOs, drivers all need different data rights | JWT + per-tenant rate limits; this POC has no authentication at all — every route is open. |
 
 See [`docs/challenges.md §8`](docs/challenges.md#8-out-of-scope-deliberately) for more detail.
 
@@ -191,7 +192,7 @@ python start.py
 
 Or with Docker: `docker compose up --build`
 
-Set `ROAD_ADMIN_TOKEN` if you want to access protected operational endpoints such as `/api/audit`, `/api/llm/*`, `/api/road/*`, and `/api/agents/*`.
+This POC runs **without authentication**; the UI and JSON APIs are reachable on the local network you bind the server to.
 
 ---
 
@@ -201,9 +202,10 @@ All runtime settings are environment-driven via `.env`. Key groups:
 
 | Group | Vars | Notes |
 |---|---|---|
-| **Camera calibration** | `ROAD_CAMERA_FOCAL_PX`, `ROAD_CAMERA_HEIGHT_M`, `ROAD_CAMERA_HORIZON_FRAC` | Monocular depth and ego-speed math depend on these. Defaults target a coarse observation camera — **calibrate per-install** for real deployments; wrong values bias every distance / speed signal downstream. |
+| **Camera calibration** | `ROAD_CAMERA_FOCAL_PX`, `ROAD_CAMERA_HEIGHT_M`, `ROAD_CAMERA_HORIZON_FRAC` | Global single-camera fallback. Defaults target a coarse observation camera — **calibrate per-install** for real deployments; wrong values bias every distance / speed signal downstream. |
+| **Per-slot camera calibration** | `ROAD_CAMERA_FOCAL_PX__<SLOT>`, `ROAD_CAMERA_HEIGHT_M__<SLOT>`, `ROAD_CAMERA_HORIZON_FRAC__<SLOT>`, `ROAD_CAMERA_ORIENTATION__<SLOT>` (`forward`/`rear`/`side`), `ROAD_CAMERA_BUMPER_OFFSET_M__<SLOT>` | Multi-camera vehicles set these per slot id (e.g. `__PRIMARY`, `__REAR`, `__LEFT`). The bundled Nissan Rogue demo ships sensible defaults: front 1× wide ≈ 600 px / 1.25 m mount / +1.7 m bumper offset; rear & left 0.5× ultra-wide ≈ 260 px / 1.10 m / +0.3 m and 1.00 m / +0.1 m respectively. Side cams skip the ground-plane prior (it degenerates) and report distances as **lateral** rather than longitudinal range. |
 | **Vehicle identity** | `ROAD_VEHICLE_ID`, `ROAD_ID`, `ROAD_DRIVER_ID`, `ROAD_LOCATION` | Required for fleet-scale deployments; every event is attributed to a specific vehicle + driver. |
-| **Privacy + access** | `ROAD_DSAR_TOKEN`, `ROAD_ADMIN_TOKEN`, `ROAD_PLATE_SALT`, `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN`, `ROAD_THUMB_SIGNING_SECRET` | DSAR token gates unredacted-thumbnail access. Optional signed-token mode can also gate `_public` thumbnails. Salt/signing secrets should be per deployment. |
+| **Privacy** | `ROAD_PLATE_SALT` | Hash salt for ALPR plate text at the LLM boundary. Should be set per deployment so hashes stay stable across restarts. |
 | **LLM** | `ANTHROPIC_API_KEY`, optional `AZURE_OPENAI_*`, `ROAD_ALPR_MODE` | Fully optional. System runs end-to-end with zero LLM calls — narration, ALPR, and agents degrade silently. External ALPR is disabled by default (`ROAD_ALPR_MODE=off`). |
 | **Road scoring** | `ROAD_SCORE_DECAY_INTERVAL_SEC` | Controls periodic safety-score recovery loop (set `0` to disable scheduled decay). |
 | **Cloud delivery** | `ROAD_CLOUD_ENDPOINT`, `ROAD_CLOUD_HMAC_SECRET` | Edge→cloud HMAC-signed batched delivery. Without these, events stay local. |
@@ -218,7 +220,8 @@ See `.env.example` for the full list.
 make test    # or: pytest tests/ -v
 ```
 
-135 tests covering detection pipeline, services, API routes, compliance, auth guards, and integrations.
+The pytest suite covers detection pipeline logic, services, API routes,
+compliance, API routes, and integrations.
 
 ## License
 

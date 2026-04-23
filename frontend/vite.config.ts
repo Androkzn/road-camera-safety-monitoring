@@ -6,12 +6,12 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      "/api": "http://localhost:8000",
-      "/stream": "http://localhost:8000",
-      "/chat": "http://localhost:8000",
-      "/thumbnails": "http://localhost:8000",
-      "/admin/video_feed": "http://localhost:8000",
-      "/admin/detections": "http://localhost:8000",
+      "/api": "http://127.0.0.1:8002",
+      "/stream": "http://127.0.0.1:8002",
+      "/chat": "http://127.0.0.1:8002",
+      "/thumbnails": "http://127.0.0.1:8002",
+      "/admin/frame": "http://127.0.0.1:8002",
+      "/admin/detections": "http://127.0.0.1:8002",
     },
   },
   build: {

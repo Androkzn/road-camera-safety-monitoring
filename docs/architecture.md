@@ -154,6 +154,78 @@ sustained high-risk frame count, and detection confidence; failed events
 route to the medium digest. High-risk Slack alerts are text-only by default;
 image relay is opt-in via `SLACK_ENABLE_IMAGE_RELAY=1`.
 
+## Domain objects vs state
+
+The per-source domain classes ([`Episode`](../backend/domain/episode.py) and
+[`StreamSlot`](../backend/domain/stream_slot.py)) live under
+[backend/domain/](../backend/domain/). They model the *shape* of the
+perception pipeline — temporal de-duplication across frames, per-camera
+estimator state, the MJPEG buffer, stage-timing ring buffers.
+
+The process-wide singleton ([`LiveState`](../backend/state.py)) stays in
+`backend/state.py`; it owns the YOLO model handle, the asyncio event loop,
+SSE subscribers, the recent-events buffer, and the slot registry. Splitting
+domain objects out of the singleton keeps each file focused on one
+responsibility — the 800-line `state.py` dropped to ~400 lines, and the
+domain classes no longer drag the whole singleton in when you import them.
+
+`backend/state.py` re-exports `Episode` and `StreamSlot` for backwards
+compatibility, so existing `from backend.state import Episode, StreamSlot`
+imports keep working. New code should import from `backend.domain`.
+
+## Wire Contract and Codegen
+
+Every cross-process JSON shape is declared once, as a `pydantic.BaseModel`
+in [backend/api/models.py](../backend/api/models.py). That module is the
+**single source of truth** for the SSE `SafetyEvent`, the `/api/live/status`
+dense summary, the `/api/admin/health` composite, per-source status,
+per-frame `DetectionSnapshot`, watchdog findings, test-runner output, and
+every other payload the backend emits.
+
+TypeScript interfaces are generated from those models into
+[frontend/src/shared/types/generated.ts](../frontend/src/shared/types/generated.ts)
+by [scripts/generate_ts_types.py](../scripts/generate_ts_types.py). The
+hand-maintained [frontend/src/shared/types/common.ts](../frontend/src/shared/types/common.ts)
+now re-exports the generated types so existing imports keep working.
+
+Pipeline:
+
+1. Edit a `BaseModel` in `backend/api/models.py`.
+2. `python scripts/generate_ts_types.py` (or `make generate-types`) walks
+   `EXPORTED_MODELS`, calls `model_json_schema()` on each, and emits a
+   TypeScript file — interfaces, JSDoc carried over from Python docstrings,
+   `Literal[...]` unions preserved as string-literal unions, nullable
+   optionals collapsed to the `field?: T` convention, and fixed-length
+   tuples emitted as TS tuples so indexing stays type-safe under
+   `noUncheckedIndexedAccess`.
+3. `start.py` runs the script **before** `npm run build`, so a model edit
+   that breaks the frontend fails at TS compile time in the same launch.
+
+**Do not hand-edit `generated.ts`** — it is clobbered on the next launch.
+
+## Type Checking
+
+Two tools run side-by-side:
+
+- **pyright** (basic mode, project-wide) — see `[tool.pyright]` in
+  `pyproject.toml`. Kept broad so everyday churn doesn't block on missing
+  annotations.
+- **mypy** (strict, narrow scope) — `[tool.mypy]` in `pyproject.toml`
+  enforces strict typing on two high-value slices:
+    - `backend/api/` — the wire contracts and the routers that serve them.
+      Router handlers keep `disallow_untyped_defs = false` because their
+      return values are already constrained by `response_model=…`; the
+      `backend.api.models` override flips it back on so the contract
+      module stays fully annotated.
+    - `backend/services/llm.py` — the LLM failover, rate budget, and
+      circuit breaker. Bugs there silently degrade enrichment and cost
+      visibility.
+  Run with `make typecheck-mypy`.
+
+Widening mypy coverage is tracked as a follow-up; each new slice pays for
+itself only after its initial annotations land, so we add them one module
+at a time.
+
 ## LLM Resilience
 
 - **Multi-provider failover:** if Anthropic returns an error, the completion
@@ -165,9 +237,8 @@ image relay is opt-in via `SLACK_ENABLE_IMAGE_RELAY=1`.
   is required before any internal thumbnail is sent to a third-party vision model.
 - **Client-side rate budget:** a token-bucket limiter (3 req/min) refuses LLM
   calls *before* they 429, cheaper than absorbing failures.
-- **Cost observability:** `road_safety/services/llm_obs.py` tracks per-call token counts, latency
-  percentiles, and estimated USD cost. Exposed via `/api/llm/stats`
-  behind `ROAD_ADMIN_TOKEN`.
+- **Cost observability:** `backend/services/llm_obs.py` tracks per-call token counts, latency
+  percentiles, and estimated USD cost. Exposed via `/api/llm/stats` (open in the POC build).
 
 ## AI Agent Orchestration
 
@@ -184,26 +255,20 @@ Max iteration cap (5 steps) prevents runaway loops.
 
 ## Data Retention & Compliance
 
-- **`road_safety/compliance/retention.py`** runs hourly sweeps: thumbnails (30d), feedback (90d),
+- **`backend/compliance/retention.py`** runs hourly sweeps: thumbnails (30d), feedback (90d),
   active-learning samples (60d), outbound queue (7d). All configurable via env.
-- **`road_safety/compliance/audit.py`** logs every access to sensitive resources (unredacted thumbnails,
+- **`backend/compliance/audit.py`** logs every access to sensitive resources (thumbnails,
   feedback submissions, AL exports, agent invocations, chat queries) with
-  timestamp, actor, action, resource, and outcome.
-- **DSAR workflow:** unredacted thumbnails require `X-DSAR-Token` header; denied
-  attempts are audit-logged.
-- **Optional signed public access:** when `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN=1`,
-  `_public` thumbnails also require valid `exp`/`token` query params and are
-  audit-logged on allow/deny.
-- **Operational endpoint guard:** audit, LLM observability, retention, road summary,
-  and agent endpoints require `Authorization: Bearer <ROAD_ADMIN_TOKEN>`.
+  timestamp, action, resource, and outcome.
+- **POC access model:** this build has no user accounts, roles, or request authentication. Every JSON route, SSE stream, and live-media endpoint is fully open. Audit logging still records activity so a reviewer can reconstruct access after the fact. Do not expose this build to the public internet.
 
 ## Multi-Vehicle Road Model
 
 - Each event carries `vehicle_id`, `road_id`, `driver_id` from env config.
-- `road_safety/services/registry.py` maintains an in-memory registry with per-vehicle event counts,
+- `backend/services/registry.py` maintains an in-memory registry with per-vehicle event counts,
   safety scores (decaying penalty model), and driver leaderboard.
 - `server.py` runs scheduled score recovery (`road_registry.decay_scores()`)
   controlled by `ROAD_SCORE_DECAY_INTERVAL_SEC` (set `0` to disable).
 - `/api/road/summary` provides road-wide aggregation; `/api/road/drivers`
   ranks drivers by safety score (worst-first for manager attention). These
-  endpoints are admin-protected.
+  endpoints are open in this POC (no authentication anywhere); add auth before any production deployment.

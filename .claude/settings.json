@@ -23,7 +23,7 @@
       "Bash(git show:*)",
       "Bash(git branch:*)",
       "Bash(curl -s http://localhost:8000/*)",
-      "Bash(curl -s http://localhost:8001/*)",
+      "Bash(curl -s http://localhost:8002/*)",
       "Bash(python start.py --skip-tests --no-browser)",
       "Bash(/Users/andreitekhtelev/Desktop/fleet-safety-demo/.venv/bin/python -m pytest tests/test_validator.py -v)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/api/live/status)",

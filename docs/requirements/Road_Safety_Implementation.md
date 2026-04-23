@@ -79,17 +79,17 @@ Belongs in this document:
 | FastAPI Server | Orchestrator | `server.py` | Event lifecycle, API routing, SSE, episode management |
 | LLM Client | Enrichment | `llm.py` | Narration, vision enrichment, chat with failover |
 | PII Redactor | Privacy | `redact.py` | Face/plate blur, dual thumbnails, plate hashing |
-| Edge Publisher | Transport | `road_safety/integrations/edge_publisher.py` | HMAC-signed batch delivery to cloud |
+| Edge Publisher | Transport | `backend/integrations/edge_publisher.py` | HMAC-signed batch delivery to cloud |
 | Cloud Receiver | Transport | `cloud/receiver.py` | HMAC verification, event_id dedup, persistence |
-| Feedback API | API | `road_safety/api/feedback.py` | Operator verdict ingestion |
-| Drift Monitor | ML Ops | `road_safety/services/drift.py` | Rolling precision, trend detection, active learning |
-| Slack Notifier | Alerting | `road_safety/integrations/slack.py` | Tiered Slack alerts |
-| Digest Scheduler | Alerting | `road_safety/services/digest.py` | Hourly/daily summary schedulers |
-| LLM Observer | Observability | `road_safety/services/llm_obs.py` | Per-call token/latency/cost tracking |
-| Audit Logger | Compliance | `road_safety/compliance/audit.py` | Sensitive access audit trail |
-| Retention Sweeper | Compliance | `road_safety/compliance/retention.py` | Automatic data expiry |
-| Road Registry | Road | `road_safety/services/registry.py` | Vehicle/driver state, safety scoring |
-| Agent Executor | AI Agents | `road_safety/services/agents.py` | Tool-calling agent orchestration |
+| Feedback API | API | `backend/api/feedback.py` | Operator verdict ingestion |
+| Drift Monitor | ML Ops | `backend/services/drift.py` | Rolling precision, trend detection, active learning |
+| Slack Notifier | Alerting | `backend/integrations/slack.py` | Tiered Slack alerts |
+| Digest Scheduler | Alerting | `backend/services/digest.py` | Hourly/daily summary schedulers |
+| LLM Observer | Observability | `backend/services/llm_obs.py` | Per-call token/latency/cost tracking |
+| Audit Logger | Compliance | `backend/compliance/audit.py` | Sensitive access audit trail |
+| Retention Sweeper | Compliance | `backend/compliance/retention.py` | Automatic data expiry |
+| Road Registry | Road | `backend/services/registry.py` | Vehicle/driver state, safety scoring |
+| Agent Executor | AI Agents | `backend/services/agents.py` | Tool-calling agent orchestration |
 | Eval Harness | Testing | `tools/eval_detect.py` | Precision/recall evaluation |
 | Batch Analyzer | Utility | `tools/analyze.py` | Offline batch analysis |
 | Dashboard | UI | `frontend/src/*` + `static/*` fallback | Operator dashboard (SSE-powered) |
@@ -104,7 +104,7 @@ road-safety/
 ├── Makefile                  ← Dev workflow shortcuts
 ├── start.py                  ← One-command launcher
 ├── .env.example              ← Environment variable template
-├── road_safety/              ← Installable Python package
+├── backend/              ← Installable Python package
 │   ├── __init__.py
 │   ├── config.py             ← Centralized configuration
 │   ├── server.py             ← Main FastAPI orchestrator
@@ -181,7 +181,7 @@ road-safety/
 | DSAR token | — | Privacy | `ROAD_DSAR_TOKEN` | None (access denied) |
 | Public thumbnail token gate | Off by default | Privacy | `ROAD_PUBLIC_THUMBS_REQUIRE_TOKEN` | 0 |
 | Public thumbnail signing secret | Inherits cloud HMAC secret when unset | Privacy | `ROAD_THUMB_SIGNING_SECRET` | `ROAD_CLOUD_HMAC_SECRET` |
-| Admin bearer token | — | Security | `ROAD_ADMIN_TOKEN` | None (protected endpoints disabled) |
+| Admin bearer token | — | Security | — | None (protected endpoints disabled) |
 | Cloud read bearer token | — | Security | `ROAD_CLOUD_READ_TOKEN` | None (cloud reads disabled) |
 | Slack image relay | Off by default | Alerting | `SLACK_ENABLE_IMAGE_RELAY` | 0 |
 | Plate salt | — | Privacy | `ROAD_PLATE_SALT` | Random per process if unset |
@@ -379,12 +379,12 @@ road-safety/
 
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
-| 1 | `road_safety/api/feedback.py` | CREATE | Operator feedback API (tp/fp verdicts) | §9.1 feedback |
+| 1 | `backend/api/feedback.py` | CREATE | Operator feedback API (tp/fp verdicts) | §9.1 feedback |
 | 2 | `drift.py` | CREATE | Rolling precision, trend detection, active learning sampler | §13.2, §14 |
 
 ### Implementation Details
 
-**road_safety/api/feedback.py:**
+**backend/api/feedback.py:**
 - POST `/api/feedback` — accepts `{event_id, verdict, note}`
 - Appends to `data/feedback.jsonl`
 - Updates drift monitor with new verdict
@@ -421,12 +421,12 @@ road-safety/
 
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
-| 1 | `road_safety/integrations/slack.py` | CREATE | Tiered Slack alerting | §13.3 |
+| 1 | `backend/integrations/slack.py` | CREATE | Tiered Slack alerting | §13.3 |
 | 2 | `digest.py` | CREATE | Hourly/daily summary schedulers | §13.3 |
 
 ### Implementation Details
 
-**road_safety/integrations/slack.py:**
+**backend/integrations/slack.py:**
 - Tiered delivery:
   - High risk: instant Slack notification
   - Medium risk: batched in hourly digest
@@ -468,7 +468,7 @@ road-safety/
 - Each record: `call_type`, `model`, `input_tokens`, `output_tokens`, `latency_ms`, `success`, `error`, `skip_reason`, `event_id`
 - `stats(window_sec)` → total calls, success/error/skip counts, P50/P95 latency, estimated USD cost, error rate
 - `recent(limit)` → last N records as dicts
-- Exposed via `/api/llm/stats` and `/api/llm/recent` behind `ROAD_ADMIN_TOKEN`
+- Exposed via `/api/llm/stats` and `/api/llm/recent` behind —
 
 **llm.py — Multi-Provider Failover (TRD D-06):**
 - Primary provider: Anthropic (or Azure if configured)
@@ -523,7 +523,7 @@ road-safety/
   - Active learning export
   - Chat queries
   - Agent invocations
-- Sensitive operational endpoints are bearer-protected via `ROAD_ADMIN_TOKEN`
+- Sensitive operational endpoints are bearer-protected via —
 
 **retention.py:**
 - `sweep_thumbnails(max_age_days)` → deletes old thumbnail files
@@ -553,12 +553,12 @@ road-safety/
 
 | # | File | Action | Description | TRD Source |
 |---|---|---|---|---|
-| 1 | `road_safety/services/registry.py` | CREATE | Multi-vehicle registry, driver scoring, road aggregation | §7.5 |
+| 1 | `backend/services/registry.py` | CREATE | Multi-vehicle registry, driver scoring, road aggregation | §7.5 |
 | 2 | `server.py` | EXTEND | Road identity on events; road API endpoints | §9.1 road |
 
 ### Implementation Details
 
-**road_safety/services/registry.py — RoadRegistry:**
+**backend/services/registry.py — RoadRegistry:**
 - In-memory dict of `VehicleState` keyed by `vehicle_id`
 - `record_event(event)` → increments counters, applies score penalty
 - `record_feedback(event_id, verdict, vehicle_id)` → updates tp/fp counts for the matched vehicle
@@ -774,7 +774,7 @@ cp .env.example .env
 # Edit .env with API keys and settings
 
 # 3. Start edge node
-uvicorn road_safety.server:app --host 0.0.0.0 --port 8000
+uvicorn backend.server:app --host 0.0.0.0 --port 8000
 
 # 4. (Optional) Start cloud receiver
 uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
@@ -789,7 +789,6 @@ uvicorn cloud.receiver:app --host 0.0.0.0 --port 8001
 - [ ] Verify LLM narration is working (if API keys configured)
 - [ ] Verify Slack alerts are firing (if webhook configured)
 - [ ] Verify drift monitor initializes cleanly
-- [ ] Monitor `/api/llm/stats` for error rate with `Authorization: Bearer <ROAD_ADMIN_TOKEN>`
 - [ ] Submit test feedback and verify drift update
 - [ ] Test agent endpoints with known event_id
 

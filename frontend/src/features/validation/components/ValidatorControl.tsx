@@ -1,0 +1,81 @@
+/**
+ * ValidatorControl — operator checkbox for the heavy shadow-mode
+ * dual-model validator. Dropped into MonitoringPage beside the other
+ * summary cards. Talks to /api/validator/status + /api/validator/toggle
+ * through the useValidator hook.
+ *
+ * --- UI mapping ---
+ * Page: ValidationPage ([file](frontend/src/features/validation/ValidationPage.tsx))
+ * UI element: the validator control card with the on/off checkbox plus
+ *   the small counters (jobs, episodes, findings).
+ * Backend: GET /api/validator/status, POST /api/validator/toggle.
+ */
+import { useValidator } from "../hooks/useValidator";
+
+import styles from "./ValidatorControl.module.css";
+
+/**
+ * Card with a single checkbox that enables/disables the shadow validator
+ * at runtime, plus status counters (jobs processed, episodes enqueued,
+ * findings emitted). Renders a warning hint when the validator was
+ * disabled at startup and requires a server restart.
+ */
+export function ValidatorControl() {
+  const { status, isLoading, error, setEnabled, isPending } = useValidator();
+
+  // When the validator was disabled at startup (ROAD_VALIDATOR_ENABLED=0),
+  // the backend returns ``{enabled: false}`` and the toggle endpoint 409s.
+  // Surface that explicitly so the operator knows a restart is needed.
+  const startupDisabled = !!status && status.enabled === false;
+  const active = !!status?.enabled && !status?.paused;
+  const findings = status?.findings_emitted ?? 0;
+  const jobs = status?.jobs_processed ?? 0;
+  const episodes = status?.episodes_enqueued ?? 0;
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.row}>
+        <label className={styles.label}>
+          {/* Controlled input — `checked` is driven by state, `onChange`
+              pushes the new value back through the mutator (optimistic). */}
+          <input
+            type="checkbox"
+            checked={active}
+            disabled={startupDisabled || isLoading || isPending}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          <span className={styles.title}>Heavy second validator (shadow mode)</span>
+        </label>
+        <span
+          className={`${styles.dot} ${active ? styles.dotOn : styles.dotOff}`}
+          aria-label={active ? "running" : "paused"}
+        />
+      </div>
+      <p className={styles.hint}>
+        Runs a second, heavier detector in the background — never gates live alerts, but publishes
+        disagreements to this incident queue under the <code>validator</code> category.
+      </p>
+      {startupDisabled ? (
+        <p className={styles.warn}>
+          Disabled at startup. Set <code>ROAD_VALIDATOR_ENABLED=1</code> in <code>.env</code> and
+          restart the server to enable runtime toggling.
+        </p>
+      ) : (
+        <div className={styles.stats}>
+          <span>
+            <strong>{jobs.toLocaleString()}</strong> jobs
+          </span>
+          <span>•</span>
+          <span>
+            <strong>{episodes.toLocaleString()}</strong> episodes
+          </span>
+          <span>•</span>
+          <span>
+            <strong>{findings.toLocaleString()}</strong> findings
+          </span>
+        </div>
+      )}
+      {error && <p className={styles.warn}>Status unavailable: {error.message}</p>}
+    </div>
+  );
+}

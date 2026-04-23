@@ -1,16 +1,13 @@
-import { Routes, Route, Navigate } from "react-router-dom";
-import { DashboardPage } from "./pages/DashboardPage";
-import { AdminPage } from "./pages/AdminPage";
-import { MonitoringPage } from "./pages/MonitoringPage";
+/**
+ * App — root React component. Just delegates to the lazy router.
+ * The route table lives in `app/router.tsx`.
+ *
+ * --- UI mapping ---
+ * Scope: app-wide (affects every page)
+ * UI element: the top-level app component — renders the router
+ */
+import { AppRouter } from "./app/router";
 
 export function App() {
-  return (
-    <Routes>
-      <Route path="/" element={<AdminPage />} />
-      <Route path="/admin" element={<Navigate to="/" replace />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
-      <Route path="/monitoring" element={<MonitoringPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  );
+  return <AppRouter />;
 }

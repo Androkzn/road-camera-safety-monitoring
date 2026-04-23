@@ -175,11 +175,11 @@
 See `docs/architecture.md` for the full edge/cloud diagram and data flow.
 
 **Key integration points:**
-- `road_safety/server.py` — FastAPI app, main orchestrator
+- `backend/server.py` — FastAPI app, main orchestrator
 - `cloud/receiver.py` — separate FastAPI ingest app (port 8001)
-- `road_safety/services/llm.py` — Anthropic / Azure OpenAI with failover
-- `road_safety/services/agents.py` — tool-calling AI agents
-- `road_safety/services/registry.py` — multi-vehicle registry
+- `backend/services/llm.py` — Anthropic / Azure OpenAI with failover
+- `backend/services/agents.py` — tool-calling AI agents
+- `backend/services/registry.py` — multi-vehicle registry
 
 ### 3.2 Data Schema
 
@@ -191,7 +191,7 @@ See `docs/architecture.md` for the full edge/cloud diagram and data flow.
 | Feedback | JSONL (`data/feedback.jsonl`) | `event_id`, `verdict` (tp/fp), `note`, `operator_ts` |
 | Active Learning Sample | JSON files (`data/active_learning/pending/`) | `event_id`, `reason`, `confidence`, `event_json` |
 | Audit Record | JSONL (`data/audit.jsonl`) | `ts`, `action`, `resource`, `actor`, `outcome`, `ip` |
-| Road Vehicle State | In-memory (`road_safety/services/registry.py`) | `vehicle_id`, `road_id`, `driver_id`, `safety_score`, `events_by_risk` |
+| Road Vehicle State | In-memory (`backend/services/registry.py`) | `vehicle_id`, `road_id`, `driver_id`, `safety_score`, `events_by_risk` |
 
 ### 3.3 API Interfaces
 
@@ -213,25 +213,25 @@ See `docs/requirements/Road_Safety_TRD.md` §9 for the endpoint contract and aut
 
 | Module | Purpose | Status |
 |---|---|---|
-| `road_safety/core/stream.py` | Video stream reader (YouTube/HLS/RTSP) | Shipped |
-| `road_safety/core/detection.py` | YOLOv8 + ByteTrack detection and tracking | Shipped |
-| `road_safety/server.py` | FastAPI orchestrator, SSE, REST APIs | Shipped |
-| `road_safety/services/llm.py` | LLM narration, enrichment, chat with failover | Shipped |
-| `road_safety/core/context.py` | Scene-adaptive risk thresholds | Shipped |
-| `road_safety/core/egomotion.py` | Optical flow ego-motion estimation | Shipped |
-| `road_safety/core/quality.py` | Perception quality monitor | Shipped |
-| `road_safety/services/redact.py` | PII redaction (face/plate blur, plate hash) | Shipped |
-| `road_safety/integrations/edge_publisher.py` | HMAC-signed edge→cloud delivery | Shipped |
+| `backend/core/stream.py` | Video stream reader (YouTube/HLS/RTSP) | Shipped |
+| `backend/core/detection.py` | YOLOv8 + ByteTrack detection and tracking | Shipped |
+| `backend/server.py` | FastAPI orchestrator, SSE, REST APIs | Shipped |
+| `backend/services/llm.py` | LLM narration, enrichment, chat with failover | Shipped |
+| `backend/core/context.py` | Scene-adaptive risk thresholds | Shipped |
+| `backend/core/egomotion.py` | Optical flow ego-motion estimation | Shipped |
+| `backend/core/quality.py` | Perception quality monitor | Shipped |
+| `backend/services/redact.py` | PII redaction (face/plate blur, plate hash) | Shipped |
+| `backend/integrations/edge_publisher.py` | HMAC-signed edge→cloud delivery | Shipped |
 | `cloud/receiver.py` | Cloud ingest with dedup | Shipped |
-| `road_safety/api/feedback.py` | Operator feedback API | Shipped |
-| `road_safety/services/drift.py` | Drift monitor + active learning sampler | Shipped |
-| `road_safety/integrations/slack.py` | Tiered Slack alerting | Shipped |
-| `road_safety/services/digest.py` | Hourly/daily digest schedulers | Shipped |
-| `road_safety/services/agents.py` | AI coaching, investigation, report agents | Shipped |
-| `road_safety/services/registry.py` | Multi-vehicle registry + driver scoring | Shipped |
-| `road_safety/services/llm_obs.py` | LLM cost/latency observability | Shipped |
-| `road_safety/compliance/retention.py` | GDPR-compliant data retention sweeps | Shipped |
-| `road_safety/compliance/audit.py` | Compliance audit trail | Shipped |
+| `backend/api/feedback.py` | Operator feedback API | Shipped |
+| `backend/services/drift.py` | Drift monitor + active learning sampler | Shipped |
+| `backend/integrations/slack.py` | Tiered Slack alerting | Shipped |
+| `backend/services/digest.py` | Hourly/daily digest schedulers | Shipped |
+| `backend/services/agents.py` | AI coaching, investigation, report agents | Shipped |
+| `backend/services/registry.py` | Multi-vehicle registry + driver scoring | Shipped |
+| `backend/services/llm_obs.py` | LLM cost/latency observability | Shipped |
+| `backend/compliance/retention.py` | GDPR-compliant data retention sweeps | Shipped |
+| `backend/compliance/audit.py` | Compliance audit trail | Shipped |
 | `tools/eval_detect.py` | Precision/recall evaluation harness | Shipped |
 | `tools/analyze.py` | Offline batch analysis | Shipped |
 | `frontend/src/*` + `static/*` fallback | Operator dashboard UI | Shipped |
@@ -246,8 +246,6 @@ See `docs/requirements/Road_Safety_TRD.md` §9 for the endpoint contract and aut
 | Metric | Source | Alert Threshold |
 |---|---|---|
 | Detection precision | `/api/drift` | < 70% over 50 labels |
-| LLM error rate | `/api/llm/stats` (admin token) | > 20% |
-| LLM cost/hour | `/api/llm/stats` (admin token) | > $1.00/hour |
 | Event emission rate | `/api/live/status` | 0 events in 30 minutes (if stream is active) |
 | Perception state | `/api/live/perception` | Degraded state > 10 minutes |
 | Active learning queue | `data/active_learning/pending/` | > 500 pending samples |
