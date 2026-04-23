@@ -19,15 +19,18 @@ node_modules/
 dist/
 build/
 
+# Node / frontend dependencies and build artifacts
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+.vite/
+frontend/data/
+
 # Runtime data (generated at runtime, never committed)
 data/events.json
 data/summary.json
 data/eval.json
 data/thumbnails/
-data/cloud.db
-data/settings.db
-data/settings.db-shm
-data/settings.db-wal
 data/feedback.jsonl
 data/outbound_queue.jsonl
 data/audit.jsonl
@@ -41,26 +44,44 @@ data/clips/
 frontend/data/
 .test-report.json
 
+# SQLite databases + WAL/SHM sidecars (covers cloud.db, settings.db, etc.)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
 # Input video (too large for git)
 data/*.mp4
 data/*.mov
 data/*.MOV
 resourses/
 
+# Logs
+*.log
+logs/
+
+# Process management
+*.pid
+
 # Test / coverage
 .pytest_cache/
 htmlcov/
 .coverage
+coverage/
 
-# TypeScript incremental build cache
-*.tsbuildinfo
-
-# Runtime logs
-logs/
+# Python tool caches
+.mypy_cache/
+.ruff_cache/
+.pyright/
 
 # `make start` / `make stop` runtime artifacts
 .road_safety.pid
 .road_safety.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # Claude Code — personal overrides only; commit shared config (.claude/settings.json, rules/, skills/, hooks/)
 .claude/settings.local.json

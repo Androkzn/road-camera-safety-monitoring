@@ -383,6 +383,13 @@ async def retention_loop(interval_sec: int = INTERVAL_SEC) -> None:
     """
     logger.info("retention loop started (interval=%ds, thumbs=%dd, feedback=%dd, al=%dd, outbound=%dd)",
                 interval_sec, THUMBNAILS_DAYS, FEEDBACK_DAYS, AL_PENDING_DAYS, OUTBOUND_DAYS)
+    # Sweep on startup so anything accumulated during downtime is collected
+    # immediately rather than waiting a full interval. Critical when
+    # THUMBNAILS_DAYS=0.
+    try:
+        run_sweep()
+    except Exception as exc:
+        logger.warning("retention startup sweep error: %s", exc)
     while True:
         try:
             # ``await asyncio.sleep`` yields control to the event loop —
