@@ -293,6 +293,11 @@ class StreamReader:
         self.source_url = source_url
         self.original_source = original_source or source_url
         self.target_fps = target_fps
+        # Operator-configured baseline, frozen at construction. The adaptive
+        # FPS controller (see ``core/adaptive_fps.py``) needs a stable anchor
+        # to scale around; mutating ``target_fps`` from the perception hot
+        # path would otherwise drift the baseline on every call.
+        self._base_target_fps = target_fps
         self.loop = loop
         self._thread: threading.Thread | None = None
         # ``threading.Event`` is a thread-safe boolean flag. ``set()`` flips it
@@ -336,6 +341,18 @@ class StreamReader:
         self.started_at = time.time()
         self._thread = threading.Thread(target=self._loop, args=(on_frame,), daemon=True)
         self._thread.start()
+
+    def set_target_fps(self, new_fps: float) -> None:
+        """Live-update the processing rate without restarting the reader.
+
+        Called from the perception hot path by the adaptive-FPS policy
+        (``core/adaptive_fps.py``) with a speed-dependent target. The
+        capture loop recomputes its subsampling ``step`` each iteration
+        from ``self.target_fps`` so the new value takes effect on the
+        next decoded frame. Idempotent; floors at 0.1 fps to protect
+        against bad callers zeroing the loop out.
+        """
+        self.target_fps = max(float(new_fps), 0.1)
 
     def stop(self) -> None:
         """Request a clean shutdown: signal the loop, kill children, join.
@@ -450,6 +467,11 @@ class StreamReader:
         # ``max(..., 1)`` guards against step=0 when target_fps > native_fps,
         # which would cause a ZeroDivisionError in ``i % step`` below.
         step = max(int(native_fps / self.target_fps), 1)
+        # Snapshot of the target that produced the current ``step``. When
+        # the adaptive controller mutates ``self.target_fps`` between
+        # iterations, we recompute ``step`` only on change — cheaper than
+        # a divmod on every frame.
+        _last_target_fps = self.target_fps
         # For finite files, compute total duration once so the frontend can
         # align its GPS loop with the MP4 loop. ``CAP_PROP_FRAME_COUNT`` is
         # 0/negative for live sources, which we detect and ignore.
@@ -480,6 +502,11 @@ class StreamReader:
                 self._stop.wait(timeout=0.2)
                 next_deadline = time.time()
                 continue
+            # Live subsampling: pick up any adaptive-FPS change from the
+            # perception thread without reopening the capture handle.
+            if self.target_fps != _last_target_fps:
+                step = max(int(native_fps / self.target_fps), 1)
+                _last_target_fps = self.target_fps
             ok, frame = cap.read()
             if not ok:
                 # Looping replay for finite local files (local-file source

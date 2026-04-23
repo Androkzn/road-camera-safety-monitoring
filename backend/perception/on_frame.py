@@ -32,6 +32,7 @@ import time
 import cv2
 
 from backend.config import EPISODE_IDLE_FLUSH_SEC, PAIR_COOLDOWN_SEC
+from backend.core.adaptive_fps import fps_for_speed
 from backend.core.detection import (
     VEHICLE_CLASSES,
     VEHICLE_INTER_DISTANCE_GATE_M,
@@ -204,6 +205,15 @@ def on_frame(slot: StreamSlot, wall_ts: float, frame) -> None:
         speed_proxy = ego_flow.speed_proxy_mps
     else:
         speed_proxy = None
+
+    # Adaptive FPS: scale processing rate with ego-speed. Low confidence
+    # feeds ``None`` into the policy, which falls back to base — so we
+    # never cut rate on a noisy egomotion reading. The reader picks up
+    # the new value on its next loop iteration without reopening capture.
+    if slot.reader is not None:
+        slot.reader.set_target_fps(
+            fps_for_speed(speed_proxy, slot.reader._base_target_fps)
+        )
     _t0 = time.perf_counter()
     slot.scene.observe(detections, wall_ts, speed_proxy_mps=speed_proxy)
     scene_ctx = slot.scene.classify()
