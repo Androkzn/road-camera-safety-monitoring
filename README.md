@@ -70,6 +70,7 @@ A single 1080p dashcam streaming continuously over 8 hours generates ~28 GB/day.
 |---|---|
 | **Edge-first architecture** | Detection, tracking, risk classification, and PII redaction run on-device. Cloud receives only structured events. |
 | **Lightweight model** | YOLOv8n (nano) — smallest YOLO variant, runs at 2 fps on laptop CPU. On dedicated edge hardware (Jetson Orin NX) it exceeds 100 fps with TensorRT. |
+| **Speed-adaptive sampling** | `adaptive_fps` policy scales perception FPS with the ego-speed proxy: 0.5× baseline when stationary (CPU wasted on a parked camera), 1× in normal driving, 2× on highway so TTC gates still get enough samples per second to catch a fast cut-in. Clamped to `[0.5× base, 2× base]` with a 1 fps floor. |
 | **HMAC-signed batched delivery** | Events queue locally in append-only JSONL. Batches of up to 20 are signed and POSTed together. Survives network outages with exponential backoff. |
 | **Selective LLM enrichment** | Vision enrichment is policy-gated (`ROAD_ALPR_MODE=third_party`) and additionally skipped when perception is degraded or for low-risk events. No wasted API calls on low-value frames. |
 
